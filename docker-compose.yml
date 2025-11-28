@@ -1,0 +1,36 @@
+
+services:
+
+  db:
+    container_name: database
+    restart: unless-stopped
+    image: postgres:latest
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-MS}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MS}
+      POSTGRES_DB: ${POSTGRES_DB:-MS}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  
+  web:
+    container_name: django_app
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -c "python3 -u pm_site/manage.py makemigrations ; python3 -u pm_site/manage.py migrate ; python3 -u pm_site/manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+
+volumes:
+  postgres_data:

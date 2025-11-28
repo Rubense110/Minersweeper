@@ -1,0 +1,15 @@
+.petri-ejemplo {
+    border: 0.2rem solid rgb(199, 233, 255); 
+    border-radius: 0.8rem; 
+    box-shadow: 0 4rem 8rem rgba(0, 0, 0, 0.1);
+    max-width: 60%; 
+    margin: 5rem auto; 
+}
+
+.pareto-ejemplo {
+    border: 0.2rem solid rgb(199, 233, 255); 
+    border-radius: 0.8rem; 
+    box-shadow: 0 4rem 8rem rgba(0, 0, 0, 0.1);
+    max-width: 60%; 
+    margin: 5rem auto; 
+}

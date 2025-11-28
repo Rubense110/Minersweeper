@@ -1,0 +1,109 @@
+{% extends 'main.html' %}
+{% load static %}
+{% load custom_filters %}
+
+{% block tituloPagina %}Seleccionar Modelo{% endblock %}
+
+{% block contenido %}
+
+
+<div class="form-container container">
+    <h2 class="mb-2">Select Process Model</h2>
+    <p class="text-muted mb-4">
+        Adjust the priorities using the sliders. We will return the Pareto front model that best matches your preferences.
+    </p>
+
+    <div class="row">
+        <!-- COLUMNA IZQUIERDA -->
+        <div class="col-md-5">
+            <form method="post" action="{% url 'select_model' execution_id %}">
+                {% csrf_token %}
+
+                <div class="card mb-3">
+                    <div class="card-header">
+                        Preference Weights
+                    </div>
+                    <div class="card-body">
+                        {% for metric in metrics_list %}
+                        <div class="{% if not forloop.last %}mb-4{% else %}mb-2{% endif %}">
+                            <div class="d-flex justify-content-between">
+                                <label for="slider_{{ metric }}" class="form-label mb-0">
+                                    <strong>{{ metric|capfirst }}</strong>
+                                </label>
+                                <span class="badge bg-primary" id="label_{{ metric }}_value">
+                                    {{ slider_values|get_item:metric }}
+                                </span>
+                            </div>
+                            <input type="range"
+                                   class="form-range"
+                                   min="0" max="100" step="1"
+                                   id="slider_{{ metric }}"
+                                   name="weight_{{ metric }}"
+                                   value="{{ slider_values|get_item:metric }}"
+                                   oninput="document.getElementById('label_{{ metric }}_value').textContent = this.value;">
+                        </div>
+                        {% empty %}
+                        <p class="text-muted">No metrics found for this execution.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="text-center mb-4">
+                    <button type="submit" class="btn btn-primary btn-lg w-100">
+                        Get Best Model
+                    </button>
+                </div>
+            </form>
+
+            <div class="mt-4 text-center bnts">
+                <div class="d-flex justify-content-center gap-2 flex-wrap">
+                    <a href="{% url 'discovery_result' execution_id %}" class="btn btn-outline-secondary">
+                        ← Back to Results
+                    </a>
+                    <a href="{% url 'solutions' execution_id %}" class="btn btn-primary">
+                        Explore Solutions
+                    </a>
+                    <a href="{% url 'get_execution_data' execution_id %}" class="btn btn-outline-primary">
+                        Download Data
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNA DERECHA -->
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Model Preview</span>
+                    {% if selected_model_id %}
+                        <span class="badge bg-success">Selected: {{ selected_model_id }}</span>
+                    {% endif %}
+                </div>
+                <div class="card-body" style="min-height: 400px;">
+                    {% if rendered_model_html %}
+                        {{ rendered_model_html|safe }}
+                    {% else %}
+                        <div class="text-muted text-center" style="margin-top: 4rem;">
+                            <p class="mb-2"><strong>No model selected yet.</strong></p>
+                            <p>Adjust the sliders and click "Get Best Model." The rendered model will appear here.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function initSliderBadges() {
+    {% for metric in metrics_list %}
+        (function() {
+            const slider = document.getElementById("slider_{{ metric }}");
+            const label = document.getElementById("label_{{ metric }}_value");
+            if (slider && label) label.textContent = slider.value;
+        })();
+    {% endfor %}
+})();
+</script>
+
+{% endblock %}

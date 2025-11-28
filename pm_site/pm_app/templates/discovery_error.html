@@ -1,0 +1,18 @@
+{% extends 'main.html' %}
+{% load static %}
+
+{% block tituloPagina %}Error en el Descubrimiento{% endblock %}
+
+{% block contenido %}
+<link rel="stylesheet" href="{% static 'css/style-discovery_error.css' %}">
+<div class="container mt-5 form-container">
+    <h2 class="text-center">Error</h2>
+    <p class="text-center">{{ error_message }}</p>
+    <h4 class="text-center">Exception:</h4>
+    <p class="text-center">{{ exception }}</p>
+    <div class="text-center">
+        <a href="{% url 'discovery' %}" class="btn btn-primary">Back to Discovery Page</a>
+    </div>
+</div>
+
+{% endblock %}

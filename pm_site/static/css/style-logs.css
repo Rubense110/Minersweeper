@@ -1,0 +1,13 @@
+.form-container {
+    max-width: 60rem; 
+    margin: 0 auto; 
+    padding: 2rem; 
+    border: 0.2rem solid rgb(199, 233, 255); 
+    border-radius: 0.5rem; 
+    background-color: #f8f9fa;
+    box-shadow: 0rem 4rem 8rem rgba(0, 0, 0, 0.1); 
+}
+
+.form-container h2 {
+    margin-bottom: 1.5rem; 
+}

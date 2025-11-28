@@ -1,0 +1,26 @@
+{% extends 'main.html' %}
+{% load static %}
+
+{% block contenido %}
+<div class="container text-center mt-5">
+    <img src="{% static 'logo.png' %}" alt="OptiMiner Logo" class="img-fluid mb-4" style="max-width: 150px;">
+    <h1 class="display-3">MinerSweeper</h1>
+    <p class="lead mt-4">
+        MinerSweeper is an application designed to discover and identify relevant processes in your organization
+        through the use of metaheuristic optimization techniques applied to the most widely used mining algorithms.
+    </p>
+
+    <h2 class="mt-5">Main Features</h2>
+    <ul class="list-unstyled mt-3">
+        <li><strong>Discovery:</strong> Start the process discovery procedure.</li>
+        <li><strong>Import:</strong> Import execution configurations shared by colleagues or from past runs.</li>
+        <li><strong>History:</strong> View a detailed record of previous executions and their solutions.</li>
+        <li><strong>Logs:</strong> Upload new event logs and manage those already present in the application.</li>
+    </ul>
+
+    <p class="mt-4">
+        For more details on how to use the application, visit the <a href="{% url 'manual' %}">Information</a> section.
+    </p>
+</div>
+
+{% endblock %}

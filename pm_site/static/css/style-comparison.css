@@ -1,0 +1,67 @@
+.form-container-1 {
+    max-width: 90rem; 
+    margin: 0 auto; 
+    padding: 2rem; 
+    border: 0.2rem solid rgb(255, 126, 133); 
+    border-radius: 0.5rem; 
+    background-color: #f8f9fa; 
+    box-shadow: 0rem 4rem 8rem rgba(0, 0, 0, 0.1); 
+}
+
+.form-container-2 {
+    max-width: 90rem; 
+    margin: 0 auto; 
+    padding: 2rem; 
+    border: 0.2rem solid rgb(117, 255, 140); 
+    border-radius: 0.5rem; 
+    background-color: #f8f9fa; 
+    box-shadow: 0rem 4rem 8rem rgba(0, 0, 0, 0.1); 
+}
+
+
+.form-container h1 {
+    margin-bottom: 1.5rem; 
+}
+
+.form-container .btn {
+    margin-top: 1rem;
+}
+
+.petri-sol{
+    border: 0.2rem solid rgb(199, 233, 255); 
+    border-radius: 0.8rem; 
+    box-shadow: 0 4rem 8rem rgba(0, 0, 0, 0.1);
+    max-width: 60%; 
+    margin: 5rem auto; 
+}
+
+#bottom-details{
+    margin-top: 4rem;
+}
+
+body {
+    padding-bottom: 2.8rem;
+}
+
+
+#cy_1 {
+    height: 40rem;
+}
+
+#cy_2 {
+    height: 40rem; 
+}
+
+main.container.mt-5{
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+#nombre{
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+}
+
+#collapsed-network{
+    height: 40rem; 
+}
