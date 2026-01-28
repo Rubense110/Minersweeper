@@ -1,5 +1,5 @@
 import re
-from typing import List, Union
+from typing import List
 
 # Definir operadores válidos
 COMPARISON_OPS = {'=': '==', '<': '<', '≤': '<=', '>': '>', '≥': '>='}
@@ -32,15 +32,3 @@ class ConstraintParser:
     def extract_constraints(self) -> List[str]:
         """Extrae restricciones individuales de la expresión."""
         return [match.group(0) for match in CONSTRAINT_PATTERN.finditer(self.constraint_str)]
-    
-
-if __name__ == "__main__":
-
-    # Ejemplo de uso
-    constraint_string = "(x1 > 1 ∨ x2 < 2) ∧ (x1 + x2 ≤ 10)"
-    parser = ConstraintParser(constraint_string)
-    parsed_constraints = parser.parse()
-    extracted = parser.extract_constraints()
-
-    print("Expresión traducida a Python:", parsed_constraints)
-    print("Restricciones individuales:", extracted)

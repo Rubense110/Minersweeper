@@ -180,16 +180,6 @@ def clean_transition_data(transitions, arcs, miner_name):
         arcs = list(updated_arcs)  # Sobrescribimos las aristas actualizadas
     
 
-
-    """
-    {(Accepted, 'Accepted'), (hid_3, None), (hid_4, None), (hid_2, None)}
-    {'Accepted', 'hid_2', 'hid_4', 'hid_3'}
-
-    [pre_Accepted->(Accepted, 'Accepted'), source0->(hid_2, None), (hid_2, None)->pre_Accepted, (Accepted, 'Accepted')->intplace_Accepted, intplace_Accepted->(hid_3, None), (hid_3, None)->pre_Accepted, intplace_Accepted->(hid_4, None), (hid_4, None)->sink0]
-    
-    {'hid_4->sink0', 'hid_2->pre_Accepted', 'hid_3->pre_Accepted', 'intplace_Accepted->hid_3', 'pre_Accepted->Accepted', 'intplace_Accepted->hid_4', 'source0->hid_2', 'Accepted->intplace_Accepted'}
-    """
-
     return transitions, arcs
 
 

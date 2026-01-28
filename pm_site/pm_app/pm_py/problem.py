@@ -1,14 +1,16 @@
-from parameters import BaseParametersConfig
-import re
-from metrics import CustomMetrics
-
 import random
+import re
+
+from jmetal.core.problem import FloatProblem, FloatSolution
 from pm4py.algo.discovery.heuristics import algorithm as heuristics_miner
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
 from pm4py.convert import convert_to_petri_net
-from jmetal.core.problem import FloatProblem, FloatSolution
 from pm4py.objects.log.importer.xes import importer as xes_importer
-from metrics import METRICS_FUNCTIONS_PROBLEM, distance_metrics, get_fitness, get_precision, get_simplicity_pm4py, get_generalization_pm4py
+
+from pm_app.pm_py.metrics import (CustomMetrics, METRICS_FUNCTIONS_PROBLEM,
+                                  distance_metrics, get_fitness, get_precision,
+                                  get_simplicity_pm4py, get_generalization_pm4py)
+from pm_app.pm_py.parameters import BaseParametersConfig
 
 
 class PMProblem(FloatProblem):
@@ -46,14 +48,12 @@ class PMProblem(FloatProblem):
         #print("---constraints--- \n", self.constraints_list)
 
         self.n_of_objectives = self.metrics_obj.get_n_of_metrics()
-        self.number_of_variables = self.__get_n_genes()
+        self._n_of_variables = self.__get_n_genes()
         self.n_of_constraints = self.number_of_constraints()
 
         self.lower_bound, self.upper_bound = self.__get_bounds()
-        self.metrics_labels = self.metrics_obj.get_labels()
         self.use_cached = use_cached
         self.evaluation_cache = {}
-        self.constrs_cache = {}
 
 
     def __get_bounds(self): 
@@ -148,17 +148,10 @@ class PMProblem(FloatProblem):
                     simplicity = self.constraints_cache.get('simplicity') or get_simplicity_pm4py(petri, im, fm, self.log)
                     generalisation = self.constraints_cache.get('generalisation') or get_generalization_pm4py(petri, im, fm, self.log)
                     constraint_variable_value = abs(simplicity - generalisation)
-            ######
-            #constraint_func= METRICS_FUNCTIONS_PROBLEM[constraint_variable_name] 
-            #constraint_variable_value = constraint_func(petri, im, fm, self.log)
-
-            
             
             # Map constraint name to its value, then evaluate the expresion and fix the constraint.
             constr_variable = {constraint_variable_name : constraint_variable_value}
             constrs[i] = eval(expr, {}, constr_variable) 
-            
-            #print(f"Restricción {i+1}: {expr} → {eval(expr, {}, constr_variable)}")
 
         
         solution.constraints = constrs
@@ -167,19 +160,11 @@ class PMProblem(FloatProblem):
     def _parse_constraint_expresions(self):
         metric_names = self.metrics_obj.metrics
         metric_names = [metric.name for metric in metric_names]
-        #print('metric_names', metric_names)
-        mapping = {name: f"x{i+1}" for i, name in enumerate(metric_names)}
-        #print('mapping', mapping)
 
         translated_constraints = []
         for constraint in self.constraints_list:
             new_constraint = constraint  # Copia original para modificar
-            #for name, var in mapping.items():
-            #    new_constraint = new_constraint.replace(name, var)  # Sustituye solo en la copia
             translated_constraints.append(new_constraint)  # Añadir la versión modificada
-
-
-        #print('translated_constraints', translated_constraints)
 
         return translated_constraints
 
@@ -248,7 +233,7 @@ class PMProblem(FloatProblem):
         return number_of_constraints
     
     def number_of_variables(self) -> int:
-        return self.number_of_variables
+        return self._n_of_variables
     
     def number_of_objectives(self) -> int:
         return self.n_of_objectives
@@ -275,5 +260,3 @@ class PMProblem(FloatProblem):
                 transformed.append(f"abs({left} - {right})")  
 
         return transformed
-
-

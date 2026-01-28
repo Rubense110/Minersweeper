@@ -10,8 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -82,7 +83,7 @@ WSGI_APPLICATION = 'pm_site.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-USE_SQLITE = os.environ.get('DJANGO_USE_SQLITE', '0') == '1'
+USE_SQLITE = os.environ.get('DJANGO_USE_SQLITE', '0') == '1' or 'test' in sys.argv
 
 if USE_SQLITE:
     DATABASES = {

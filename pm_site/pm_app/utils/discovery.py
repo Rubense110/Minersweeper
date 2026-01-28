@@ -123,14 +123,14 @@ def discover(execution_name, optimization_method, opt_parameters_dict, miner_nam
         opt_parameters_dict['cores'] = cpu_cores
         print(opt_parameters_dict)
         try:
-            process_miner.parallel_discover(algorithm_name=algorithm_to_run, store=False, **opt_parameters_dict)
+            process_miner.parallel_discover(algorithm_name=algorithm_to_run, **opt_parameters_dict)
         finally:
             # MultiprocessEvaluator manages its own multiprocessing.Pool; close to avoid leaks.
             population_evaluator.pool.close()
             population_evaluator.pool.join()
         opt_parameters_dict['requested_cores'] = requested_cores
     else:
-        process_miner.discover(algorithm_name=algorithm_to_run, **opt_parameters_dict, store=False)
+        process_miner.discover(algorithm_name=algorithm_to_run, **opt_parameters_dict)
         opt_parameters_dict['requested_cores'] = requested_cores if requested_cores is not None else 0
 
     discovery_end = time()
@@ -183,7 +183,7 @@ def discover(execution_name, optimization_method, opt_parameters_dict, miner_nam
         transitions_data = json.dumps(transitions_data)
         arcs_data = json.dumps(arcs_data)
 
-        objectives_list = solution.objectives.tolist()
+        objectives_list = solution.objectives
         objectives_tuple = tuple(objectives_list)
         already_seen = objectives_tuple in seen_objectives
         is_pareto = objectives_tuple in non_dom_objectives and not already_seen
@@ -200,7 +200,7 @@ def discover(execution_name, optimization_method, opt_parameters_dict, miner_nam
 
         solution_instance = DSolution.objects.create(
             variables = solution.variables,
-            objectives = solution.objectives.tolist(),
+            objectives = solution.objectives,
             constraints = solution.constraints,
             execution = execution,
             is_pareto = is_pareto,

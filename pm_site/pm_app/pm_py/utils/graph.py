@@ -1,59 +1,10 @@
 import json
-import sqlite3
 from django.shortcuts import get_object_or_404
 import networkx as nx
 import numpy as np
 
 from pm_app.models import Execution, Petri
 
-def save_petri_nets_db(DB_path, ProcessMinerObject):
-        """
-        Receives the Database path and a ProcessMiner object and saves the discovered petri nets in an sqlite database, 
-        all petris will be stored associated with the execution that produced them with all relevant information.
-        """
-
-        conn = sqlite3.connect(DB_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS executions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                optimizer TEXT,
-                miner TEXT,
-                event_log TEXT,
-                metrics TEXT
-            )
-        """)
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS petri_nets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                execution_id INTEGER,
-                places TEXT,
-                transitions TEXT,
-                arcs TEXT,
-                FOREIGN KEY (execution_id) REFERENCES executions(id)
-            )
-        """)
-          
-        cursor.execute("INSERT INTO executions (optimizer, miner, event_log, metrics) VALUES (?, ?, ?, ?)",
-                    (ProcessMinerObject.opt_type, ProcessMinerObject.miner_name, ProcessMinerObject.log_path, ProcessMinerObject.metrics_name))
-        
-        ProcessMinerObject.execution_id = cursor.lastrowid
-
-        for petri in ProcessMinerObject.opt.get_pareto_front_petri_nets():
-            petri_net = petri[0]
-
-            places = json.dumps([str(place) for place in petri_net.places])
-            transitions = json.dumps([str(t) for t in petri_net.transitions]) 
-            arcs = json.dumps([str(arc) for arc in petri_net.arcs])
-
-
-            cursor.execute("INSERT INTO petri_nets (execution_id, places, transitions, arcs) VALUES (?, ?, ?, ?)",
-                        (ProcessMinerObject.execution_id, places, transitions, arcs))
-            
-        conn.commit()
-        conn.close()
 
 def load_petris_as_graphs(execution_id):
     """

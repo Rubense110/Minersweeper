@@ -1,21 +1,13 @@
-from abc import abstractmethod
-from pm4py.objects.petri_net.obj import PetriNet
-from pm4py.conformance import fitness_alignments
-from pm4py.conformance import precision_alignments
-from pm4py.conformance import fitness_token_based_replay
-from pm4py.conformance import precision_token_based_replay
-from pm4py.algo.evaluation.replay_fitness import algorithm as replay_fitness
-from pm4py.algo.evaluation.precision import algorithm as precision_evaluator
-from pm4py.algo.evaluation.generalization import algorithm as generalization_pm4py
-from pm4py.algo.evaluation.simplicity import algorithm as simplicity_pm4py
-import numpy as np
-import networkx as nx
-import matplotlib.pyplot as plt
-import tqdm
-from pm4py.algo.evaluation.precision.variants.etconformance_token import Parameters
-import sys
-import os
 import contextlib
+import os
+
+import numpy as np
+from pm4py.algo.evaluation.generalization import algorithm as generalization_pm4py
+from pm4py.algo.evaluation.precision import algorithm as precision_evaluator
+from pm4py.algo.evaluation.precision.variants.etconformance_token import Parameters
+from pm4py.algo.evaluation.replay_fitness import algorithm as replay_fitness
+from pm4py.algo.evaluation.simplicity import algorithm as simplicity_pm4py
+from pm4py.objects.petri_net.obj import PetriNet
 
 distance_metrics = ['fpd', 'sgd']
 
