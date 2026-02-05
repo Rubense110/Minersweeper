@@ -83,6 +83,13 @@ Happy process mining!
 
 ## Java service
 
+Prereqs:
+- Download ProM Lite 1.4 (all platforms) and place it at the repo root as `prom-lite-1.4-all-platforms/`.
+- Run the installer script to register the required jars in your local Maven repo:
+  ```bash
+  ./install_prom_jars.sh
+  ```
+
 Compile:
 ```bash
 mvn -f java-service/pom.xml -DskipTests package

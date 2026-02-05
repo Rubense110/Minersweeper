@@ -20,3 +20,5 @@ __pycache__/*
 /backups/*
 /java-service/target/
 /java-service/target/dependency/
+/java-service/lib/
+/prom-lite-1.4-all-platforms/
