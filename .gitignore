@@ -18,3 +18,5 @@ __pycache__/*
 /form_tests/*
 *.sql
 /backups/*
+/java-service/target/
+/java-service/target/dependency/

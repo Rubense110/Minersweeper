@@ -80,3 +80,21 @@ For production deployments change the secret key, disable debug, and narrow `DJA
   ```
 
 Happy process mining!
+
+## Java service
+
+Compile:
+```bash
+mvn -f java-service/pom.xml -DskipTests package
+mvn -f java-service/pom.xml -DskipTests dependency:copy-dependencies -DincludeScope=runtime
+```
+
+Run:
+```bash
+java -cp "java-service/target/prom-service-0.1.0.jar:java-service/target/dependency/*" PromService
+```
+
+Health check:
+```bash
+curl http://localhost:7070/health
+```
