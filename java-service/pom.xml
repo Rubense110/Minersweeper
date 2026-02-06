@@ -42,6 +42,11 @@
     </dependency>
     <dependency>
       <groupId>prom</groupId>
+      <artifactId>BasicUtils</artifactId>
+      <version>6.9.126</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
       <artifactId>ProM-Framework</artifactId>
       <version>6.10.110</version>
     </dependency>
@@ -49,6 +54,11 @@
       <groupId>prom</groupId>
       <artifactId>ProM-Contexts</artifactId>
       <version>6.10.62</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>ProM-Models</artifactId>
+      <version>6.10.40</version>
     </dependency>
     <dependency>
       <groupId>prom</groupId>
@@ -62,6 +72,11 @@
     </dependency>
     <dependency>
       <groupId>prom</groupId>
+      <artifactId>LogAbstractions</artifactId>
+      <version>6.9.72</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
       <artifactId>PetriNets</artifactId>
       <version>6.10.158</version>
     </dependency>
@@ -69,6 +84,11 @@
       <groupId>org.deckfour</groupId>
       <artifactId>openxes</artifactId>
       <version>20211004</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>Widgets</artifactId>
+      <version>6.11.245</version>
     </dependency>
     <dependency>
       <groupId>prom.thirdparty</groupId>

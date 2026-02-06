@@ -105,3 +105,11 @@ Health check:
 ```bash
 curl http://localhost:7070/health
 ```
+
+Prueba:
+
+```bash
+curl -X POST http://localhost:7070/mine \
+  -H "Content-Type: application/json" \
+  -d '{"log_path":"BPI_Challenge_2013_open_problems.xes","miner":"alpha"}'
+```

@@ -29,12 +29,16 @@ install() {
 }
 
 install "$PROM_HOME/packages/alphaminer-6.9.78/AlphaMiner.jar" prom AlphaMiner 6.9.78
+install "$PROM_HOME/packages/basicutils-6.9.126/BasicUtils.jar" prom BasicUtils 6.9.126
 install "$PROM_HOME/packages/prom-framework-6.10.110/ProM-Framework.jar" prom ProM-Framework 6.10.110
 install "$PROM_HOME/packages/prom-contexts-6.10.62/ProM-Contexts.jar" prom ProM-Contexts 6.10.62
+install "$PROM_HOME/packages/prom-models-6.10.40/ProM-Models.jar" prom ProM-Models 6.10.40
 install "$PROM_HOME/packages/prom-plugins-6.9.70/ProM-Plugins.jar" prom ProM-Plugins 6.9.70
 install "$PROM_HOME/packages/log-6.12.2/Log.jar" prom Log 6.12.2
+install "$PROM_HOME/packages/logabstractions-6.9.72/LogAbstractions.jar" prom LogAbstractions 6.9.72
 install "$PROM_HOME/packages/petrinets-6.10.158/PetriNets.jar" prom PetriNets 6.10.158
 install "$PROM_HOME/packages/log-6.12.2/lib/OpenXES-20211004.jar" org.deckfour openxes 20211004
+install "$PROM_HOME/packages/widgets-6.11.245/Widgets.jar" prom Widgets 6.11.245
 
 install "$PROM_HOME/lib/Uitopia-0.6-20190913.jar" prom.thirdparty Uitopia 0.6-20190913
 install "$PROM_HOME/lib/UITopiaResources-0.6-20190913.jar" prom.thirdparty UITopiaResources 0.6-20190913
