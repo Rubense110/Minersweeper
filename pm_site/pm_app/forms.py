@@ -30,6 +30,7 @@ class DiscoveryForm(forms.Form):
     MINER_TYPES = [
         ('heuristic', 'Heuristic Miner'),
         ('inductive', 'Inductive Miner'),
+        ('alpha', 'Alpha Miner'),
     ]
     
     METRICS = [
@@ -215,6 +216,7 @@ class DiscFormMiner(forms.Form):
     MINER_TYPES = [
         ('heuristic', 'Heuristic Miner'),
         ('inductive', 'Inductive Miner'),
+        ('alpha', 'Alpha Miner'),
     ]
 
     miner_type = forms.ChoiceField(
