@@ -19,7 +19,7 @@ import org.processmining.plugins.pnml.exporting.PnmlExportNetToPNML;
 
 public class AlphaMinerRunner {
 
-    public static String run(Path logsRoot, String logPath) throws Exception {
+    public static String run(Path logsRoot, String logPath, String variant) throws Exception {
         Path logFile = logsRoot.resolve(logPath).normalize();
         if (!Files.exists(logFile)) {
             throw new IllegalArgumentException("log not found: " + logFile);
@@ -28,7 +28,7 @@ public class AlphaMinerRunner {
         XLog log = loadLog(logFile.toFile());
         PluginContext context = createContext();
         XEventClassifier classifier = new XEventNameClassifier();
-        AlphaMinerParameters params = new AlphaMinerParameters(AlphaVersion.CLASSIC);
+        AlphaMinerParameters params = new AlphaMinerParameters(resolveVariant(variant));
 
         Object[] result = AlphaMinerPlugin.apply(context, log, classifier, params);
         if (result == null || result.length == 0 || !(result[0] instanceof Petrinet)) {
@@ -55,5 +55,13 @@ public class AlphaMinerRunner {
     private static PluginContext createContext() {
         CLIContext global = new CLIContext();
         return new CLIPluginContext(global, "minersweeper");
+    }
+
+    private static AlphaVersion resolveVariant(String variant) {
+        if (variant == null || variant.trim().isEmpty()) {
+            return AlphaVersion.CLASSIC;
+        }
+        String key = variant.trim().toUpperCase().replace("-", "_");
+        return AlphaVersion.valueOf(key);
     }
 }

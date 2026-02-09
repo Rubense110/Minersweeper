@@ -3,11 +3,20 @@ import static spark.Spark.post;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import spark.Spark;
 
 public class PromService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Map<String, MinerRunner> RUNNERS = new HashMap<>();
+    
+    // Supported Miners
+    static {
+        RUNNERS.put("alpha", (logsRoot, logPath, variant, params) ->
+            AlphaMinerRunner.run(logsRoot, logPath, variant)
+        );
+    }
 
     public static void main(String[] args) {
         int port = Integer.parseInt(env("PORT", "7070"));
@@ -31,7 +40,14 @@ public class PromService {
 
             String logPath = (String) payload.get("log_path");
             String miner = (String) payload.get("miner");
+            String variant = (String) payload.get("variant");
+            if (variant == null) {
+                variant = (String) payload.get("alpha_version");
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> params = (Map<String, Object>) payload.get("params");
 
+            // Checks (No logs? No miner?)
             if (logPath == null || logPath.trim().isEmpty()) {
                 res.status(400);
                 res.type("application/json");
@@ -42,17 +58,24 @@ public class PromService {
                 res.type("application/json");
                 return jsonError("invalid_request", "miner is required");
             }
-            if (!"alpha".equalsIgnoreCase(miner)) {
+
+            // If miner, check if it is supported, in which case its respective class is called
+            String minerKey = miner.trim().toLowerCase();
+            MinerRunner runner = RUNNERS.get(minerKey);
+            if (runner == null) {
                 res.status(400);
                 res.type("application/json");
-                return jsonError("invalid_request", "only miner=alpha is supported right now");
+                return jsonError("invalid_request", "unsupported miner: " + miner);
             }
 
+            // We try to discover a process model with the selected miner
             String pnml;
             try {
-                pnml = AlphaMinerRunner.run(
+                pnml = runner.run(
                     Paths.get(env("LOGS_ROOT", "pm_site/pm_app/logs")),
-                    logPath
+                    logPath,
+                    variant,
+                    params
                 );
             } catch (Exception e) {
                 res.status(500);
@@ -60,6 +83,7 @@ public class PromService {
                 return jsonError("mining_failed", e.getMessage());
             }
 
+            // Response (pmnl model discovered)
             res.status(200);
             res.type("application/xml");
             return pnml;
@@ -80,5 +104,10 @@ public class PromService {
         if (value == null) return "";
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
-}
 
+    @FunctionalInterface
+    private interface MinerRunner {
+        String run(java.nio.file.Path logsRoot, String logPath, String variant, Map<String, Object> params)
+            throws Exception;
+    }
+}
