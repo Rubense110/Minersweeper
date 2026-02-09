@@ -18,3 +18,5 @@ class OptimizedProcessMiner:
         self.execution_name = execution_name
         self.log = log
         self.metrics_list = metrics
+
+    def discover(self):
