@@ -44,6 +44,7 @@ class OptimizedProcessMiner:
         max_evaluations: int = 1000,
         population_size: int | None = 100,
         n_partitions: int | None = None,
+        n_workers: int = 1,
     ):
         url = service_url or self.service_url
         if not url:
@@ -65,6 +66,7 @@ class OptimizedProcessMiner:
             max_evaluations=max_evaluations,
             population_size=population_size,
             n_partitions=n_partitions,
+            n_workers=n_workers,
         )
         self.optimizer.run()
         self.result = self.optimizer.get_result()

@@ -2,15 +2,41 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
 from jmetal.operator.crossover import SBXCrossover
 from jmetal.operator.mutation import PolynomialMutation
+from jmetal.util.evaluator import Evaluator, SequentialEvaluator
 from jmetal.util.ranking import FastNonDominatedRanking
 from jmetal.util.termination_criterion import StoppingByEvaluations
 
 from problem import PipelineOptimizationProblem
+
+
+class ThreadPoolEvaluator(Evaluator):
+    """Thread-based evaluator suitable for IO-bound objective functions."""
+
+    def __init__(self, max_workers: int):
+        super().__init__()
+        self.max_workers = max_workers
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+
+    def evaluate(self, solution_list: List, problem):
+        futures = [self.executor.submit(Evaluator.evaluate_solution, solution, problem) for solution in solution_list]
+        for future in futures:
+            future.result()
+        return solution_list
+
+    def shutdown(self):
+        self.executor.shutdown(wait=True, cancel_futures=False)
+
+    def __del__(self):
+        try:
+            self.shutdown()
+        except Exception:
+            pass
 
 
 class PipelineNSGAIIIOptimizer:
@@ -24,6 +50,7 @@ class PipelineNSGAIIIOptimizer:
         crossover_distribution_index: float = 20.0,
         mutation_probability: float | None = None,
         mutation_distribution_index: float = 20.0,
+        n_workers: int = 1,
     ):
         self.problem = problem
 
@@ -38,6 +65,10 @@ class PipelineNSGAIIIOptimizer:
         if mutation_probability is None:
             mutation_probability = 1.0 / max(1, self.problem.number_of_variables())
 
+        if n_workers < 1:
+            raise ValueError("n_workers must be >= 1")
+        population_evaluator = ThreadPoolEvaluator(max_workers=n_workers) if n_workers > 1 else SequentialEvaluator()
+
         self.algorithm = NSGAIII(
             reference_directions=self.reference_directions,
             problem=self.problem,
@@ -51,6 +82,7 @@ class PipelineNSGAIIIOptimizer:
                 distribution_index=crossover_distribution_index,
             ),
             termination_criterion=StoppingByEvaluations(max_evaluations=max_evaluations),
+            population_evaluator=population_evaluator,
         )
         self.result = None
         self.non_dominated = None
@@ -72,4 +104,3 @@ class PipelineNSGAIIIOptimizer:
 
     def get_non_dominated(self):
         return self.non_dominated
-
