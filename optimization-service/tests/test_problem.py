@@ -17,10 +17,15 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
 
         def evaluator(_log, _pipeline, _metrics):
             return {
-                "fitness": 0.9,
-                "precision": 0.8,
-                "simplicity": 0.7,
-                "generalisation": 0.6,
+                "experiment_id": "exp-1",
+                "evaluation_id": "ev-1",
+                "fingerprint": "fp-1",
+                "metrics": {
+                    "fitness": 0.9,
+                    "precision": 0.8,
+                    "simplicity": 0.7,
+                    "generalisation": 0.6,
+                },
             }
 
         problem = PipelineOptimizationProblem(
@@ -36,6 +41,9 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(evaluated.objectives, [-0.9, -0.8, -0.7, -0.6])
         self.assertIn("pipeline", evaluated.attributes)
         self.assertIn("metrics", evaluated.attributes)
+        self.assertEqual(evaluated.attributes["evaluation_id"], "ev-1")
+        self.assertEqual(evaluated.attributes["experiment_id"], "exp-1")
+        self.assertEqual(evaluated.attributes["fingerprint"], "fp-1")
 
     def test_cache_prevents_duplicate_evaluations(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
@@ -77,7 +85,37 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
                 maximize_metrics=[True, False],
             )
 
+    def test_cache_restores_attributes(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+
+        def evaluator(_log, _pipeline, _metrics):
+            return {
+                "experiment_id": "exp-1",
+                "evaluation_id": "ev-2",
+                "fingerprint": "fp-2",
+                "metrics": {
+                    "fitness": 0.4,
+                    "precision": 0.3,
+                    "simplicity": 0.2,
+                    "generalisation": 0.1,
+                },
+            }
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes",
+            metrics_list=["fitness", "precision", "simplicity", "generalisation"],
+            search_space=space,
+            evaluator=evaluator,
+        )
+        solution = problem.create_solution()
+        problem.evaluate(solution)
+
+        cached_solution = problem.create_solution()
+        cached_solution.variables = list(solution.variables)
+        evaluated_cached = problem.evaluate(cached_solution)
+        self.assertEqual(evaluated_cached.attributes["evaluation_id"], "ev-2")
+        self.assertEqual(evaluated_cached.attributes["fingerprint"], "fp-2")
+
 
 if __name__ == "__main__":
     unittest.main()
-

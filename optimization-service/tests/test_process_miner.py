@@ -58,7 +58,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
 
         self.assertEqual(result, ["sol"])
         mock_space_cls.assert_called_once_with(excluded_miners=("split",))
-        mock_client_cls.assert_called_once_with(base_url="http://service")
+        mock_client_cls.assert_called_once_with(base_url="http://service", experiment_id="exec")
 
         _, kwargs = mock_problem_cls.call_args
         self.assertEqual(kwargs["log_path"], "dummy.xes")
@@ -78,8 +78,10 @@ class OptimizedProcessMinerTest(unittest.TestCase):
 
     def test_non_dominated_accessors(self):
         class Sol:
-            def __init__(self, pipeline, metrics):
+            def __init__(self, pipeline, metrics, evaluation_id=None):
                 self.attributes = {"pipeline": pipeline, "metrics": metrics}
+                if evaluation_id:
+                    self.attributes["evaluation_id"] = evaluation_id
 
         miner = OptimizedProcessMiner(
             execution_name="exec",
@@ -87,8 +89,8 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             metrics=["fitness", "precision", "simplicity", "generalisation"],
         )
         miner.non_dominated = [
-            Sol({"miner": {"key": "inductive"}}, {"fitness": 0.8}),
-            Sol({"miner": {"key": "heuristics"}}, {"fitness": 0.7}),
+            Sol({"miner": {"key": "inductive"}}, {"fitness": 0.8}, evaluation_id="ev-1"),
+            Sol({"miner": {"key": "heuristics"}}, {"fitness": 0.7}, evaluation_id="ev-2"),
         ]
 
         pipelines = miner.get_non_dominated_pipelines()
@@ -97,6 +99,42 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         self.assertEqual(len(metrics), 2)
         self.assertEqual(pipelines[0]["miner"]["key"], "inductive")
         self.assertEqual(metrics[0]["fitness"], 0.8)
+        self.assertEqual(miner.get_non_dominated_evaluation_ids(), ["ev-1", "ev-2"])
+
+    def test_fetch_non_dominated_artifacts(self):
+        class Sol:
+            def __init__(self, evaluation_id):
+                self.attributes = {"evaluation_id": evaluation_id}
+
+        miner = OptimizedProcessMiner(
+            execution_name="exec",
+            log="dummy.xes",
+            metrics=["fitness", "precision", "simplicity", "generalisation"],
+        )
+        miner.non_dominated = [Sol("ev-1"), Sol("ev-2")]
+        miner.service_client = Mock()
+        miner.service_client.fetch_artifacts.return_value = [{"evaluation_id": "ev-1"}]
+
+        artifacts = miner.fetch_non_dominated_artifacts(include_pnml=True)
+        self.assertEqual(len(artifacts), 1)
+        miner.service_client.fetch_artifacts.assert_called_once_with(
+            evaluation_ids=["ev-1", "ev-2"],
+            include_pnml=True,
+            experiment_id="exec",
+        )
+
+    def test_cleanup_experiment_artifacts(self):
+        miner = OptimizedProcessMiner(
+            execution_name="exec",
+            log="dummy.xes",
+            metrics=["fitness", "precision", "simplicity", "generalisation"],
+        )
+        miner.service_client = Mock()
+        miner.service_client.cleanup_experiment.return_value = {"deleted": True}
+
+        result = miner.cleanup_experiment_artifacts()
+        self.assertTrue(result["deleted"])
+        miner.service_client.cleanup_experiment.assert_called_once_with(experiment_id="exec")
 
 
 if __name__ == "__main__":

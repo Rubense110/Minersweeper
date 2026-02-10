@@ -35,6 +35,7 @@ class OptimizedProcessMiner:
         self.search_space: Optional[PipelineSearchSpace] = None
         self.problem: Optional[PipelineOptimizationProblem] = None
         self.optimizer: Optional[PipelineNSGAIIIOptimizer] = None
+        self.service_client: Optional[ProMServiceClient] = None
         self.result = None
         self.non_dominated = None
 
@@ -51,13 +52,13 @@ class OptimizedProcessMiner:
             raise ValueError("service_url is required to evaluate candidate pipelines")
 
         self.search_space = PipelineSearchSpace(excluded_miners=self.excluded_miners)
-        service_client = ProMServiceClient(base_url=url)
+        self.service_client = ProMServiceClient(base_url=url, experiment_id=self.execution_name)
 
         self.problem = PipelineOptimizationProblem(
             log_path=self.log_path,
             metrics_list=self.metrics_list,
             search_space=self.search_space,
-            evaluator=service_client.evaluate_pipeline,
+            evaluator=self.service_client.evaluate_pipeline,
             maximize_metrics=[True] * len(self.metrics_list),
         )
 
@@ -87,3 +88,35 @@ class OptimizedProcessMiner:
             if metrics:
                 result.append(metrics)
         return result
+
+    def get_non_dominated_evaluation_ids(self) -> List[str]:
+        if self.non_dominated is None:
+            return []
+        ids: List[str] = []
+        seen = set()
+        for solution in self.non_dominated:
+            evaluation_id = solution.attributes.get("evaluation_id")
+            if not evaluation_id:
+                continue
+            if evaluation_id in seen:
+                continue
+            seen.add(evaluation_id)
+            ids.append(evaluation_id)
+        return ids
+
+    def fetch_non_dominated_artifacts(self, include_pnml: bool = True) -> List[Dict]:
+        if self.service_client is None:
+            raise ValueError("discover() must be executed before fetching artifacts")
+        evaluation_ids = self.get_non_dominated_evaluation_ids()
+        if not evaluation_ids:
+            return []
+        return self.service_client.fetch_artifacts(
+            evaluation_ids=evaluation_ids,
+            include_pnml=include_pnml,
+            experiment_id=self.execution_name,
+        )
+
+    def cleanup_experiment_artifacts(self) -> Dict:
+        if self.service_client is None:
+            raise ValueError("discover() must be executed before cleaning artifacts")
+        return self.service_client.cleanup_experiment(experiment_id=self.execution_name)

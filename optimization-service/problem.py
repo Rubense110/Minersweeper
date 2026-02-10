@@ -21,7 +21,7 @@ class PipelineOptimizationProblem(FloatProblem):
         log_path: str,
         metrics_list: List[str],
         search_space: PipelineSearchSpace,
-        evaluator: Callable[[str, Dict[str, Any], List[str]], Dict[str, float]],
+        evaluator: Callable[[str, Dict[str, Any], List[str]], Dict[str, Any]],
         maximize_metrics: Sequence[bool] | None = None,
         use_cache: bool = True,
     ):
@@ -34,7 +34,7 @@ class PipelineOptimizationProblem(FloatProblem):
         self.search_space = search_space
         self.evaluator = evaluator
         self.use_cache = use_cache
-        self.evaluation_cache: Dict[Tuple[float, ...], List[float]] = {}
+        self.evaluation_cache: Dict[Tuple[float, ...], Dict[str, Any]] = {}
 
         self.maximize_metrics = list(maximize_metrics) if maximize_metrics is not None else [True] * len(metrics_list)
         if len(self.maximize_metrics) != len(metrics_list):
@@ -48,11 +48,30 @@ class PipelineOptimizationProblem(FloatProblem):
     def evaluate(self, solution: FloatSolution) -> FloatSolution:
         cache_key = tuple(round(value, 8) for value in solution.variables)
         if self.use_cache and cache_key in self.evaluation_cache:
-            solution.objectives = self.evaluation_cache[cache_key]
+            cached = self.evaluation_cache[cache_key]
+            solution.objectives = cached["objectives"]
+            solution.attributes["pipeline"] = cached["pipeline"]
+            solution.attributes["metrics"] = cached["metrics"]
+            if cached.get("evaluation_id"):
+                solution.attributes["evaluation_id"] = cached["evaluation_id"]
+            if cached.get("experiment_id"):
+                solution.attributes["experiment_id"] = cached["experiment_id"]
+            if cached.get("fingerprint"):
+                solution.attributes["fingerprint"] = cached["fingerprint"]
             return solution
 
         decoded_pipeline = self.search_space.decode(solution.variables)
-        metric_values = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
+        evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
+        if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
+            metric_values = evaluation_payload["metrics"]
+            evaluation_id = evaluation_payload.get("evaluation_id")
+            experiment_id = evaluation_payload.get("experiment_id")
+            fingerprint = evaluation_payload.get("fingerprint")
+        else:
+            metric_values = evaluation_payload
+            evaluation_id = None
+            experiment_id = None
+            fingerprint = None
 
         objectives: List[float] = []
         for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics):
@@ -62,8 +81,21 @@ class PipelineOptimizationProblem(FloatProblem):
         solution.objectives = objectives
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
+        if evaluation_id:
+            solution.attributes["evaluation_id"] = evaluation_id
+        if experiment_id:
+            solution.attributes["experiment_id"] = experiment_id
+        if fingerprint:
+            solution.attributes["fingerprint"] = fingerprint
         if self.use_cache:
-            self.evaluation_cache[cache_key] = objectives
+            self.evaluation_cache[cache_key] = {
+                "objectives": objectives,
+                "pipeline": decoded_pipeline,
+                "metrics": metric_values,
+                "evaluation_id": evaluation_id,
+                "experiment_id": experiment_id,
+                "fingerprint": fingerprint,
+            }
         return solution
 
     def number_of_objectives(self) -> int:
@@ -74,4 +106,3 @@ class PipelineOptimizationProblem(FloatProblem):
 
     def name(self) -> str:
         return "Pipeline Optimization Problem"
-
