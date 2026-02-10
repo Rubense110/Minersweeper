@@ -4,11 +4,13 @@ Repositorio del backend de optimizacion de pipelines de process mining:
 
 - `prom_service` (Java + ProM): descubre modelos y calcula metricas.
 - `optimization_service` (Python + jMetalPy): ejecuta NSGA-III y expone jobs HTTP.
+- `frontend_service` (React + Vite): UI simple para lanzar ejecuciones y ver resultados.
 
 ## Documentacion por servicio
 
 - `java-service/README_java_service.md`
 - `optimization-service/README_optimization_service.md`
+- `frontend-service/README_frontend_service.md`
 
 ## Lanzar la app con Docker
 
@@ -29,6 +31,7 @@ Servicios publicados:
 
 - `prom_service`: `http://localhost:7070`
 - `optimization_service`: `http://localhost:8080`
+- `frontend_service`: `http://localhost:5173`
 
 ### 2. Verificar salud
 

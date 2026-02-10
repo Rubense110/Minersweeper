@@ -41,3 +41,24 @@ services:
       - .:/app
       - ./pm_site/pm_app/logs:/data/logs
     working_dir: /app/optimization-service
+
+  frontend_service:
+    container_name: frontend_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: frontend-service/Dockerfile
+    depends_on:
+      optimization_service:
+        condition: service_started
+    environment:
+      VITE_OPTIMIZATION_API_URL: http://localhost:8080
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend-service:/app/frontend-service
+      - frontend_node_modules:/app/frontend-service/node_modules
+    working_dir: /app/frontend-service
+
+volumes:
+  frontend_node_modules:

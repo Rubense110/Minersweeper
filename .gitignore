@@ -24,3 +24,4 @@ __pycache__/*
 /prom-lite-1.4-all-platforms/
 /m2-local/
 /.m2-local/
+!/frontend-service/package.json
