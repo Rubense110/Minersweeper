@@ -126,6 +126,16 @@
       <version>1.13</version>
     </dependency>
     <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <version>3.12.0</version>
+    </dependency>
+    <dependency>
+      <groupId>net.sf.trove4j</groupId>
+      <artifactId>trove4j</artifactId>
+      <version>3.0.3</version>
+    </dependency>
+    <dependency>
       <groupId>org.beanshell</groupId>
       <artifactId>bsh</artifactId>
       <version>2.0b4</version>
@@ -144,6 +154,69 @@
       <groupId>prom.thirdparty</groupId>
       <artifactId>Spex</artifactId>
       <version>1.1</version>
+    </dependency>
+
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>AcceptingPetriNet</artifactId>
+      <version>6.11.196</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>InductiveMiner</artifactId>
+      <version>6.10.566</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>InductiveMinerDeprecated</artifactId>
+      <version>6.10.72</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>HeuristicsMiner</artifactId>
+      <version>6.10.78</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>ILPMiner</artifactId>
+      <version>6.9.62</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>HybridILPMiner</artifactId>
+      <version>6.10.154</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>LPEngine</artifactId>
+      <version>6.9.90</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>EfficientStorage</artifactId>
+      <version>6.9.126</version>
+    </dependency>
+    <dependency>
+      <groupId>prom.thirdparty</groupId>
+      <artifactId>lpsolve55j</artifactId>
+      <version>5.5.4</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>PNetReplayer</artifactId>
+      <version>6.9.179</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>PNetAlignmentAnalysis</artifactId>
+      <version>6.10.114</version>
+    </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

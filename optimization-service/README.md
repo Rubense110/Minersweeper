@@ -8,6 +8,7 @@ El pipeline optimizado tiene tres bloques:
 3. Parametros del minero (con gating condicional cuando aplica)
 
 La evaluacion real del pipeline se delega a un servicio Java/ProM via HTTP.
+Cada evaluacion queda asociada a un `experiment_id` y devuelve `evaluation_id`, para recuperar luego el PNML del frente no dominado sin re-ejecutar discovery.
 
 ## Arquitectura
 
@@ -26,7 +27,7 @@ La evaluacion real del pipeline se delega a un servicio Java/ProM via HTTP.
   - Configura operadores SBX + Polynomial Mutation + direcciones de referencia.
   - Soporta evaluacion secuencial o en hilos (`n_workers`).
 - `java_service_client.py`
-  - Cliente HTTP para el endpoint Java (`POST /pipeline`).
+  - Cliente HTTP para evaluar (`POST /pipeline`) y recuperar artefactos (`POST /artifacts/bulk`).
 
 ## Flujo end-to-end
 
@@ -36,9 +37,10 @@ La evaluacion real del pipeline se delega a un servicio Java/ProM via HTTP.
    - `preprocessing: {key, method, variant, parameters}`
    - `miner: {key, family, variant, parameters}`
 4. `PipelineOptimizationProblem.evaluate(...)` envia ese pipeline al servicio Java.
-5. El servicio devuelve metricas (`fitness`, `precision`, `simplicity`, `generalisation`).
+5. El servicio devuelve metricas + identificadores (`evaluation_id`, `fingerprint`).
 6. El problema las pasa a objetivos de minimizacion para jMetalPy.
 7. Se obtiene conjunto final y frente no dominado.
+8. Se recuperan los PNML del no dominado final por `evaluation_id` sin reevaluar.
 
 ## Contrato HTTP con el servicio Java
 
@@ -50,6 +52,7 @@ La evaluacion real del pipeline se delega a un servicio Java/ProM via HTTP.
 
 ```json
 {
+  "experiment_id": "run_001",
   "log_path": "path/al/log.xes",
   "pipeline": {
     "preprocessing": {
@@ -76,25 +79,13 @@ La evaluacion real del pipeline se delega a un servicio Java/ProM via HTTP.
 }
 ```
 
-### Response aceptada
-
-Se aceptan dos formatos:
-
-1. Plano:
+### Response esperada:
 
 ```json
 {
-  "fitness": 0.91,
-  "precision": 0.73,
-  "simplicity": 0.52,
-  "generalisation": 0.64
-}
-```
-
-2. Envolviendo metricas:
-
-```json
-{
+  "experiment_id": "run_001",
+  "evaluation_id": "1739190000000-42",
+  "fingerprint": "matrix_filter|...|inductive|...",
   "metrics": {
     "fitness": 0.91,
     "precision": 0.73,
@@ -107,6 +98,20 @@ Se aceptan dos formatos:
 Notas:
 - El cliente soporta alias `generalisation` <-> `generalization`.
 - Si falta alguna metrica pedida, se lanza `KeyError`.
+
+### Recuperacion de artefactos PNML:
+
+`POST /artifacts/bulk`
+
+```json
+{
+  "experiment_id": "run_001",
+  "evaluation_ids": ["1739190000000-42", "1739190000100-43"],
+  "include_pnml": true
+}
+```
+
+La respuesta devuelve `artifacts[]` con `evaluation_id`, `metrics`, `pipeline` y `pnml`.
 
 ## Espacio de decision y gating
 
@@ -205,6 +210,8 @@ miner.discover(
 
 pipelines = miner.get_non_dominated_pipelines()
 metrics = miner.get_non_dominated_metrics()
+evaluation_ids = miner.get_non_dominated_evaluation_ids()
+artifacts = miner.fetch_non_dominated_artifacts(include_pnml=True)
 ```
 
 ## Tests
@@ -226,5 +233,4 @@ Cobertura actual de tests:
 
 ## Estado actual
 
-El servicio Python esta listo para conectarse al servicio Java de evaluacion de pipelines.
-Siguiente paso natural: fijar el contrato definitivo del endpoint Java (`/pipeline`) y montar una primera implementacion funcional del lado Java con ProM Lite.
+El servicio Python ya maneja trazabilidad por evaluacion (`evaluation_id`) y recuperacion de PNML del no dominado final, sin necesidad de re-ejecutar discovery.

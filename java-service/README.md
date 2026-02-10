@@ -1,0 +1,290 @@
+# Java Service (`java-service`)
+
+Servicio HTTP (SparkJava) para evaluar pipelines de descubrimiento de procesos usando ProM.
+
+Este servicio:
+- Recibe un `pipeline` (preprocesado + minero + parametros)
+- Descubre un modelo Petri net (PNML)
+- Calcula metricas de calidad
+- Persiste artefactos por evaluacion para recuperarlos despues sin re-ejecutar
+
+## Que hace y que no hace
+
+- `PromPipelineEvaluator` (modo `real`) ejecuta mineria y calculo de metricas reales con ProM.
+- `StubPipelineEvaluator` (modo `stub`) devuelve metricas sinteticas para pruebas rapidas.
+- El bloque `pipeline.preprocessing` es obligatorio en el contrato y se guarda en metadata/fingerprint.
+- En la implementacion actual del evaluador real, el preprocesado todavia no transforma el log.
+
+## Endpoints
+
+- `GET /health`
+- `POST /pipeline`
+- `POST /artifacts/bulk`
+- `POST /experiments/:experimentId/cleanup`
+- `POST /mine` (legacy)
+
+## Contrato: `POST /pipeline`
+
+Request JSON:
+
+```json
+{
+  "experiment_id": "run_001",
+  "log_path": "/abs/path/log.xes",
+  "pipeline": {
+    "preprocessing": {
+      "key": "matrix_filter",
+      "method": "Matrix Filtering",
+      "variant": "Conditional Probabilities (MF)",
+      "parameters": {
+        "probability_of_removal_mf": 0.15,
+        "subsequence_length_mf": 2
+      }
+    },
+    "miner": {
+      "key": "inductive",
+      "family": "inductive",
+      "variant": "Inductive Miner (IM)",
+      "parameters": {
+        "noise_threshold": 0.2
+      }
+    }
+  },
+  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
+}
+```
+
+Response JSON:
+
+```json
+{
+  "experiment_id": "run_001",
+  "evaluation_id": "1770734531539-1",
+  "fingerprint": "/abs/path/log.xes|matrix_filter|Conditional Probabilities (MF)|{...}|inductive|Inductive Miner (IM)|{noise_threshold=0.2}",
+  "metrics": {
+    "fitness": 1.0,
+    "precision": 0.90,
+    "simplicity": 0.64,
+    "generalisation": 0.99
+  }
+}
+```
+
+Validaciones principales:
+- `experiment_id`, `log_path`, `pipeline`, `pipeline.preprocessing`, `pipeline.miner`, `metrics` son obligatorios.
+- `pipeline.preprocessing.key` y `pipeline.miner.key` no pueden ir vacios.
+- Si `parameters` llega `null`, se normaliza a `{}`.
+
+Metricas soportadas:
+- `fitness`
+- `precision`
+- `simplicity`
+- `generalisation` (se acepta alias `generalization`)
+
+Errores tipicos:
+- `400 invalid_request`
+- `400 invalid_json`
+- `500 evaluation_failed`
+
+## Contrato: `POST /artifacts/bulk`
+
+Request JSON:
+
+```json
+{
+  "experiment_id": "run_001",
+  "evaluation_ids": ["1770734531539-1"],
+  "include_pnml": true
+}
+```
+
+Response JSON:
+
+```json
+{
+  "experiment_id": "run_001",
+  "artifacts": [
+    {
+      "experiment_id": "run_001",
+      "evaluation_id": "1770734531539-1",
+      "fingerprint": "...",
+      "log_path": "/abs/path/log.xes",
+      "created_at_epoch_ms": 1770734531542,
+      "metrics": {
+        "fitness": 1.0,
+        "precision": 0.90,
+        "simplicity": 0.64,
+        "generalisation": 0.99
+      },
+      "pipeline": {
+        "preprocessing": {"key": "matrix_filter", "method": "Matrix Filtering", "variant": "Conditional Probabilities (MF)", "parameters": {"probability_of_removal_mf": 0.15, "subsequence_length_mf": 2}},
+        "miner": {"key": "inductive", "family": "inductive", "variant": "Inductive Miner (IM)", "parameters": {"noise_threshold": 0.2}}
+      },
+      "pnml": "<?xml ...>..."
+    }
+  ]
+}
+```
+
+Notas:
+- Si `include_pnml=false`, el campo `pnml` no se incluye.
+- Si algun `evaluation_id` no existe en el experimento, responde `404 not_found`.
+
+## Contrato: `POST /experiments/:experimentId/cleanup`
+
+Response JSON:
+
+```json
+{
+  "experiment_id": "run_001",
+  "deleted_paths": 4,
+  "deleted": true
+}
+```
+
+## Almacenamiento de artefactos
+
+Por defecto se guarda en `/tmp/minersweeper-artifacts`.
+
+Estructura por experimento:
+- `<evaluation_id>.pnml`
+- `<evaluation_id>.json` (metadata + metricas + pipeline)
+
+`evaluation_id` se genera como `<epoch_ms>-<secuencia>`.
+
+## Mineros soportados en modo real
+
+- `alpha`
+  - variantes: `classic`, `plus`, `plus_plus`, `sharp`, `robust`, `dollar`
+- `inductive`
+  - variantes: `im`, `imf`, `imlc`, `imflc`, `impt`, `imfpt`, `imfpta`
+- `heuristics`
+  - `hm` o `fhm` (si la variante contiene `flexible`, usa FHM)
+- `ilp`
+  - variante estandar o `variable fitness`
+- `hybrid_ilp`
+
+Si el `miner.key` no esta soportado, responde `400 invalid_request`.
+
+## Metricas en modo real
+
+- `fitness`, `precision`, `generalisation` via replay/alignment de ProM
+- `simplicity` como proxy estructural normalizado en `[0,1]`
+
+## Prerrequisitos
+
+- Java 8+
+- Maven
+- `prom-lite-1.4-all-platforms` disponible en la raiz del repo (o via `PROM_HOME`)
+- Haber instalado jars de ProM en `~/.m2`:
+
+```bash
+./install_prom_jars.sh
+```
+
+## Compilar
+
+```bash
+cd java-service
+mvn -DskipTests package dependency:copy-dependencies
+```
+
+## Ejecutar (recomendado)
+
+Usa el launcher incluido para evitar problemas de classpath y librerias nativas:
+
+```bash
+cd java-service
+./run_prom_service.sh
+```
+
+Variables de entorno soportadas:
+- `PORT` (default: `7070`)
+- `PROM_HOME` (default: `../prom-lite-1.4-all-platforms`)
+- `LOGS_ROOT` (default: `../pm_site/pm_app/logs`)
+- `PIPELINE_EVALUATOR_MODE` (`real` o `stub`, default: `real`)
+- `ARTIFACTS_ROOT` (default: `/tmp/minersweeper-artifacts`)
+- `JAVA_LIBRARY_PATH_EXTRA` (opcional, para rutas nativas extra)
+
+Ejemplo:
+
+```bash
+PORT=7070 \
+PROM_HOME=/ruta/prom-lite-1.4-all-platforms \
+LOGS_ROOT=/ruta/logs \
+PIPELINE_EVALUATOR_MODE=real \
+ARTIFACTS_ROOT=/tmp/minersweeper-artifacts \
+./run_prom_service.sh
+```
+
+## Flujo rapido de prueba
+
+1. Salud del servicio:
+
+```bash
+curl -sS http://localhost:7070/health
+```
+
+2. Evaluar pipeline:
+
+```bash
+curl -sS -X POST http://localhost:7070/pipeline \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "experiment_id":"run_001",
+    "log_path":"/home/ruben/Documents/work/Minersweeper/pm_site/pm_app/logs/BPI_Challenge_2013_open_problems.xes",
+    "pipeline":{
+      "preprocessing":{"key":"matrix_filter","method":"Matrix Filtering","variant":"Conditional Probabilities (MF)","parameters":{"probability_of_removal_mf":0.15,"subsequence_length_mf":2}},
+      "miner":{"key":"inductive","family":"inductive","variant":"Inductive Miner (IM)","parameters":{"noise_threshold":0.2}}
+    },
+    "metrics":["fitness","precision","simplicity","generalisation"]
+  }'
+```
+
+3. Recuperar PNML por `evaluation_id`:
+
+```bash
+curl -sS -X POST http://localhost:7070/artifacts/bulk \
+  -H 'Content-Type: application/json' \
+  -d '{"experiment_id":"run_001","evaluation_ids":["1770734531539-1"],"include_pnml":true}'
+```
+
+4. Limpiar artefactos del experimento:
+
+```bash
+curl -sS -X POST http://localhost:7070/experiments/run_001/cleanup
+```
+
+## Suite de tests
+
+Tests incluidos:
+- `ArtifactStoreTest`: persistencia, lectura bulk y cleanup de artefactos.
+- `StubPipelineEvaluatorTest`: contrato de metricas, alias `generalization`, fingerprint estable.
+- `StubPipelineMatrixTest`: matriz completa de mineros x preprocesados con stub.
+- `PromPipelineEvaluatorRealTest`: smoke real con ProM para todos los mineros y preprocesados (opcional).
+
+Ejecutar tests unitarios/stub:
+
+```bash
+cd java-service
+mvn test -Dtest=ArtifactStoreTest,StubPipelineEvaluatorTest,StubPipelineMatrixTest
+```
+
+Ejecutar tests reales de ProM (lentos):
+
+```bash
+cd java-service
+RUN_REAL_PROM_TESTS=1 mvn test -Dtest=PromPipelineEvaluatorRealTest
+```
+
+## Troubleshooting
+
+- `NoClassDefFoundError` de clases ProM/terceros:
+  - Arranca con `./run_prom_service.sh` (no con classpath manual reducido).
+- `UnsatisfiedLinkError: no lpsolve55 in java.library.path`:
+  - `run_prom_service.sh` ya configura `java.library.path` y `LD_LIBRARY_PATH`.
+- `NoClassDefFoundError: lpsolve/LpSolveException` en tests reales:
+  - Ejecuta `./install_prom_jars.sh` para instalar `lpsolve55j.jar` en `~/.m2`.
+  - Reintenta con `mvn -U test -Dtest=PromPipelineEvaluatorRealTest`.
+- `Unknown extension: http://www.xes-standard.org/...`:
+  - warning habitual de XES, no bloquea la evaluacion.
