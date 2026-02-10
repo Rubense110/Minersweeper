@@ -1,38 +1,4 @@
-
 services:
-
-  db:
-    container_name: database
-    restart: unless-stopped
-    image: postgres:18
-    ports:
-      - '5432:5432'
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-MS}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MS}
-      POSTGRES_DB: ${POSTGRES_DB:-MS}
-    volumes:
-      - postgres_data:/var/lib/postgresql
-  
-  web:
-    container_name: django_app
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: sh -c "python3 -u pm_site/manage.py makemigrations ; python3 -u pm_site/manage.py migrate ; python3 -u pm_site/manage.py runserver 0.0.0.0:8000"
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-      - prom_service
-    env_file:
-      - .env
-    environment:
-      PYTHONUNBUFFERED: 1
-
   prom_service:
     container_name: prom_service
     restart: unless-stopped
@@ -42,8 +8,9 @@ services:
     ports:
       - "7070:7070"
     environment:
-      LOGS_ROOT: /data/logs
       PORT: 7070
+      LOGS_ROOT: /data/logs
+      PIPELINE_EVALUATOR_MODE: real
     volumes:
       - ./pm_site/pm_app/logs:/data/logs
     healthcheck:
@@ -52,5 +19,25 @@ services:
       timeout: 5s
       retries: 5
 
-volumes:
-  postgres_data:
+  optimization_service:
+    container_name: optimization_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: optimization-service/Dockerfile
+    depends_on:
+      prom_service:
+        condition: service_healthy
+    environment:
+      JAVA_SERVICE_URL: http://prom_service:7070
+      LOGS_ROOT: /data/logs
+      OPTIMIZATION_HOST: 0.0.0.0
+      OPTIMIZATION_PORT: 8080
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app/optimization-service
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+      - ./pm_site/pm_app/logs:/data/logs
+    working_dir: /app/optimization-service

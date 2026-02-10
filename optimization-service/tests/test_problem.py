@@ -116,6 +116,24 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(evaluated_cached.attributes["evaluation_id"], "ev-2")
         self.assertEqual(evaluated_cached.attributes["fingerprint"], "fp-2")
 
+    def test_evaluator_error_is_penalized_without_crash(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+
+        def evaluator(_log, _pipeline, _metrics):
+            raise RuntimeError("service unavailable")
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes",
+            metrics_list=["fitness", "precision", "simplicity", "generalisation"],
+            search_space=space,
+            evaluator=evaluator,
+        )
+
+        solution = problem.create_solution()
+        evaluated = problem.evaluate(solution)
+        self.assertEqual(evaluated.objectives, [0.0, 0.0, 0.0, 0.0])
+        self.assertIn("evaluation_error", evaluated.attributes)
+
 
 if __name__ == "__main__":
     unittest.main()

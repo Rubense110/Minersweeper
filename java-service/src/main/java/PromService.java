@@ -2,6 +2,9 @@ import static spark.Spark.get;
 import static spark.Spark.post;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -14,6 +17,7 @@ public class PromService {
     private static final Map<String, MinerRunner> RUNNERS = new HashMap<>();
     private static final ArtifactStore ARTIFACT_STORE = new ArtifactStore(env("ARTIFACTS_ROOT", "/tmp/minersweeper-artifacts"));
     private static final PipelineEvaluator PIPELINE_EVALUATOR = buildPipelineEvaluator();
+    private static final boolean VERBOSE_EXCEPTIONS = Boolean.parseBoolean(env("PROM_VERBOSE_EXCEPTIONS", "false"));
     
     // Supported Miners
     static {
@@ -23,6 +27,8 @@ public class PromService {
     }
 
     public static void main(String[] args) {
+        installUnknownExtensionFilter();
+
         int port = Integer.parseInt(env("PORT", "7070"));
         Spark.port(port);
         System.out.println("prom_service: listening on port " + port);
@@ -124,7 +130,7 @@ public class PromService {
                 res.type("application/json");
                 return jsonError("invalid_request", buildErrorMessage(e));
             } catch (Exception e) {
-                e.printStackTrace();
+                logServerException("evaluation_failed", e);
                 res.status(500);
                 res.type("application/json");
                 return jsonError("evaluation_failed", buildErrorMessage(e));
@@ -157,7 +163,7 @@ public class PromService {
                 res.type("application/json");
                 return jsonError("not_found", e.getMessage());
             } catch (Exception e) {
-                e.printStackTrace();
+                logServerException("artifact_read_failed", e);
                 res.status(500);
                 res.type("application/json");
                 return jsonError("artifact_read_failed", buildErrorMessage(e));
@@ -182,7 +188,7 @@ public class PromService {
                 res.type("application/json");
                 return MAPPER.writeValueAsString(response);
             } catch (Exception e) {
-                e.printStackTrace();
+                logServerException("cleanup_failed", e);
                 res.status(500);
                 res.type("application/json");
                 return jsonError("cleanup_failed", buildErrorMessage(e));
@@ -193,6 +199,13 @@ public class PromService {
     private static String env(String key, String fallback) {
         String value = System.getenv(key);
         return (value == null || value.trim().isEmpty()) ? fallback : value;
+    }
+
+    private static void installUnknownExtensionFilter() {
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        System.setOut(new LineFilteringPrintStream(originalOut));
+        System.setErr(new LineFilteringPrintStream(originalErr));
     }
 
     private static PipelineEvaluator buildPipelineEvaluator() {
@@ -226,6 +239,14 @@ public class PromService {
             return root.getClass().getSimpleName();
         }
         return root.getClass().getSimpleName() + ": " + message;
+    }
+
+    private static void logServerException(String code, Throwable error) {
+        if (VERBOSE_EXCEPTIONS) {
+            error.printStackTrace();
+            return;
+        }
+        System.err.println("prom_service error [" + code + "]: " + buildErrorMessage(error));
     }
 
     private static void validatePipelineRequest(PipelineRequest payload) {
@@ -288,6 +309,72 @@ public class PromService {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private static final class LineFilteringPrintStream extends PrintStream {
+        private final PrintStream delegate;
+
+        private LineFilteringPrintStream(PrintStream delegate) {
+            super(new LineFilteringOutputStream(delegate), true);
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void close() {
+            flush();
+            // Keep underlying JVM streams open.
+        }
+
+        @Override
+        public boolean checkError() {
+            return delegate.checkError();
+        }
+    }
+
+    private static final class LineFilteringOutputStream extends OutputStream {
+        private static final String PREFIX = "Unknown extension:";
+        private final PrintStream delegate;
+        private final StringBuilder lineBuffer = new StringBuilder();
+
+        private LineFilteringOutputStream(PrintStream delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized void write(int b) throws IOException {
+            if (b == '\n') {
+                flushLine(true);
+                return;
+            }
+            if (b != '\r') {
+                lineBuffer.append((char) b);
+            }
+        }
+
+        @Override
+        public synchronized void flush() throws IOException {
+            flushLine(false);
+            delegate.flush();
+        }
+
+        private void flushLine(boolean withNewline) {
+            if (lineBuffer.length() == 0) {
+                if (withNewline) {
+                    delegate.println();
+                }
+                return;
+            }
+            String line = lineBuffer.toString();
+            lineBuffer.setLength(0);
+            if (line.startsWith(PREFIX)) {
+                return;
+            }
+            if (withNewline) {
+                delegate.println(line);
+            } else {
+                delegate.print(line);
+            }
+        }
     }
 
     @FunctionalInterface

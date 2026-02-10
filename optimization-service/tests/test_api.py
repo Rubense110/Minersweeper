@@ -1,0 +1,121 @@
+import os
+import sys
+import unittest
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+import api
+
+
+class FakeManager:
+    def __init__(self):
+        self.last_submit_payload = None
+
+    def list_jobs(self):
+        return [{"job_id": "j1", "status": "completed"}]
+
+    def submit(self, payload):
+        self.last_submit_payload = payload
+        if payload.get("raise") == "value":
+            raise ValueError("bad payload")
+        return {"job_id": "created", "status": "queued"}
+
+    def get(self, job_id):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        return {"job_id": job_id, "status": "running"}
+
+    def get_solutions(self, job_id, scope):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        if job_id == "pending":
+            raise RuntimeError("job not completed")
+        return {"job_id": job_id, "scope": scope, "count": 1, "solutions": [{"is_pareto": True}]}
+
+    def get_artifacts(self, job_id, scope, include_pnml):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        if job_id == "pending":
+            raise RuntimeError("job not completed")
+        return {
+            "job_id": job_id,
+            "scope": scope,
+            "include_pnml": include_pnml,
+            "artifacts": [{"evaluation_id": "ev-1"}],
+        }
+
+
+class OptimizationApiTest(unittest.TestCase):
+    def setUp(self):
+        self.original_manager = api._manager
+        api._manager = FakeManager()
+        self.client = api.app.test_client()
+
+    def tearDown(self):
+        api._manager = self.original_manager
+
+    def test_health(self):
+        response = self.client.get("/health")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"status": "ok"}, response.get_json())
+
+    def test_list_jobs(self):
+        response = self.client.get("/optimizations")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertIn("jobs", body)
+        self.assertEqual("j1", body["jobs"][0]["job_id"])
+
+    def test_create_job_ok(self):
+        response = self.client.post("/optimizations", json={"execution_name": "run_1", "log_path": "/data/log.xes"})
+        self.assertEqual(202, response.status_code)
+        body = response.get_json()
+        self.assertEqual("created", body["job_id"])
+        self.assertEqual("queued", body["status"])
+
+    def test_create_job_validation_error(self):
+        response = self.client.post("/optimizations", json={"raise": "value"})
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid_request", response.get_json()["error"])
+
+    def test_get_job_not_found(self):
+        response = self.client.get("/optimizations/missing")
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_get_solutions(self):
+        response = self.client.get("/optimizations/job-1/solutions?scope=pareto")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual("pareto", body["scope"])
+        self.assertEqual(1, body["count"])
+
+    def test_get_solutions_invalid_scope(self):
+        response = self.client.get("/optimizations/job-1/solutions?scope=bad")
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid_request", response.get_json()["error"])
+
+    def test_get_solutions_invalid_state(self):
+        response = self.client.get("/optimizations/pending/solutions")
+        self.assertEqual(409, response.status_code)
+        self.assertEqual("invalid_state", response.get_json()["error"])
+
+    def test_get_artifacts_defaults(self):
+        response = self.client.get("/optimizations/job-1/artifacts")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertTrue(body["include_pnml"])
+        self.assertEqual("pareto", body["scope"])
+
+    def test_get_artifacts_scope_all_without_pnml(self):
+        response = self.client.get("/optimizations/job-1/artifacts?scope=all&include_pnml=false")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual("all", body["scope"])
+        self.assertFalse(body["include_pnml"])
+
+
+if __name__ == "__main__":
+    unittest.main()

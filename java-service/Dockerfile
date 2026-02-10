@@ -15,13 +15,21 @@ RUN chmod +x /app/install_prom_jars.sh \
 FROM eclipse-temurin:8-jre
 
 WORKDIR /app
-COPY --from=build /app/target/prom-service-0.1.0.jar /app/prom-service.jar
-COPY --from=build /app/target/dependency /app/dependency
-COPY java-service/lib /app/lib
+COPY --from=build /app/prom-lite-1.4-all-platforms /app/prom-lite-1.4-all-platforms
+
+# Keep runtime layout compatible with run_prom_service.sh.
+COPY --from=build /app/target/prom-service-0.1.0.jar /app/java-service/target/prom-service-0.1.0.jar
+COPY --from=build /app/target/dependency /app/java-service/target/dependency
+COPY java-service/run_prom_service.sh /app/java-service/run_prom_service.sh
+COPY java-service/lib /app/java-service/lib
+RUN chmod +x /app/java-service/run_prom_service.sh
 
 ENV PORT=7070
 ENV LOGS_ROOT=/data/logs
+ENV PROM_HOME=/app/prom-lite-1.4-all-platforms
+ENV PIPELINE_EVALUATOR_MODE=real
 
 EXPOSE 7070
 
-CMD ["sh", "-c", "java -cp /app/prom-service.jar:/app/dependency/*:/app/lib/* PromService"]
+WORKDIR /app/java-service
+CMD ["./run_prom_service.sh"]

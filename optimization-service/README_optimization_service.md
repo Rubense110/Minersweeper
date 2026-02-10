@@ -29,6 +29,66 @@ Cada evaluacion queda asociada a un `experiment_id` y devuelve `evaluation_id`, 
 - `java_service_client.py`
   - Cliente HTTP para evaluar (`POST /pipeline`) y recuperar artefactos (`POST /artifacts/bulk`).
 
+## API HTTP (servicio de optimizacion)
+
+Archivo: `optimization-service/api.py`
+
+El servicio expone jobs asincronos en memoria (sin BBDD por ahora):
+
+- `GET /health`
+- `GET /optimizations`
+- `POST /optimizations`
+- `GET /optimizations/:job_id`
+- `GET /optimizations/:job_id/solutions?scope=pareto|all`
+- `GET /optimizations/:job_id/artifacts?scope=pareto|all&include_pnml=true|false`
+
+### Crear ejecucion
+
+`POST /optimizations`
+
+Body minimo:
+
+```json
+{
+  "execution_name": "run_001",
+  "log_path": "/data/logs/BPI_Challenge_2013_open_problems.xes"
+}
+```
+
+Opcionales:
+- `service_url` (si no, usa `JAVA_SERVICE_URL`)
+- `metrics`
+- `excluded_miners`
+- `max_evaluations`
+- `population_size`
+- `n_partitions`
+- `n_workers`
+
+Respuesta:
+- `202 Accepted` con `job_id` y estado `queued`.
+
+### Recuperar resultados
+
+1. Estado del job:
+- `GET /optimizations/:job_id`
+
+2. Soluciones:
+- `GET /optimizations/:job_id/solutions?scope=all`
+- `GET /optimizations/:job_id/solutions?scope=pareto`
+
+Cada solucion incluye:
+- `pipeline`
+- `metrics`
+- `evaluation_id`
+- `objectives`
+- `variables`
+- `is_pareto`
+
+3. Artefactos PNML:
+- `GET /optimizations/:job_id/artifacts?scope=pareto&include_pnml=true`
+
+Internamente usa los `evaluation_id` del job para pedir `POST /artifacts/bulk` al servicio Java.
+
 ## Flujo end-to-end
 
 1. Se construye `PipelineSearchSpace` con catalogos de preprocesado y mineros.
@@ -198,7 +258,7 @@ from process_miner import OptimizedProcessMiner
 miner = OptimizedProcessMiner(
     execution_name="run_001",
     log="/data/log.xes",
-    service_url="http://localhost:8080",
+    service_url="http://localhost:7070",
 )
 
 miner.discover(

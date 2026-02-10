@@ -132,7 +132,13 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private DiscoveryArtifact discoverAlpha(PluginContext context, XLog log, PipelineRequest request) throws Exception {
         AlphaVersion version = mapAlphaVersion(request.pipeline.miner.variant);
-        Object[] result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), version);
+        Object[] result;
+        if (AlphaVersion.ROBUST.equals(version)) {
+            // The generic apply(..., AlphaVersion) path is unstable for ROBUST in headless mode.
+            result = AlphaMinerPlugin.applyAlphaRobust(context, log, new XEventNameClassifier());
+        } else {
+            result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), version);
+        }
         return toDiscoveryArtifact(context, result);
     }
 
@@ -224,7 +230,21 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         settings.setModelSettings(modelSettings);
 
         XLogInfo logInfo = XLogInfoFactory.createLogInfo(log, new XEventNameClassifier());
-        Object[] result = ilpMiner.doILPMiningWithSettings(context, log, logInfo, settings);
+        Object[] result;
+        try {
+            result = ilpMiner.doILPMiningWithSettings(context, log, logInfo, settings);
+        } catch (NullPointerException npe) {
+            throw new IllegalArgumentException(
+                "ILP miner failed in the current ProM headless context (log-relations plugin returned null). " +
+                "Use hybrid_ilp or disable ilp for this run.",
+                npe
+            );
+        }
+        if (result == null) {
+            throw new IllegalArgumentException(
+                "ILP miner returned no result in the current ProM headless context. Use hybrid_ilp or disable ilp."
+            );
+        }
         return toDiscoveryArtifact(context, result);
     }
 

@@ -52,6 +52,8 @@ class PipelineOptimizationProblem(FloatProblem):
             solution.objectives = cached["objectives"]
             solution.attributes["pipeline"] = cached["pipeline"]
             solution.attributes["metrics"] = cached["metrics"]
+            if cached.get("evaluation_error"):
+                solution.attributes["evaluation_error"] = cached["evaluation_error"]
             if cached.get("evaluation_id"):
                 solution.attributes["evaluation_id"] = cached["evaluation_id"]
             if cached.get("experiment_id"):
@@ -61,17 +63,28 @@ class PipelineOptimizationProblem(FloatProblem):
             return solution
 
         decoded_pipeline = self.search_space.decode(solution.variables)
-        evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
-        if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
-            metric_values = evaluation_payload["metrics"]
-            evaluation_id = evaluation_payload.get("evaluation_id")
-            experiment_id = evaluation_payload.get("experiment_id")
-            fingerprint = evaluation_payload.get("fingerprint")
-        else:
-            metric_values = evaluation_payload
+        try:
+            evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
+            if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
+                metric_values = evaluation_payload["metrics"]
+                evaluation_id = evaluation_payload.get("evaluation_id")
+                experiment_id = evaluation_payload.get("experiment_id")
+                fingerprint = evaluation_payload.get("fingerprint")
+            else:
+                metric_values = evaluation_payload
+                evaluation_id = None
+                experiment_id = None
+                fingerprint = None
+            evaluation_error = None
+        except Exception as error:  # noqa: BLE001 - We must keep optimization running.
+            metric_values = {
+                metric_name: (0.0 if maximize else 1.0)
+                for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics)
+            }
             evaluation_id = None
             experiment_id = None
             fingerprint = None
+            evaluation_error = str(error)
 
         objectives: List[float] = []
         for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics):
@@ -81,6 +94,8 @@ class PipelineOptimizationProblem(FloatProblem):
         solution.objectives = objectives
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
+        if evaluation_error is not None:
+            solution.attributes["evaluation_error"] = evaluation_error
         if evaluation_id:
             solution.attributes["evaluation_id"] = evaluation_id
         if experiment_id:
@@ -95,6 +110,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 "evaluation_id": evaluation_id,
                 "experiment_id": experiment_id,
                 "fingerprint": fingerprint,
+                "evaluation_error": evaluation_error,
             }
         return solution
 
