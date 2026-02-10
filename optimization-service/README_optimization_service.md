@@ -39,6 +39,8 @@ El servicio expone jobs asincronos en memoria (sin BBDD por ahora):
 - `GET /optimizations`
 - `POST /optimizations`
 - `GET /optimizations/:job_id`
+- `GET /optimizations/:job_id/progress`
+- `GET /optimizations/:job_id/events` (SSE)
 - `GET /optimizations/:job_id/solutions?scope=pareto|all`
 - `GET /optimizations/:job_id/artifacts?scope=pareto|all&include_pnml=true|false`
 
@@ -71,6 +73,7 @@ Respuesta:
 
 1. Estado del job:
 - `GET /optimizations/:job_id`
+- `GET /optimizations/:job_id/progress`
 
 2. Soluciones:
 - `GET /optimizations/:job_id/solutions?scope=all`
@@ -88,6 +91,20 @@ Cada solucion incluye:
 - `GET /optimizations/:job_id/artifacts?scope=pareto&include_pnml=true`
 
 Internamente usa los `evaluation_id` del job para pedir `POST /artifacts/bulk` al servicio Java.
+
+### Streaming de estado (SSE)
+
+Para evitar polling agresivo, el servicio expone:
+
+- `GET /optimizations/:job_id/events`
+
+`Content-Type: text/event-stream`
+
+Eventos emitidos:
+- `status_changed`: cambios de estado (`queued`, `running`, `completed`, `failed`)
+- `progress`: avance de evaluaciones (`evaluations_done`, `max_evaluations`, `percentage`)
+- `result_ready`: resumen final al completar
+- `error`: detalle al fallar
 
 ## Flujo end-to-end
 

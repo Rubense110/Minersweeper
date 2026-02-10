@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from java_service_client import ProMServiceClient
 from optimizer import PipelineNSGAIIIOptimizer
@@ -46,6 +46,7 @@ class OptimizedProcessMiner:
         population_size: int | None = 100,
         n_partitions: int | None = None,
         n_workers: int = 1,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):
         url = service_url or self.service_url
         if not url:
@@ -60,6 +61,7 @@ class OptimizedProcessMiner:
             search_space=self.search_space,
             evaluator=self.service_client.evaluate_pipeline,
             maximize_metrics=[True] * len(self.metrics_list),
+            on_evaluation=progress_callback,
         )
 
         self.optimizer = PipelineNSGAIIIOptimizer(

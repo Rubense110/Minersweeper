@@ -1,4 +1,5 @@
 import os
+import queue
 import sys
 import unittest
 
@@ -12,6 +13,7 @@ import api
 class FakeManager:
     def __init__(self):
         self.last_submit_payload = None
+        self.listeners = []
 
     def list_jobs(self):
         return [{"job_id": "j1", "status": "completed"}]
@@ -26,6 +28,17 @@ class FakeManager:
         if job_id == "missing":
             raise KeyError(job_id)
         return {"job_id": job_id, "status": "running"}
+
+    def get_progress(self, job_id):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        return {
+            "job_id": job_id,
+            "status": "running",
+            "evaluations_done": 7,
+            "max_evaluations": 50,
+            "percentage": 14.0,
+        }
 
     def get_solutions(self, job_id, scope):
         if job_id == "missing":
@@ -45,6 +58,21 @@ class FakeManager:
             "include_pnml": include_pnml,
             "artifacts": [{"evaluation_id": "ev-1"}],
         }
+
+    def subscribe_events(self, job_id):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        listener = queue.Queue()
+        self.listeners.append(listener)
+        initial = [
+            {"event": "status_changed", "data": {"job_id": job_id, "status": "completed"}},
+            {"event": "progress", "data": self.get_progress(job_id)},
+        ]
+        return listener, initial
+
+    def unsubscribe_events(self, _job_id, listener):
+        if listener in self.listeners:
+            self.listeners.remove(listener)
 
 
 class OptimizationApiTest(unittest.TestCase):
@@ -115,6 +143,26 @@ class OptimizationApiTest(unittest.TestCase):
         body = response.get_json()
         self.assertEqual("all", body["scope"])
         self.assertFalse(body["include_pnml"])
+
+    def test_get_progress(self):
+        response = self.client.get("/optimizations/job-1/progress")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual(7, body["evaluations_done"])
+        self.assertEqual(50, body["max_evaluations"])
+
+    def test_get_progress_not_found(self):
+        response = self.client.get("/optimizations/missing/progress")
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_stream_events(self):
+        response = self.client.get("/optimizations/job-1/events")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/event-stream; charset=utf-8", response.content_type)
+        payload = response.get_data(as_text=True)
+        self.assertIn("event: status_changed", payload)
+        self.assertIn("\"status\": \"completed\"", payload)
 
 
 if __name__ == "__main__":

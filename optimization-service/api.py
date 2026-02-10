@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import os
+import queue
 import threading
 import time
 import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
+from flask_cors import CORS
 
 from java_service_client import ProMServiceClient
 
@@ -48,6 +51,7 @@ class OptimizationJobManager:
     def __init__(self, default_service_url: str):
         self.default_service_url = default_service_url
         self._jobs: Dict[str, Dict[str, Any]] = {}
+        self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._lock = threading.Lock()
 
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -81,6 +85,10 @@ class OptimizationJobManager:
             "started_at": None,
             "finished_at": None,
             "error": None,
+            "progress": {
+                "evaluations_done": 0,
+                "max_evaluations": discover_cfg["max_evaluations"],
+            },
             "request": {
                 "execution_name": execution_name,
                 "log_path": log_path,
@@ -95,6 +103,16 @@ class OptimizationJobManager:
         with self._lock:
             self._jobs[job_id] = job
 
+        self._publish_event(
+            job_id,
+            "status_changed",
+            {
+                "job_id": job_id,
+                "status": "queued",
+            },
+        )
+        self._publish_event(job_id, "progress", self._public_progress(job))
+
         worker = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
         worker.start()
         return self._public_job(job)
@@ -106,9 +124,17 @@ class OptimizationJobManager:
                 return
             job["status"] = "running"
             job["started_at"] = _utc_now_iso()
+        self._publish_event(
+            job_id,
+            "status_changed",
+            {
+                "job_id": job_id,
+                "status": "running",
+            },
+        )
 
         try:
-            result = self._execute(job["request"])
+            result = self._execute(job_id, job["request"])
             with self._lock:
                 job = self._jobs.get(job_id)
                 if not job:
@@ -116,6 +142,32 @@ class OptimizationJobManager:
                 job["status"] = "completed"
                 job["finished_at"] = _utc_now_iso()
                 job["result"] = result
+                progress = job.get("progress", {})
+                max_evaluations = int(progress.get("max_evaluations") or 0)
+                current = int(progress.get("evaluations_done") or 0)
+                if max_evaluations > current:
+                    progress["evaluations_done"] = max_evaluations
+            self._publish_event(
+                job_id,
+                "status_changed",
+                {
+                    "job_id": job_id,
+                    "status": "completed",
+                },
+            )
+            self._publish_event(job_id, "progress", self.get_progress(job_id))
+            self._publish_event(
+                job_id,
+                "result_ready",
+                {
+                    "job_id": job_id,
+                    "result_summary": {
+                        "execution_name": result.get("execution_name"),
+                        "counts": result.get("counts", {}),
+                        "pareto_evaluation_ids": result.get("pareto_evaluation_ids", []),
+                    },
+                },
+            )
         except Exception as exc:
             with self._lock:
                 job = self._jobs.get(job_id)
@@ -128,10 +180,30 @@ class OptimizationJobManager:
                     "message": str(exc),
                     "traceback": traceback.format_exc(),
                 }
+            self._publish_event(
+                job_id,
+                "status_changed",
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                },
+            )
+            self._publish_event(
+                job_id,
+                "error",
+                {
+                    "job_id": job_id,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
 
-    def _execute(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute(self, job_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
         # Lazy import so API module is lightweight to import and easier to test.
         from process_miner import OptimizedProcessMiner
+
+        def on_evaluation(_event: Dict[str, Any]) -> None:
+            self._update_progress(job_id, int(_event.get("evaluations_done") or 0))
 
         miner = OptimizedProcessMiner(
             execution_name=config["execution_name"],
@@ -147,6 +219,7 @@ class OptimizationJobManager:
             population_size=discover["population_size"],
             n_partitions=discover["n_partitions"],
             n_workers=discover["n_workers"],
+            progress_callback=on_evaluation,
         )
 
         pareto_ids = set(miner.get_non_dominated_evaluation_ids())
@@ -175,6 +248,13 @@ class OptimizationJobManager:
             if not job:
                 raise KeyError(job_id)
             return self._public_job(job)
+
+    def get_progress(self, job_id: str) -> Dict[str, Any]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            return self._public_progress(job)
 
     def list_jobs(self) -> List[Dict[str, Any]]:
         with self._lock:
@@ -245,6 +325,89 @@ class OptimizationJobManager:
             "artifacts": artifacts,
         }
 
+    def subscribe_events(self, job_id: str) -> Tuple[queue.Queue, List[Dict[str, Any]]]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            listener: queue.Queue = queue.Queue(maxsize=200)
+            self._subscribers.setdefault(job_id, []).append(listener)
+            initial = [
+                {
+                    "event": "status_changed",
+                    "data": {
+                        "job_id": job_id,
+                        "status": job["status"],
+                    },
+                },
+                {
+                    "event": "progress",
+                    "data": self._public_progress(job),
+                },
+            ]
+            if job["status"] == "completed":
+                result = job.get("result") or {}
+                initial.append(
+                    {
+                        "event": "result_ready",
+                        "data": {
+                            "job_id": job_id,
+                            "result_summary": {
+                                "execution_name": result.get("execution_name"),
+                                "counts": result.get("counts", {}),
+                                "pareto_evaluation_ids": result.get("pareto_evaluation_ids", []),
+                            },
+                        },
+                    }
+                )
+        return listener, initial
+
+    def unsubscribe_events(self, job_id: str, listener: queue.Queue) -> None:
+        with self._lock:
+            subscribers = self._subscribers.get(job_id)
+            if not subscribers:
+                return
+            if listener in subscribers:
+                subscribers.remove(listener)
+            if not subscribers:
+                self._subscribers.pop(job_id, None)
+
+    def _update_progress(self, job_id: str, evaluations_done: int) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            progress = job.setdefault("progress", {})
+            max_evaluations = int(progress.get("max_evaluations") or 0)
+            current = int(progress.get("evaluations_done") or 0)
+            next_value = evaluations_done if evaluations_done > current else current
+            if max_evaluations > 0:
+                next_value = min(next_value, max_evaluations)
+            progress["evaluations_done"] = next_value
+            payload = self._public_progress(job)
+        self._publish_event(job_id, "progress", payload)
+
+    def _publish_event(self, job_id: str, event_name: str, data: Dict[str, Any]) -> None:
+        with self._lock:
+            subscribers = list(self._subscribers.get(job_id, []))
+        if not subscribers:
+            return
+
+        envelope = {"event": event_name, "data": data}
+        for listener in subscribers:
+            try:
+                listener.put_nowait(envelope)
+            except queue.Full:
+                # Drop oldest event to keep stream responsive under backpressure.
+                try:
+                    _ = listener.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    listener.put_nowait(envelope)
+                except queue.Full:
+                    pass
+
     @staticmethod
     def _public_job(job: Dict[str, Any]) -> Dict[str, Any]:
         output = {
@@ -255,6 +418,7 @@ class OptimizationJobManager:
             "finished_at": job["finished_at"],
             "error": job["error"],
             "request": job["request"],
+            "progress": OptimizationJobManager._public_progress(job),
         }
         if job["status"] == "completed":
             result = job.get("result") or {}
@@ -265,8 +429,25 @@ class OptimizationJobManager:
             }
         return output
 
+    @staticmethod
+    def _public_progress(job: Dict[str, Any]) -> Dict[str, Any]:
+        progress = job.get("progress", {}) or {}
+        evaluations_done = int(progress.get("evaluations_done") or 0)
+        max_evaluations = int(progress.get("max_evaluations") or 0)
+        percentage = 0.0
+        if max_evaluations > 0:
+            percentage = round((evaluations_done / max_evaluations) * 100.0, 2)
+        return {
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "evaluations_done": evaluations_done,
+            "max_evaluations": max_evaluations,
+            "percentage": percentage,
+        }
+
 
 app = Flask(__name__)
+CORS(app)
 _manager = OptimizationJobManager(default_service_url=os.getenv("JAVA_SERVICE_URL", ""))
 
 
@@ -296,6 +477,53 @@ def get_job(job_id: str) -> Any:
         return jsonify(_manager.get(job_id))
     except KeyError:
         return jsonify({"error": "not_found", "message": f"job '{job_id}' not found"}), 404
+
+
+@app.get("/optimizations/<job_id>/progress")
+def get_job_progress(job_id: str) -> Any:
+    try:
+        return jsonify(_manager.get_progress(job_id))
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"job '{job_id}' not found"}), 404
+
+
+def _format_sse(event: str, data: Dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=True)}\n\n"
+
+
+@app.get("/optimizations/<job_id>/events")
+def stream_job_events(job_id: str) -> Any:
+    try:
+        listener, initial_events = _manager.subscribe_events(job_id)
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"job '{job_id}' not found"}), 404
+
+    def generate():
+        terminal = False
+        try:
+            yield "retry: 2000\n\n"
+            for item in initial_events:
+                yield _format_sse(item["event"], item["data"])
+                if item["event"] == "status_changed" and item["data"].get("status") in {"completed", "failed"}:
+                    terminal = True
+            while not terminal:
+                try:
+                    item = listener.get(timeout=15.0)
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+                    continue
+                yield _format_sse(item["event"], item["data"])
+                if item["event"] == "status_changed" and item["data"].get("status") in {"completed", "failed"}:
+                    terminal = True
+        finally:
+            _manager.unsubscribe_events(job_id, listener)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
+    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers=headers)
 
 
 @app.get("/optimizations/<job_id>/solutions")

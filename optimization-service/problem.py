@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 from jmetal.core.problem import FloatProblem
@@ -24,6 +25,7 @@ class PipelineOptimizationProblem(FloatProblem):
         evaluator: Callable[[str, Dict[str, Any], List[str]], Dict[str, Any]],
         maximize_metrics: Sequence[bool] | None = None,
         use_cache: bool = True,
+        on_evaluation: Callable[[Dict[str, Any]], None] | None = None,
     ):
         super().__init__()
         if not metrics_list:
@@ -35,6 +37,9 @@ class PipelineOptimizationProblem(FloatProblem):
         self.evaluator = evaluator
         self.use_cache = use_cache
         self.evaluation_cache: Dict[Tuple[float, ...], Dict[str, Any]] = {}
+        self.on_evaluation = on_evaluation
+        self._evaluations_done = 0
+        self._eval_lock = threading.Lock()
 
         self.maximize_metrics = list(maximize_metrics) if maximize_metrics is not None else [True] * len(metrics_list)
         if len(self.maximize_metrics) != len(metrics_list):
@@ -47,7 +52,8 @@ class PipelineOptimizationProblem(FloatProblem):
 
     def evaluate(self, solution: FloatSolution) -> FloatSolution:
         cache_key = tuple(round(value, 8) for value in solution.variables)
-        if self.use_cache and cache_key in self.evaluation_cache:
+        cache_hit = self.use_cache and cache_key in self.evaluation_cache
+        if cache_hit:
             cached = self.evaluation_cache[cache_key]
             solution.objectives = cached["objectives"]
             solution.attributes["pipeline"] = cached["pipeline"]
@@ -60,6 +66,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 solution.attributes["experiment_id"] = cached["experiment_id"]
             if cached.get("fingerprint"):
                 solution.attributes["fingerprint"] = cached["fingerprint"]
+            self._notify_evaluation(cache_hit=True, has_error=bool(cached.get("evaluation_error")))
             return solution
 
         decoded_pipeline = self.search_space.decode(solution.variables)
@@ -112,7 +119,26 @@ class PipelineOptimizationProblem(FloatProblem):
                 "fingerprint": fingerprint,
                 "evaluation_error": evaluation_error,
             }
+        self._notify_evaluation(cache_hit=False, has_error=bool(evaluation_error))
         return solution
+
+    def _notify_evaluation(self, cache_hit: bool, has_error: bool) -> None:
+        if self.on_evaluation is None:
+            return
+        with self._eval_lock:
+            self._evaluations_done += 1
+            done = self._evaluations_done
+        try:
+            self.on_evaluation(
+                {
+                    "evaluations_done": done,
+                    "cache_hit": cache_hit,
+                    "has_error": has_error,
+                }
+            )
+        except Exception:
+            # Progress callback must never break optimization.
+            pass
 
     def number_of_objectives(self) -> int:
         return len(self.metrics_list)
