@@ -9,6 +9,7 @@ import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.in.XesXmlParser;
 import org.deckfour.xes.model.XLog;
 import org.processmining.alphaminer.parameters.AlphaMinerParameters;
+import org.processmining.alphaminer.parameters.AlphaRobustMinerParameters;
 import org.processmining.alphaminer.parameters.AlphaVersion;
 import org.processmining.alphaminer.plugins.AlphaMinerPlugin;
 import org.processmining.contexts.cli.CLIContext;
@@ -28,9 +29,16 @@ public class AlphaMinerRunner {
         XLog log = loadLog(logFile.toFile());
         PluginContext context = createContext();
         XEventClassifier classifier = new XEventNameClassifier();
-        AlphaMinerParameters params = new AlphaMinerParameters(resolveVariant(variant));
-
-        Object[] result = AlphaMinerPlugin.apply(context, log, classifier, params);
+        AlphaVersion version = resolveVariant(variant);
+        Object[] result;
+        if (AlphaVersion.ROBUST.equals(version)) {
+            // Same issue as in PromPipelineEvaluator: this ProM version requires robust-specific params.
+            AlphaRobustMinerParameters robustParams = new AlphaRobustMinerParameters(AlphaVersion.ROBUST);
+            result = AlphaMinerPlugin.apply(context, log, classifier, robustParams);
+        } else {
+            AlphaMinerParameters params = new AlphaMinerParameters(version);
+            result = AlphaMinerPlugin.apply(context, log, classifier, params);
+        }
         if (result == null || result.length == 0 || !(result[0] instanceof Petrinet)) {
             throw new IllegalStateException("AlphaMiner did not return a Petri net");
         }

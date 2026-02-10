@@ -18,6 +18,7 @@ import org.deckfour.xes.info.XLogInfoFactory;
 import org.deckfour.xes.in.XesXmlParser;
 import org.deckfour.xes.model.XLog;
 import org.processmining.acceptingpetrinet.models.AcceptingPetriNet;
+import org.processmining.alphaminer.parameters.AlphaRobustMinerParameters;
 import org.processmining.alphaminer.parameters.AlphaVersion;
 import org.processmining.alphaminer.plugins.AlphaMinerPlugin;
 import org.processmining.contexts.cli.CLIContext;
@@ -134,8 +135,32 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         AlphaVersion version = mapAlphaVersion(request.pipeline.miner.variant);
         Object[] result;
         if (AlphaVersion.ROBUST.equals(version)) {
-            // The generic apply(..., AlphaVersion) path is unstable for ROBUST in headless mode.
-            result = AlphaMinerPlugin.applyAlphaRobust(context, log, new XEventNameClassifier());
+            // Do not call applyAlphaRobust/apply(..., AlphaVersion.ROBUST): those paths create
+            // AlphaMinerParameters instead of AlphaRobustMinerParameters in this ProM version.
+            // That ends in ClassCastException inside AlphaMinerFactory.
+            AlphaRobustMinerParameters robustParams = new AlphaRobustMinerParameters(AlphaVersion.ROBUST);
+            robustParams.setCausalThreshold(
+                doubleParam(
+                    request.pipeline.miner.parameters,
+                    "causal_threshold",
+                    robustParams.getCausalThreshold()
+                )
+            );
+            robustParams.setNoiseThresholdLeastFreq(
+                doubleParam(
+                    request.pipeline.miner.parameters,
+                    "noise_threshold_least_freq",
+                    robustParams.getNoiseThresholdLeastFreq()
+                )
+            );
+            robustParams.setNoiseThresholdMostFreq(
+                doubleParam(
+                    request.pipeline.miner.parameters,
+                    "noise_threshold_most_freq",
+                    robustParams.getNoiseThresholdMostFreq()
+                )
+            );
+            result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), robustParams);
         } else {
             result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), version);
         }
@@ -502,6 +527,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             return AlphaVersion.SHARP;
         }
         if (variant.contains("alphar")) {
+            return AlphaVersion.ROBUST;
+        }
+        if (variant.contains("robust")) {
             return AlphaVersion.ROBUST;
         }
         if (variant.contains("alpha$")) {
