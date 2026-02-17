@@ -21,7 +21,6 @@ Este servicio:
 - `POST /pipeline`
 - `POST /artifacts/bulk`
 - `POST /experiments/:experimentId/cleanup`
-- `POST /mine` (legacy)
 
 ## Contrato: `POST /pipeline`
 
