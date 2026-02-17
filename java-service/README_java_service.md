@@ -10,8 +10,9 @@ Este servicio:
 
 ## Que hace y que no hace
 
-- `PromPipelineEvaluator` (modo `real`) ejecuta mineria y calculo de metricas reales con ProM.
-- `StubPipelineEvaluator` (modo `stub`) devuelve metricas sinteticas para pruebas rapidas.
+- `PromPipelineEvaluator` ejecuta mineria y calculo de metricas reales con ProM.
+- El servicio en runtime usa solo el evaluador real.
+- Existe un `StubPipelineEvaluator` en tests para pruebas rapidas de contrato.
 - El bloque `pipeline.preprocessing` es obligatorio en el contrato y se guarda en metadata/fingerprint.
 - En la implementacion actual del evaluador real, el preprocesado todavia no transforma el log.
 
@@ -151,7 +152,7 @@ Estructura por experimento:
 
 `evaluation_id` se genera como `<epoch_ms>-<secuencia>`.
 
-## Mineros soportados en modo real
+## Mineros soportados
 
 - `alpha`
   - variantes: `classic`, `plus`, `plus_plus`, `sharp`, `robust`, `dollar`
@@ -165,7 +166,7 @@ Estructura por experimento:
 
 Si el `miner.key` no esta soportado, responde `400 invalid_request`.
 
-## Metricas en modo real
+## Metricas
 
 - `fitness`, `precision`, `generalisation` via replay/alignment de ProM
 - `simplicity` como proxy estructural normalizado en `[0,1]`
@@ -201,7 +202,6 @@ Variables de entorno soportadas:
 - `PORT` (default: `7070`)
 - `PROM_HOME` (default: `../prom-lite-1.4-all-platforms`)
 - `LOGS_ROOT` (default: `../pm_site/pm_app/logs`)
-- `PIPELINE_EVALUATOR_MODE` (`real` o `stub`, default: `real`)
 - `ARTIFACTS_ROOT` (default: `/tmp/minersweeper-artifacts`)
 - `JAVA_LIBRARY_PATH_EXTRA` (opcional, para rutas nativas extra)
 
@@ -211,7 +211,6 @@ Ejemplo:
 PORT=7070 \
 PROM_HOME=/ruta/prom-lite-1.4-all-platforms \
 LOGS_ROOT=/ruta/logs \
-PIPELINE_EVALUATOR_MODE=real \
 ARTIFACTS_ROOT=/tmp/minersweeper-artifacts \
 ./run_prom_service.sh
 ```
@@ -258,11 +257,11 @@ curl -sS -X POST http://localhost:7070/experiments/run_001/cleanup
 
 Tests incluidos:
 - `ArtifactStoreTest`: persistencia, lectura bulk y cleanup de artefactos.
-- `StubPipelineEvaluatorTest`: contrato de metricas, alias `generalization`, fingerprint estable.
-- `StubPipelineMatrixTest`: matriz completa de mineros x preprocesados con stub.
+- `StubPipelineEvaluatorTest`: contrato de metricas con evaluador stub de tests, alias `generalization`, fingerprint estable.
+- `StubPipelineMatrixTest`: matriz completa de mineros x preprocesados usando evaluador stub de tests.
 - `PromPipelineEvaluatorRealTest`: smoke real con ProM para todos los mineros y preprocesados (opcional).
 
-Ejecutar tests unitarios/stub:
+Ejecutar tests unitarios:
 
 ```bash
 cd java-service

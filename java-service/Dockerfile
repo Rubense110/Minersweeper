@@ -27,7 +27,6 @@ RUN chmod +x /app/java-service/run_prom_service.sh
 ENV PORT=7070
 ENV LOGS_ROOT=/data/logs
 ENV PROM_HOME=/app/prom-lite-1.4-all-platforms
-ENV PIPELINE_EVALUATOR_MODE=real
 
 EXPOSE 7070
 

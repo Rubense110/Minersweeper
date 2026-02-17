@@ -140,10 +140,6 @@ public class PromService {
     }
 
     private static PipelineEvaluator buildPipelineEvaluator() {
-        String mode = env("PIPELINE_EVALUATOR_MODE", "real").trim().toLowerCase();
-        if ("stub".equals(mode)) {
-            return new StubPipelineEvaluator(ARTIFACT_STORE);
-        }
         return new PromPipelineEvaluator(
             ARTIFACT_STORE,
             Paths.get(env("LOGS_ROOT", "pm_site/pm_app/logs"))

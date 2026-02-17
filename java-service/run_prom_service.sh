@@ -7,7 +7,6 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROM_HOME="${PROM_HOME:-${ROOT_DIR}/prom-lite-1.4-all-platforms}"
 PORT="${PORT:-7070}"
 LOGS_ROOT="${LOGS_ROOT:-${ROOT_DIR}/pm_site/pm_app/logs}"
-PIPELINE_EVALUATOR_MODE="${PIPELINE_EVALUATOR_MODE:-real}"
 
 if [[ ! -f "${SCRIPT_DIR}/target/prom-service-0.1.0.jar" ]]; then
   echo "Missing jar: ${SCRIPT_DIR}/target/prom-service-0.1.0.jar"
@@ -37,12 +36,10 @@ fi
 echo "Starting PromService on port ${PORT}"
 echo "Using PROM_HOME=${PROM_HOME}"
 echo "Using LOGS_ROOT=${LOGS_ROOT}"
-echo "Using PIPELINE_EVALUATOR_MODE=${PIPELINE_EVALUATOR_MODE}"
 
 cd "${SCRIPT_DIR}"
 exec env \
   PORT="${PORT}" \
   LOGS_ROOT="${LOGS_ROOT}" \
-  PIPELINE_EVALUATOR_MODE="${PIPELINE_EVALUATOR_MODE}" \
   LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
   java -Djava.library.path="${JAVA_LIBRARY_PATH}" -cp "${CLASSPATH}" PromService
