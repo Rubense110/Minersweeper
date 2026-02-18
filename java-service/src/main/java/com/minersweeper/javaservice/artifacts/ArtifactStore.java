@@ -1,3 +1,9 @@
+package com.minersweeper.javaservice.artifacts;
+
+import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
+import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.PipelineRequest;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

@@ -1,3 +1,8 @@
+import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.PipelineRequest;
+import com.minersweeper.javaservice.artifacts.ArtifactStore;
+import com.minersweeper.javaservice.evaluation.PipelineEvaluator;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;

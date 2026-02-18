@@ -1,3 +1,9 @@
+package com.minersweeper.javaservice.evaluation;
+
+import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.PipelineRequest;
+import com.minersweeper.javaservice.artifacts.ArtifactStore;
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

@@ -2,6 +2,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
+import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.PipelineRequest;
+import com.minersweeper.javaservice.artifacts.ArtifactStore;
+import com.minersweeper.javaservice.evaluation.PromPipelineEvaluator;
+
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.file.Files;

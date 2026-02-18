@@ -1,3 +1,7 @@
+package com.minersweeper.javaservice.artifacts;
+
+import com.minersweeper.javaservice.api.dto.PipelineRequest;
+
 import java.util.Map;
 
 public class StoredArtifactMetadata {

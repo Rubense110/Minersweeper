@@ -1,3 +1,5 @@
+package com.minersweeper.javaservice.api.dto;
+
 import java.util.Map;
 
 public class EvaluationResult {

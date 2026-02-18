@@ -237,7 +237,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>PromService</mainClass>
+              <mainClass>com.minersweeper.javaservice.app.PromService</mainClass>
             </manifest>
           </archive>
         </configuration>
