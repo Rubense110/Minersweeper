@@ -3,13 +3,13 @@ package com.minersweeper.javaservice.evaluation;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
+import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,6 +87,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private final ArtifactStore artifactStore;
     private final Path logsRoot;
+    private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
         this.artifactStore = artifactStore;
@@ -112,7 +113,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             selectedMetrics.put(metricName, value);
         }
 
-        String fingerprint = buildFingerprint(request);
+        String fingerprint = fingerprintBuilder.buildFingerprint(request);
         return artifactStore.store(request, selectedMetrics, discovered.pnml, fingerprint);
     }
 
@@ -590,26 +591,6 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         } catch (Exception ignored) {
             return fallback;
         }
-    }
-
-    private String buildFingerprint(PipelineRequest request) {
-        StringBuilder builder = new StringBuilder();
-        builder.append(safe(request.log_path)).append('|');
-        builder.append(safe(request.pipeline.preprocessing.key)).append('|');
-        builder.append(safe(request.pipeline.preprocessing.variant)).append('|');
-        builder.append(sortedMapString(request.pipeline.preprocessing.parameters)).append('|');
-        builder.append(safe(request.pipeline.miner.key)).append('|');
-        builder.append(safe(request.pipeline.miner.variant)).append('|');
-        builder.append(sortedMapString(request.pipeline.miner.parameters));
-        return builder.toString();
-    }
-
-    private String sortedMapString(Map<String, Object> map) {
-        if (map == null || map.isEmpty()) {
-            return "{}";
-        }
-        java.util.TreeMap<String, Object> sorted = new java.util.TreeMap<String, Object>(map);
-        return sorted.toString();
     }
 
     private String normalizeMetricName(String metric) {
