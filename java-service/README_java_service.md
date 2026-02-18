@@ -171,6 +171,15 @@ Si el `miner.key` no esta soportado, responde `400 invalid_request`.
 - `fitness`, `precision`, `generalisation` via replay/alignment de ProM
 - `simplicity` como proxy estructural normalizado en `[0,1]`
 
+## Mejoras futuras (roadmap tecnico)
+
+- Mantener por ahora metricas con metodos estaticos por simplicidad.
+- Evolucion prevista: definir interfaces por metrica y estrategias por implementacion
+  (por ejemplo, variantes basadas en alignment o replay).
+- Evitar recalculos costosos por metrica en una misma evaluacion:
+  construir un contexto compartido de conformance (mapping, replay, alignment)
+  y reutilizarlo entre metricas.
+
 ## Prerrequisitos
 
 - Java 8+
