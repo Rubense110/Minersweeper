@@ -7,14 +7,12 @@ import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.utils.ParameterReader;
 import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
+import com.minersweeper.javaservice.evaluation.io.LogLoader;
+import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -24,7 +22,6 @@ import org.deckfour.xes.classification.XEventClassifier;
 import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.info.XLogInfo;
 import org.deckfour.xes.info.XLogInfoFactory;
-import org.deckfour.xes.in.XesXmlParser;
 import org.deckfour.xes.model.XLog;
 import org.processmining.acceptingpetrinet.models.AcceptingPetriNet;
 import org.processmining.alphaminer.parameters.AlphaRobustMinerParameters;
@@ -82,7 +79,6 @@ import org.processmining.plugins.petrinet.replayer.algorithms.costbasedcomplete.
 import org.processmining.plugins.petrinet.replayresult.PNRepResult;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGen;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGenRes;
-import org.processmining.plugins.pnml.exporting.PnmlExportNetToPNML;
 
 public class PromPipelineEvaluator implements PipelineEvaluator {
     private static final String METRIC_GENERALISATION = "generalisation";
@@ -90,18 +86,21 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private final ArtifactStore artifactStore;
     private final Path logsRoot;
+    private final LogLoader logLoader;
 
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
+    private final PmnlExporter pmnlExporter = new PmnlExporter();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
         this.artifactStore = artifactStore;
         this.logsRoot = logsRoot == null ? Paths.get(".") : logsRoot;
+        this.logLoader = new LogLoader(this.logsRoot);
     }
 
     @Override
     public EvaluationResult evaluate(PipelineRequest request) throws Exception {
-        Path logFile = resolveLogPath(request.log_path);
-        XLog log = loadLog(logFile.toFile());
+        Path logFile = logLoader.resolveLogPath(request.log_path);
+        XLog log = logLoader.loadLog(logFile.toFile());
         PluginContext context = createContext();
 
         DiscoveryArtifact discovered = discoverModel(context, log, request);
@@ -417,43 +416,13 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         artifact.net = net;
         artifact.initialMarking = initial != null ? initial : deriveInitialMarking(net);
         artifact.finalMarking = fin != null ? fin : deriveFinalMarking(net);
-        artifact.pnml = exportPnml(context, net);
+        artifact.pnml = pmnlExporter.exportPnml(context, net);
         return artifact;
-    }
-
-    private Path resolveLogPath(String rawPath) {
-        Path provided = Paths.get(rawPath == null ? "" : rawPath).normalize();
-        if (provided.isAbsolute()) {
-            return provided;
-        }
-        return logsRoot.resolve(provided).normalize();
-    }
-
-    private XLog loadLog(File file) throws Exception {
-        if (!file.exists()) {
-            throw new IllegalArgumentException("log not found: " + file.getAbsolutePath());
-        }
-        XesXmlParser parser = new XesXmlParser();
-        List<XLog> logs = parser.parse(file);
-        if (logs == null || logs.isEmpty()) {
-            throw new IllegalStateException("XES parser returned empty log list");
-        }
-        return logs.get(0);
     }
 
     private PluginContext createContext() {
         CLIContext global = new CLIContext();
         return new CLIPluginContext(global, "minersweeper");
-    }
-
-    private String exportPnml(PluginContext context, Petrinet net) throws Exception {
-        File tmp = Files.createTempFile("pipeline-", ".pnml").toFile();
-        try {
-            new PnmlExportNetToPNML().exportPetriNetToPNMLFile(context, net, tmp);
-            return new String(Files.readAllBytes(tmp.toPath()), StandardCharsets.UTF_8);
-        } finally {
-            tmp.delete();
-        }
     }
 
     private Marking deriveInitialMarking(Petrinet net) {
