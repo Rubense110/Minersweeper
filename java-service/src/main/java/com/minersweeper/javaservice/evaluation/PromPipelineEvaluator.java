@@ -4,6 +4,9 @@ import com.minersweeper.javaservice.api.dto.EvaluationResult;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
 import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
+import com.minersweeper.javaservice.evaluation.utils.ParameterReader;
+import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
+import com.minersweeper.javaservice.evaluation.utils.TextUtils;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -87,6 +90,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private final ArtifactStore artifactStore;
     private final Path logsRoot;
+
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
@@ -118,7 +122,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {
-        String minerKey = safe(request.pipeline.miner.key).toLowerCase();
+        String minerKey = TextUtils.safe(request.pipeline.miner.key).toLowerCase();
 
         if ("alpha".equals(minerKey)) {
             return discoverAlpha(context, log, request);
@@ -147,21 +151,21 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             // That ends in ClassCastException inside AlphaMinerFactory.
             AlphaRobustMinerParameters robustParams = new AlphaRobustMinerParameters(AlphaVersion.ROBUST);
             robustParams.setCausalThreshold(
-                doubleParam(
+                ParameterReader.doubleParam(
                     request.pipeline.miner.parameters,
                     "causal_threshold",
                     robustParams.getCausalThreshold()
                 )
             );
             robustParams.setNoiseThresholdLeastFreq(
-                doubleParam(
+                ParameterReader.doubleParam(
                     request.pipeline.miner.parameters,
                     "noise_threshold_least_freq",
                     robustParams.getNoiseThresholdLeastFreq()
                 )
             );
             robustParams.setNoiseThresholdMostFreq(
-                doubleParam(
+                ParameterReader.doubleParam(
                     request.pipeline.miner.parameters,
                     "noise_threshold_most_freq",
                     robustParams.getNoiseThresholdMostFreq()
@@ -179,14 +183,14 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         if (params instanceof MiningParametersAbstract) {
             MiningParametersAbstract abstractParams = (MiningParametersAbstract) params;
             abstractParams.setClassifier(new XEventNameClassifier());
-            abstractParams.setNoiseThreshold(floatParam(request.pipeline.miner.parameters, "noise_threshold", 0.2f));
-            abstractParams.setDebug(boolParam(request.pipeline.miner.parameters, "is_debug", false));
-            abstractParams.setUseMultithreading(boolParam(request.pipeline.miner.parameters, "use_multithreading", true));
+            abstractParams.setNoiseThreshold(ParameterReader.floatParam(request.pipeline.miner.parameters, "noise_threshold", 0.2f));
+            abstractParams.setDebug(ParameterReader.boolParam(request.pipeline.miner.parameters, "is_debug", false));
+            abstractParams.setUseMultithreading(ParameterReader.boolParam(request.pipeline.miner.parameters, "use_multithreading", true));
         }
 
         XEventClassifier classifier = new XEventNameClassifier();
         XLifeCycleClassifier lifeCycleClassifier = new LifeCycleClassifier();
-        boolean usePartialTraces = safe(request.pipeline.miner.variant).toLowerCase().contains("partial traces");
+        boolean usePartialTraces = TextUtils.safe(request.pipeline.miner.variant).toLowerCase().contains("partial traces");
         IMLog imLog = usePartialTraces
             ? new IMLogImplPartialTraces(log, classifier, lifeCycleClassifier)
             : new IMLogImpl(log, classifier, lifeCycleClassifier);
@@ -205,21 +209,21 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     private DiscoveryArtifact discoverHeuristics(PluginContext context, XLog log, PipelineRequest request) throws Exception {
         HeuristicsMinerSettings settings = new HeuristicsMinerSettings();
         settings.setClassifier(new XEventNameClassifier());
-        settings.setRelativeToBestThreshold(doubleParam(request.pipeline.miner.parameters, "relative_to_best_threshold", 0.05));
-        settings.setPositiveObservationThreshold(intParam(request.pipeline.miner.parameters, "positive_observation_threshold", 1));
-        settings.setDependencyThreshold(doubleParam(request.pipeline.miner.parameters, "dependency_threshold", 0.90));
-        settings.setL1lThreshold(doubleParam(request.pipeline.miner.parameters, "l1l_threshold", 0.90));
-        settings.setL2lThreshold(doubleParam(request.pipeline.miner.parameters, "l2l_threshold", 0.90));
-        settings.setLongDistanceThreshold(doubleParam(request.pipeline.miner.parameters, "long_distance_threshold", 0.90));
-        settings.setDependencyDivisor(intParam(request.pipeline.miner.parameters, "dependency_divisor", 1));
-        settings.setAndThreshold(doubleParam(request.pipeline.miner.parameters, "and_threshold", 0.10));
-        settings.setExtraInfo(boolParam(request.pipeline.miner.parameters, "extra_info", false));
-        settings.setUseAllConnectedHeuristics(boolParam(request.pipeline.miner.parameters, "use_all_connected_heuristics", true));
-        settings.setUseLongDistanceDependency(boolParam(request.pipeline.miner.parameters, "use_long_distance_dependency", false));
-        settings.setCheckBestAgainstL2L(boolParam(request.pipeline.miner.parameters, "check_best_against_l2l", true));
+        settings.setRelativeToBestThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "relative_to_best_threshold", 0.05));
+        settings.setPositiveObservationThreshold(ParameterReader.intParam(request.pipeline.miner.parameters, "positive_observation_threshold", 1));
+        settings.setDependencyThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "dependency_threshold", 0.90));
+        settings.setL1lThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "l1l_threshold", 0.90));
+        settings.setL2lThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "l2l_threshold", 0.90));
+        settings.setLongDistanceThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "long_distance_threshold", 0.90));
+        settings.setDependencyDivisor(ParameterReader.intParam(request.pipeline.miner.parameters, "dependency_divisor", 1));
+        settings.setAndThreshold(ParameterReader.doubleParam(request.pipeline.miner.parameters, "and_threshold", 0.10));
+        settings.setExtraInfo(ParameterReader.boolParam(request.pipeline.miner.parameters, "extra_info", false));
+        settings.setUseAllConnectedHeuristics(ParameterReader.boolParam(request.pipeline.miner.parameters, "use_all_connected_heuristics", true));
+        settings.setUseLongDistanceDependency(ParameterReader.boolParam(request.pipeline.miner.parameters, "use_long_distance_dependency", false));
+        settings.setCheckBestAgainstL2L(ParameterReader.boolParam(request.pipeline.miner.parameters, "check_best_against_l2l", true));
 
         HeuristicsNet heuristicsNet;
-        boolean flexible = safe(request.pipeline.miner.variant).toLowerCase().contains("flexible");
+        boolean flexible = TextUtils.safe(request.pipeline.miner.variant).toLowerCase().contains("flexible");
         if (flexible) {
             heuristicsNet = FlexibleHeuristicsMinerPlugin.run(context, log, settings);
         } else {
@@ -235,20 +239,20 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         ILPMiner ilpMiner = new ILPMiner();
         ILPMinerSettings settings = new ILPMinerSettings();
 
-        SolverType solverType = solverTypeByName(safeObj(request.pipeline.miner.parameters.get("solver_type")), SolverType.JAVAILP_LPSOLVE);
+        SolverType solverType = solverTypeByName(TextUtils.safeObj(request.pipeline.miner.parameters.get("solver_type")), SolverType.JAVAILP_LPSOLVE);
         settings.setSolverSetting(SolverSetting.TYPE, solverType);
         settings.setSolverSetting(
             SolverSetting.LICENSE_DIR,
-            safeOrDefault(request.pipeline.miner.parameters.get("license_dir"), "c:\\\\ILOG\\\\ILM")
+            TextUtils.safeOrDefault(request.pipeline.miner.parameters.get("license_dir"), "c:\\\\ILOG\\\\ILM")
         );
 
-        String variant = safe(request.pipeline.miner.variant).toLowerCase();
+        String variant = TextUtils.safe(request.pipeline.miner.variant).toLowerCase();
         boolean variableFitness = variant.contains("variable fitness");
 
         PetriNetILPModelSettings modelSettings;
         if (variableFitness) {
             PetriNetVariableFitnessILPModelSettings variableSettings = new PetriNetVariableFitnessILPModelSettings();
-            variableSettings.setFitness(doubleParam(request.pipeline.miner.parameters, "fitness", 0.0));
+            variableSettings.setFitness(ParameterReader.doubleParam(request.pipeline.miner.parameters, "fitness", 0.0));
             modelSettings = variableSettings;
             settings.setVariant(PetriNetVariableFitnessILPModel.class);
         } else {
@@ -256,9 +260,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             settings.setVariant(PetriNetILPModel.class);
         }
 
-        SearchType searchType = searchTypeByName(safeObj(request.pipeline.miner.parameters.get("search_type")), SearchType.PER_CD);
+        SearchType searchType = searchTypeByName(TextUtils.safeObj(request.pipeline.miner.parameters.get("search_type")), SearchType.PER_CD);
         modelSettings.setSearchType(searchType);
-        modelSettings.setSeparateInitialPlaces(boolParam(request.pipeline.miner.parameters, "separate_initial_places", true));
+        modelSettings.setSeparateInitialPlaces(ParameterReader.boolParam(request.pipeline.miner.parameters, "separate_initial_places", true));
         settings.setModelSettings(modelSettings);
 
         XLogInfo logInfo = XLogInfoFactory.createLogInfo(log, new XEventNameClassifier());
@@ -283,15 +287,15 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     private DiscoveryArtifact discoverHybridIlp(PluginContext context, XLog log, PipelineRequest request) throws Exception {
         XLogHybridILPMinerParametersImpl params = new XLogHybridILPMinerParametersImpl(context, log, new XEventNameClassifier());
 
-        params.setObjectiveType(lpObjectiveByName(mapHybridObjective(safeObj(request.pipeline.miner.parameters.get("lp_objective"))), LPObjectiveType.MINIMIZE_ARCS));
-        params.setVariableType(lpVariableByName(mapHybridVariable(safeObj(request.pipeline.miner.parameters.get("lp_variable_type"))), LPVariableType.DUAL));
+        params.setObjectiveType(lpObjectiveByName(mapHybridObjective(TextUtils.safeObj(request.pipeline.miner.parameters.get("lp_objective"))), LPObjectiveType.MINIMIZE_ARCS));
+        params.setVariableType(lpVariableByName(mapHybridVariable(TextUtils.safeObj(request.pipeline.miner.parameters.get("lp_variable_type"))), LPVariableType.DUAL));
 
-        LPFilterType filterType = lpFilterTypeByName(mapHybridFilterType(safeObj(request.pipeline.miner.parameters.get("lp_filter"))), LPFilterType.NONE);
+        LPFilterType filterType = lpFilterTypeByName(mapHybridFilterType(TextUtils.safeObj(request.pipeline.miner.parameters.get("lp_filter"))), LPFilterType.NONE);
         LPFilter filter = new LPFilter(filterType, hybridFilterThreshold(request.pipeline.miner.parameters));
         params.setFilter(filter);
 
         DiscoveryStrategyType discoveryType = discoveryStrategyByName(
-            mapHybridDiscoveryStrategy(safeObj(request.pipeline.miner.parameters.get("discovery_strategy"))),
+            mapHybridDiscoveryStrategy(TextUtils.safeObj(request.pipeline.miner.parameters.get("discovery_strategy"))),
             DiscoveryStrategyType.CAUSAL
         );
         params.setDiscoveryStrategy(new DiscoveryStrategy(discoveryType));
@@ -307,10 +311,10 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         ConformanceResult conformance = computeConformance(context, log, artifact.net, initial, fin);
 
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
-        metrics.put("fitness", clamp01(conformance.fitness));
-        metrics.put("precision", clamp01(conformance.precision));
-        metrics.put(METRIC_GENERALISATION, clamp01(conformance.generalisation));
-        metrics.put("simplicity", clamp01(computeStructuralSimplicity(artifact.net)));
+        metrics.put("fitness", MetricUtils.clamp01(conformance.fitness));
+        metrics.put("precision", MetricUtils.clamp01(conformance.precision));
+        metrics.put(METRIC_GENERALISATION, MetricUtils.clamp01(conformance.generalisation));
+        metrics.put("simplicity", MetricUtils.clamp01(computeStructuralSimplicity(artifact.net)));
         return metrics;
     }
 
@@ -350,7 +354,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         PNRepResult replayResult = replayer.replayLog(context, net, log, mapping, replayAlgorithm, replayParam);
 
         Map<String, Object> info = replayResult.getInfo();
-        double fitness = toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
+        double fitness = MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
 
         AlignmentPrecGen alignmentPrecGen = new AlignmentPrecGen();
         AlignmentPrecGenRes precisionGeneralization = alignmentPrecGen.measureConformanceAssumingCorrectAlignment(
@@ -500,7 +504,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private MiningParameters createInductiveParams(String variantLabel) {
-        String variant = safe(variantLabel).toLowerCase();
+        String variant = TextUtils.safe(variantLabel).toLowerCase();
         if (variant.contains("imfpta")) {
             return new MiningParametersIMInfrequentPartialTracesAli();
         }
@@ -523,7 +527,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private AlphaVersion mapAlphaVersion(String variantLabel) {
-        String variant = safe(variantLabel).toLowerCase();
+        String variant = TextUtils.safe(variantLabel).toLowerCase();
         if (variant.contains("alpha+")) {
             if (variant.contains("++")) {
                 return AlphaVersion.PLUS_PLUS;
@@ -594,97 +598,15 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private String normalizeMetricName(String metric) {
-        String normalized = safe(metric).toLowerCase();
+        String normalized = TextUtils.safe(metric).toLowerCase();
         if (METRIC_GENERALIZATION.equals(normalized)) {
             return METRIC_GENERALISATION;
         }
         return normalized;
     }
 
-    private static float floatParam(Map<String, Object> params, String key, float defaultValue) {
-        return (float) doubleParam(params, key, defaultValue);
-    }
-
-    private static double doubleParam(Map<String, Object> params, String key, double defaultValue) {
-        if (params == null || !params.containsKey(key) || params.get(key) == null) {
-            return defaultValue;
-        }
-        Object value = params.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        }
-        try {
-            return Double.parseDouble(String.valueOf(value));
-        } catch (Exception ignored) {
-            return defaultValue;
-        }
-    }
-
-    private static int intParam(Map<String, Object> params, String key, int defaultValue) {
-        if (params == null || !params.containsKey(key) || params.get(key) == null) {
-            return defaultValue;
-        }
-        Object value = params.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (Exception ignored) {
-            return defaultValue;
-        }
-    }
-
-    private static boolean boolParam(Map<String, Object> params, String key, boolean defaultValue) {
-        if (params == null || !params.containsKey(key) || params.get(key) == null) {
-            return defaultValue;
-        }
-        Object value = params.get(key);
-        if (value instanceof Boolean) {
-            return ((Boolean) value).booleanValue();
-        }
-        return Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private static double toDouble(Object value, double fallback) {
-        if (value == null) {
-            return fallback;
-        }
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        }
-        try {
-            return Double.parseDouble(String.valueOf(value));
-        } catch (Exception ignored) {
-            return fallback;
-        }
-    }
-
-    private static double clamp01(double value) {
-        if (value < 0.0) {
-            return 0.0;
-        }
-        if (value > 1.0) {
-            return 1.0;
-        }
-        return value;
-    }
-
-    private static String safe(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private static String safeObj(Object value) {
-        return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private static String safeOrDefault(Object value, String fallback) {
-        String text = value == null ? "" : String.valueOf(value).trim();
-        return text.isEmpty() ? fallback : text;
-    }
-
     private static String mapHybridObjective(String value) {
-        String text = safe(value);
+        String text = TextUtils.safe(value);
         if (text.equalsIgnoreCase("Unweighted Parikh values")) {
             return "UNWEIGHTED_PARIKH";
         }
@@ -698,7 +620,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private static String mapHybridVariable(String value) {
-        String text = safe(value);
+        String text = TextUtils.safe(value);
         if (text.equalsIgnoreCase("One variable per event")) {
             return "SINGLE";
         }
@@ -709,7 +631,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private static String mapHybridFilterType(String value) {
-        String text = safe(value);
+        String text = TextUtils.safe(value);
         if (text.equalsIgnoreCase("Sequence Encoding Filter")) {
             return "SEQUENCE_ENCODING";
         }
@@ -720,7 +642,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private static String mapHybridDiscoveryStrategy(String value) {
-        String text = safe(value);
+        String text = TextUtils.safe(value);
         if (text.equalsIgnoreCase("Alpha")) {
             return "CAUSAL_E_VERBEEK";
         }
@@ -734,12 +656,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     private static double hybridFilterThreshold(Map<String, Object> parameters) {
-        String filterName = safe(parameters.get("lp_filter") != null ? String.valueOf(parameters.get("lp_filter")) : null);
+        String filterName = TextUtils.safe(parameters.get("lp_filter") != null ? String.valueOf(parameters.get("lp_filter")) : null);
         if (filterName.equalsIgnoreCase("Sequence Encoding Filter")) {
-            return doubleParam(parameters, "sequence_encoding_cutoff_level", 0.0);
+            return ParameterReader.doubleParam(parameters, "sequence_encoding_cutoff_level", 0.0);
         }
         if (filterName.equalsIgnoreCase("Slack Variable Filter")) {
-            return doubleParam(parameters, "slack_variable_filter_threshold", 0.0);
+            return ParameterReader.doubleParam(parameters, "slack_variable_filter_threshold", 0.0);
         }
         return 0.0;
     }
