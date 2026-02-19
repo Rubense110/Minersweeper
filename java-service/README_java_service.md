@@ -50,7 +50,7 @@ Request JSON:
       }
     }
   },
-  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
+  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"]
 }
 ```
 
@@ -63,9 +63,9 @@ Response JSON:
   "fingerprint": "/abs/path/log.xes|matrix_filter|Conditional Probabilities (MF)|{...}|inductive|Inductive Miner (IM)|{noise_threshold=0.2}",
   "metrics": {
     "fitness": 1.0,
-    "precision": 0.90,
-    "simplicity": 0.64,
-    "generalisation": 0.99
+    "precision_alignment": 0.90,
+    "simplicity_structural": 0.64,
+    "generalization_alignment": 0.99
   }
 }
 ```
@@ -77,9 +77,13 @@ Validaciones principales:
 
 Metricas soportadas:
 - `fitness`
-- `precision`
-- `simplicity`
-- `generalisation` (se acepta alias `generalization`)
+- `precision_alignment`
+- `simplicity_structural`
+- `generalization_alignment`
+
+Nota de contrato:
+- Los nombres de metricas son estrictos (sin aliases y case-sensitive).
+- Si llega una metrica fuera del catalogo exacto, responde `400 invalid_request`.
 
 Errores tipicos:
 - `400 invalid_request`
@@ -112,9 +116,9 @@ Response JSON:
       "created_at_epoch_ms": 1770734531542,
       "metrics": {
         "fitness": 1.0,
-        "precision": 0.90,
-        "simplicity": 0.64,
-        "generalisation": 0.99
+        "precision_alignment": 0.90,
+        "simplicity_structural": 0.64,
+        "generalization_alignment": 0.99
       },
       "pipeline": {
         "preprocessing": {"key": "matrix_filter", "method": "Matrix Filtering", "variant": "Conditional Probabilities (MF)", "parameters": {"probability_of_removal_mf": 0.15, "subsequence_length_mf": 2}},
@@ -168,14 +172,15 @@ Si el `miner.key` no esta soportado, responde `400 invalid_request`.
 
 ## Metricas
 
-- `fitness`, `precision`, `generalisation` via replay/alignment de ProM
-- `simplicity` como proxy estructural normalizado en `[0,1]`
+- `fitness` via replay result de ProM
+- `precision_alignment` y `generalization_alignment` via alignment de ProM
+- `simplicity_structural` como proxy estructural normalizado en `[0,1]`
 
 ## Mejoras futuras (roadmap tecnico)
 
-- Mantener por ahora metricas con metodos estaticos por simplicidad.
-- Evolucion prevista: definir interfaces por metrica y estrategias por implementacion
-  (por ejemplo, variantes basadas en alignment o replay).
+- El calculo ya esta separado por metrica (`ConformanceMetric`) y orquestado desde un catalogo.
+- Evolucion prevista: introducir variantes por metrica (por ejemplo, estrategias alternativas
+  basadas en alignment o replay) manteniendo claves de contrato explicitas.
 - Evitar recalculos costosos por metrica en una misma evaluacion:
   construir un contexto compartido de conformance (mapping, replay, alignment)
   y reutilizarlo entre metricas.
@@ -244,7 +249,7 @@ curl -sS -X POST http://localhost:7070/pipeline \
       "preprocessing":{"key":"matrix_filter","method":"Matrix Filtering","variant":"Conditional Probabilities (MF)","parameters":{"probability_of_removal_mf":0.15,"subsequence_length_mf":2}},
       "miner":{"key":"inductive","family":"inductive","variant":"Inductive Miner (IM)","parameters":{"noise_threshold":0.2}}
     },
-    "metrics":["fitness","precision","simplicity","generalisation"]
+    "metrics":["fitness","precision_alignment","simplicity_structural","generalization_alignment"]
   }'
 ```
 
@@ -266,7 +271,7 @@ curl -sS -X POST http://localhost:7070/experiments/run_001/cleanup
 
 Tests incluidos:
 - `ArtifactStoreTest`: persistencia, lectura bulk y cleanup de artefactos.
-- `StubPipelineEvaluatorTest`: contrato de metricas con evaluador stub de tests, alias `generalization`, fingerprint estable.
+- `StubPipelineEvaluatorTest`: contrato de metricas con evaluador stub de tests y fingerprint estable.
 - `StubPipelineMatrixTest`: matriz completa de mineros x preprocesados usando evaluador stub de tests.
 - `PromPipelineEvaluatorRealTest`: smoke real con ProM para todos los mineros y preprocesados (opcional).
 

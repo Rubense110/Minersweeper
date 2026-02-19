@@ -25,8 +25,7 @@ public class StubPipelineEvaluator implements PipelineEvaluator {
         Map<String, Double> selected = new LinkedHashMap<String, Double>();
 
         for (String requestedMetric : request.metrics) {
-            String key = normalizeMetricName(requestedMetric);
-            Double value = canonical.get(key);
+            Double value = canonical.get(requestedMetric);
             if (value == null) {
                 throw new IllegalArgumentException("unsupported metric: " + requestedMetric);
             }
@@ -71,22 +70,14 @@ public class StubPipelineEvaluator implements PipelineEvaluator {
         double fitness = clamp01(0.55 + (0.35 * hash01));
         double precision = clamp01(0.50 + (0.25 * (1.0 - hash01)) - (0.05 * complexityPenalty));
         double simplicity = clamp01(0.92 - (0.50 * complexityPenalty));
-        double generalisation = clamp01(0.45 + (0.30 * hash01) - (0.10 * complexityPenalty));
+        double generalizationAlignment = clamp01(0.45 + (0.30 * hash01) - (0.10 * complexityPenalty));
 
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
         metrics.put("fitness", fitness);
-        metrics.put("precision", precision);
-        metrics.put("simplicity", simplicity);
-        metrics.put("generalisation", generalisation);
+        metrics.put("precision_alignment", precision);
+        metrics.put("simplicity_structural", simplicity);
+        metrics.put("generalization_alignment", generalizationAlignment);
         return metrics;
-    }
-
-    private String normalizeMetricName(String requestedMetric) {
-        String metric = safe(requestedMetric).toLowerCase();
-        if ("generalization".equals(metric)) {
-            return "generalisation";
-        }
-        return metric;
     }
 
     private String buildStubPnml(PipelineRequest request, String fingerprint) {

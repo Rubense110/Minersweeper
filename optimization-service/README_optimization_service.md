@@ -152,7 +152,7 @@ Eventos emitidos:
       }
     }
   },
-  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
+  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"]
 }
 ```
 
@@ -165,15 +165,15 @@ Eventos emitidos:
   "fingerprint": "matrix_filter|...|inductive|...",
   "metrics": {
     "fitness": 0.91,
-    "precision": 0.73,
-    "simplicity": 0.52,
-    "generalization": 0.64
+    "precision_alignment": 0.73,
+    "simplicity_structural": 0.52,
+    "generalization_alignment": 0.64
   }
 }
 ```
 
 Notas:
-- El cliente soporta alias `generalisation` <-> `generalization`.
+- Los nombres de metricas deben enviarse exactamente como en el catalogo del servicio Java (sin aliases).
 - Si falta alguna metrica pedida, se lanza `KeyError`.
 
 ### Recuperacion de artefactos PNML:
@@ -290,6 +290,38 @@ metrics = miner.get_non_dominated_metrics()
 evaluation_ids = miner.get_non_dominated_evaluation_ids()
 artifacts = miner.fetch_non_dominated_artifacts(include_pnml=True)
 ```
+
+## Generar reporte por ejecucion (`run_id`)
+
+Script incluido:
+- `optimization-service/scripts/generate_run_report.py`
+
+Genera:
+- `reports/<run_id>_evaluations_time_desc.json`
+- `reports/<run_id>_evaluations_time_desc.csv`
+
+Fuente por defecto (host local):
+- `/tmp/minersweeper-artifacts/<run_id>/*.json`
+
+Ejemplo desde artefactos locales:
+
+```bash
+cd Minersweeper
+venv/bin/python optimization-service/scripts/generate_run_report.py run_1770747769987
+```
+
+Ejemplo leyendo directo del contenedor `prom_service`:
+
+```bash
+cd Minersweeper
+venv/bin/python optimization-service/scripts/generate_run_report.py run_1770747769987 --container prom_service
+```
+
+Opciones utiles:
+- `--output-dir`: carpeta de salida (default: `optimization-service/reports`)
+- `--artifacts-root`: raiz de artefactos en host (default: `/tmp/minersweeper-artifacts`)
+- `--input-dir`: carpeta concreta con metadata `*.json` (si quieres controlar origen manualmente)
+- `--top`: tamano del bloque `top_20` (default: `20`)
 
 ## Tests
 

@@ -35,7 +35,7 @@ final class TestFixtures {
     }
 
     static List<String> defaultMetrics() {
-        return Arrays.asList("fitness", "precision", "simplicity", "generalisation");
+        return Arrays.asList("fitness", "precision_alignment", "simplicity_structural", "generalization_alignment");
     }
 
     static PipelineRequest buildRequest(

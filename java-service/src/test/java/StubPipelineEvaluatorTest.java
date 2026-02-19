@@ -26,9 +26,9 @@ public class StubPipelineEvaluatorTest {
 
         List<String> requestedMetrics = Arrays.asList(
             "fitness",
-            "precision",
-            "simplicity",
-            "generalization"
+            "precision_alignment",
+            "simplicity_structural",
+            "generalization_alignment"
         );
 
         PipelineRequest request = TestFixtures.buildRequest(
@@ -48,7 +48,7 @@ public class StubPipelineEvaluatorTest {
         assertTrue(result.fingerprint.contains("inductive"));
 
         assertEquals(4, result.metrics.size());
-        assertTrue(result.metrics.containsKey("generalization"));
+        assertTrue(result.metrics.containsKey("generalization_alignment"));
         TestFixtures.assertMetricsRange(result.metrics, requestedMetrics);
 
         ArtifactBulkResponse bulk = store.readBulk("run_stub", Arrays.asList(result.evaluation_id), true);
@@ -113,6 +113,35 @@ public class StubPipelineEvaluatorTest {
         try {
             evaluator.evaluate(request);
             fail("Expected IllegalArgumentException for unsupported metric");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("unsupported metric"));
+        }
+    }
+
+    @Test
+    public void evaluateRejectsMetricAliases() throws Exception {
+        Path tmp = Files.createTempDirectory("stub-evaluator-aliases-test");
+        ArtifactStore store = new ArtifactStore(tmp.toString());
+        StubPipelineEvaluator evaluator = new StubPipelineEvaluator(store);
+
+        List<String> requestedMetrics = Arrays.asList(
+            "fitness_replay",
+            "precision_alignment",
+            "simplicity_structural",
+            "generalization_alignment"
+        );
+
+        PipelineRequest request = TestFixtures.buildRequest(
+            "run_stub_aliases",
+            "/tmp/log.xes",
+            TestFixtures.matrixFilter(),
+            TestFixtures.inductiveImf(),
+            requestedMetrics
+        );
+
+        try {
+            evaluator.evaluate(request);
+            fail("Expected IllegalArgumentException for alias metric");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("unsupported metric"));
         }

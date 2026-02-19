@@ -1,9 +1,17 @@
 package com.minersweeper.javaservice.evaluation.conformance.metrics;
 
-import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGenRes;
+import com.minersweeper.javaservice.evaluation.conformance.ConformanceComputation;
 
-public class Precision {
-    public static double compute(AlignmentPrecGenRes alignment) {
-        return alignment.getPrecision();
+public class Precision implements ConformanceMetric {
+    public static final String KEY = "precision_alignment";
+
+    @Override
+    public String key() {
+        return KEY;
+    }
+
+    @Override
+    public double compute(ConformanceComputation computation) throws Exception {
+        return computation.getAlignment().getPrecision();
     }
 }

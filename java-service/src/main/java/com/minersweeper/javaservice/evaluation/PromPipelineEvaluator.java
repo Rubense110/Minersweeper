@@ -72,9 +72,6 @@ import org.processmining.plugins.inductiveminer2.variants.MiningParametersIMLife
 import org.processmining.plugins.inductiveminer2.variants.MiningParametersIMPartialTraces;
 
 public class PromPipelineEvaluator implements PipelineEvaluator {
-    private static final String METRIC_GENERALISATION = "generalisation";
-    private static final String METRIC_GENERALIZATION = "generalization";
-
     private final ArtifactStore artifactStore;
     private final Path logsRoot;
     private final LogLoader logLoader;
@@ -97,12 +94,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         PluginContext context = createContext();
 
         DiscoveryArtifact discovered = discoverModel(context, log, request);
-        Map<String, Double> canonicalMetrics = evaluateMetrics(context, log, discovered);
+        Map<String, Double> canonicalMetrics = evaluateMetrics(context, log, discovered, request.metrics);
 
         Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
         for (String metricName : request.metrics) {
-            String key = normalizeMetricName(metricName);
-            Double value = canonicalMetrics.get(key);
+            Double value = canonicalMetrics.get(metricName);
             if (value == null) {
                 throw new IllegalArgumentException("unsupported metric: " + metricName);
             }
@@ -296,10 +292,15 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         return toDiscoveryArtifact(context, result);
     }
 
-    private Map<String, Double> evaluateMetrics(PluginContext context, XLog log, DiscoveryArtifact artifact) throws Exception {
+    private Map<String, Double> evaluateMetrics(
+        PluginContext context,
+        XLog log,
+        DiscoveryArtifact artifact,
+        Iterable<String> requestedMetrics
+    ) throws Exception {
         Marking initial = artifact.initialMarking != null ? artifact.initialMarking : deriveInitialMarking(artifact.net);
         Marking fin = artifact.finalMarking != null ? artifact.finalMarking : deriveFinalMarking(artifact.net);
-        return conformanceMetricsCalculator.compute(context, log, artifact.net, initial, fin);
+        return conformanceMetricsCalculator.compute(context, log, artifact.net, initial, fin, requestedMetrics);
     }
 
     private DiscoveryArtifact toDiscoveryArtifact(PluginContext context, Object[] resultArray) throws Exception {
@@ -473,14 +474,6 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         } catch (Exception ignored) {
             return fallback;
         }
-    }
-
-    private String normalizeMetricName(String metric) {
-        String normalized = TextUtils.safe(metric).toLowerCase();
-        if (METRIC_GENERALIZATION.equals(normalized)) {
-            return METRIC_GENERALISATION;
-        }
-        return normalized;
     }
 
     private static String mapHybridObjective(String value) {
