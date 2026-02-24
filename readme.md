@@ -1,82 +1,106 @@
-# MinerSweeper
+# Minersweeper
 
-MinerSweeper is a web platform that automates process discovery with multiple objectives.  
-Upload an event log, pick the metrics that matter (fitness, precision, simplicity, etc.), choose a miner and an optimizer, and let the app search for the best Petri nets. The UI lets you inspect executions, see Pareto fronts, compare models, and download all artifacts for offline analysis.
+Repositorio del backend de optimizacion de pipelines de process mining:
 
-## What You Can Do
-- **Guided discovery wizard** – select metrics, miners (heuristic or inductive) and optimizers (NSGA-II, NSGA-III, SPEA2, parallel NSGA-II).
-- **Execution history** – revisit every run, review optimizer parameters, runtime, and log source.
-- **Solution explorer** – navigate the Pareto front, inspect Petri nets, download CSV/JSON packages, and compare nets visually.
-- **Log manager** – upload/remove XES event logs directly from the interface.
+- `prom_service` (Java + ProM): descubre modelos y calcula metricas.
+- `optimization_service` (Python + jMetalPy): ejecuta NSGA-III y expone jobs HTTP.
+- `frontend_service` (React + Vite): UI simple para lanzar ejecuciones y ver resultados.
 
-## Quick Start (Docker)
-1. Clone the repo and copy the environment template:
-   ```bash
-   git clone <repo-url>
-   cd pm_app_v2
-   cp .env.example .env
-   ```
-   The template already contains demo-friendly defaults (debug enabled, dev secret key, Postgres MS/MS/MS). Change them only if you plan to expose the app publicly.
+## Documentacion por servicio
 
-2. Launch the stack:
-   ```bash
-   docker compose up --build
-   ```
-   The `database` service runs PostgreSQL, `django_app` runs migrations automatically and serves the site at http://localhost:8000/.
+- `java-service/README_java_service.md`
+- `optimization-service/README_optimization_service.md`
+- `frontend-service/README_frontend_service.md`
 
-3. Start exploring: upload an event log under **Logs**, open **Discovery**, follow the wizard, and review the resulting executions in **History** and **Solutions**.
+## Lanzar la app con Docker
 
-4. Stop the stack:
-   ```bash
-   docker compose down        # keep database volume
-   docker compose down -v     # remove everything, including data
-   ```
+Prerequisitos:
 
-## Manual Setup (Optional)
-If you prefer running Django directly:
+- Docker y Docker Compose instalados.
+- La carpeta `prom-lite-1.4-all-platforms/` presente en la raiz del repo.
+- Logs XES en `pm_site/pm_app/logs/` (se montan como `/data/logs` en contenedores).
+
+### 1. Construir y levantar
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python pm_site/manage.py migrate
-python pm_site/manage.py runserver
+cd Minersweeper
+docker compose up --build -d
 ```
-Set `DJANGO_USE_SQLITE=1` in `.env` if you want to avoid PostgreSQL for local experiments.
 
-## Configuration
-Key environment variables (loaded from `.env`):
+Servicios publicados:
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `DJANGO_SECRET_KEY` | Session/CSRF signing key | `dev-secret-key-change-me` |
-| `DJANGO_DEBUG` | `1` to enable Django debug mode | `1` |
-| `DJANGO_ALLOWED_HOSTS` | Space-separated hosts when debug is off | `localhost 127.0.0.1` |
-| `DJANGO_USE_SQLITE` | `1` to use SQLite instead of Postgres | `0` |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` | Database connection settings | `MS`, `MS`, `MS`, `database`, `5432` |
+- `prom_service`: `http://localhost:7070`
+- `optimization_service`: `http://localhost:8080`
+- `frontend_service`: `http://localhost:5173`
 
-For production deployments change the secret key, disable debug, and narrow `DJANGO_ALLOWED_HOSTS`.
+### 2. Verificar salud
 
-## Database Tips
-- Enter the Django container console to run management commands:
-  ```bash
-  docker compose exec web bin/bash
-  ```
-- Backup the default PostgreSQL instance:
-  ```bash
-  docker exec -t database pg_dump -U MS MS > backup.sql
-  ```
-- Restore from a dump:
-  ```bash
-  docker exec -i database psql -U MS MS < backup.sql
-  ```
-- Empty the database tables (run inside the container shell):
-  ```bash
-  python3 manage.py flush --no-input
-  ```
-- Reset auto-increment after bulk imports:
-  ```sql
-  SELECT setval(pg_get_serial_sequence('"pm_app_execution"', 'id'), MAX(id)) FROM "pm_app_execution";
-  ```
+```bash
+curl -sS http://localhost:7070/health
+curl -sS http://localhost:8080/health
+```
 
-Happy process mining!
+### 3. Lanzar una optimizacion (API Python)
+
+```bash
+curl -sS -X POST http://localhost:8080/optimizations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "execution_name":"run_test_python_api",
+    "log_path":"/data/logs/BPI_Challenge_2013_open_problems.xes",
+    "max_evaluations":50,
+    "population_size":20,
+    "n_workers":1,
+    "excluded_miners":["split","ilp"]
+  }'
+```
+
+La respuesta devuelve `job_id`.
+
+### 4. Consultar estado del job
+
+```bash
+curl -sS http://localhost:8080/optimizations/<job_id>
+```
+
+Estados terminales:
+
+- `completed`
+- `failed`
+
+### 5. Recuperar resultados del frente
+
+Soluciones:
+
+```bash
+curl -sS "http://localhost:8080/optimizations/<job_id>/solutions?scope=pareto"
+```
+
+Artefactos (PNML):
+
+```bash
+curl -sS "http://localhost:8080/optimizations/<job_id>/artifacts?scope=pareto&include_pnml=true"
+```
+
+## Logs utiles
+
+```bash
+docker compose logs -f prom_service
+docker compose logs -f optimization_service
+```
+
+## Parar stack
+
+```bash
+docker compose down
+```
+
+Para eliminar tambien redes/estado de contenedores:
+
+```bash
+docker compose down -v
+```
+
+## Nota
+
+Existe un compose anterior en `docker-compose.old.yml` para referencia, pero el flujo activo es `docker-compose.yml`.

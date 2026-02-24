@@ -84,4 +84,15 @@ class InductiveParametersConfig(BaseParametersConfig):
     def get_param_names(self):
         param_names = list(self.base_params.keys())
         return param_names
+
+
+class AlphaParametersConfig(BaseParametersConfig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.base_params = {}
+        self.param_range = {}
+        self.param_type = {}
+
+    def get_param_names(self):
+        return []
     

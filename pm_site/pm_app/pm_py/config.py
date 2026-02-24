@@ -20,7 +20,8 @@ miner_mapping = {
 
 parameter_mapping = {
     'inductive': parameters.InductiveParametersConfig(),
-    'heuristic': parameters.HeuristicParametersConfig()
+    'heuristic': parameters.HeuristicParametersConfig(),
+    'alpha': parameters.AlphaParametersConfig()
 }
 
 max_evaluations = 1000

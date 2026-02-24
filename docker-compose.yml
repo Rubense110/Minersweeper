@@ -1,36 +1,70 @@
-
 services:
-
-  db:
-    container_name: database
-    restart: unless-stopped
-    image: postgres:18
-    ports:
-      - '5432:5432'
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-MS}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MS}
-      POSTGRES_DB: ${POSTGRES_DB:-MS}
-    volumes:
-      - postgres_data:/var/lib/postgresql
-  
-  web:
-    container_name: django_app
+  prom_service:
+    container_name: prom_service
     restart: unless-stopped
     build:
       context: .
-      dockerfile: Dockerfile
-    command: sh -c "python3 -u pm_site/manage.py makemigrations ; python3 -u pm_site/manage.py migrate ; python3 -u pm_site/manage.py runserver 0.0.0.0:8000"
+      dockerfile: java-service/Dockerfile
+    ports:
+      - "7070:7070"
+    environment:
+      PORT: 7070
+      LOGS_ROOT: /data/logs
+      PIPELINE_EVALUATOR_MODE: real
+      PROM_VERBOSE_EXCEPTIONS: "true"
+      PROM_SUPPRESS_HEURISTICS_LOG_NOISE: "true"
+      PROM_TIMING_ENABLED: "true"
+      PROM_TIMING_SLOW_MS: "0"
+      PROM_LOG_CACHE_MAX_EXPERIMENTS: "8"
+    volumes:
+      - ./pm_site/pm_app/logs:/data/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7070/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  optimization_service:
+    container_name: optimization_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: optimization-service/Dockerfile
+    depends_on:
+      prom_service:
+        condition: service_healthy
+    environment:
+      JAVA_SERVICE_URL: http://prom_service:7070
+      LOGS_ROOT: /data/logs
+      OPTIMIZATION_HOST: 0.0.0.0
+      OPTIMIZATION_PORT: 8080
+      OPTIMIZATION_LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app/optimization-service
+    ports:
+      - "8080:8080"
     volumes:
       - .:/app
-    ports:
-      - "8000:8000"
+      - ./pm_site/pm_app/logs:/data/logs
+    working_dir: /app/optimization-service
+
+  frontend_service:
+    container_name: frontend_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: frontend-service/Dockerfile
     depends_on:
-      - db
-    env_file:
-      - .env
+      optimization_service:
+        condition: service_started
     environment:
-      PYTHONUNBUFFERED: 1
+      VITE_OPTIMIZATION_API_URL: http://localhost:8080
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend-service:/app/frontend-service
+      - frontend_node_modules:/app/frontend-service/node_modules
+    working_dir: /app/frontend-service
 
 volumes:
-  postgres_data:
+  frontend_node_modules:
