@@ -13,6 +13,8 @@ services:
       PIPELINE_EVALUATOR_MODE: real
       PROM_VERBOSE_EXCEPTIONS: "true"
       PROM_SUPPRESS_HEURISTICS_LOG_NOISE: "true"
+      PROM_TIMING_ENABLED: "true"
+      PROM_TIMING_SLOW_MS: "0"
     volumes:
       - ./pm_site/pm_app/logs:/data/logs
     healthcheck:

@@ -1,5 +1,6 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
+import com.minersweeper.javaservice.app.logging.TimingTrace;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.ConformanceMetric;
 import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
 import java.util.LinkedHashMap;
@@ -24,7 +25,8 @@ public class ConformanceMetricsCalculator {
         Petrinet net,
         Marking initial,
         Marking fin,
-        Iterable<String> requestedMetrics
+        Iterable<String> requestedMetrics,
+        TimingTrace timing
     ) throws Exception {
         if (requestedMetrics == null) {
             throw new IllegalArgumentException("requested metrics cannot be null");
@@ -38,12 +40,16 @@ public class ConformanceMetricsCalculator {
             canonicalRequestedMetrics.add(requestedMetric);
         }
 
-        ConformanceComputation computation = new ConformanceComputation(context, log, net, initial, fin);
+        ConformanceComputation computation = new ConformanceComputation(context, log, net, initial, fin, timing);
 
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
         for (String metricKey : canonicalRequestedMetrics) {
             ConformanceMetric metric = metricsByKey.get(metricKey);
+            long metricStartNs = TimingTrace.nowNs();
             metrics.put(metricKey, MetricUtils.clamp01(metric.compute(computation)));
+            if (timing != null) {
+                timing.markFromStart("metric_" + metricKey + "_ms", metricStartNs);
+            }
         }
         return metrics;
     }

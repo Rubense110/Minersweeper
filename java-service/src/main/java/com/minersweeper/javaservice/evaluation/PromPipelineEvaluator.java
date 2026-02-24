@@ -1,5 +1,6 @@
 package com.minersweeper.javaservice.evaluation;
 
+import com.minersweeper.javaservice.app.logging.TimingTrace;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
@@ -43,31 +44,86 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     @Override
     public EvaluationResult evaluate(PipelineRequest request) throws Exception {
-        Path logFile = logLoader.resolveLogPath(request.log_path);
-        XLog log = logLoader.loadLog(logFile.toFile());
-        PluginContext context = createContext();
+        TimingTrace timing = TimingTrace.start();
+        long evaluationStartNs = TimingTrace.nowNs();
+        boolean failed = false;
+        String failureType = "";
 
-        DiscoveryArtifact discovered = discoverModel(context, log, request);
-        Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
-            context,
-            log,
-            discovered.getNet(),
-            discovered.getInitialMarking(),
-            discovered.getFinalMarking(),
-            request.metrics
-        );
-
-        Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
-        for (String metricName : request.metrics) {
-            Double value = canonicalMetrics.get(metricName);
-            if (value == null) {
-                throw new IllegalArgumentException("unsupported metric: " + metricName);
+        String experimentId = TextUtils.safe(request == null ? null : request.experiment_id);
+        String requestedMetrics = joinMetrics(request);
+        String minerKey = "";
+        String minerVariant = "";
+        String preprocessingKey = "";
+        if (request != null && request.pipeline != null) {
+            if (request.pipeline.miner != null) {
+                minerKey = TextUtils.safe(request.pipeline.miner.key);
+                minerVariant = TextUtils.safe(request.pipeline.miner.variant);
             }
-            selectedMetrics.put(metricName, value);
+            if (request.pipeline.preprocessing != null) {
+                preprocessingKey = TextUtils.safe(request.pipeline.preprocessing.key);
+            }
         }
 
-        String fingerprint = fingerprintBuilder.buildFingerprint(request);
-        return artifactStore.store(request, selectedMetrics, discovered.getPnml(), fingerprint);
+        try {
+            long logLoadStartNs = TimingTrace.nowNs();
+            Path logFile = logLoader.resolveLogPath(request.log_path);
+            XLog log = logLoader.loadLog(logFile.toFile());
+            timing.markFromStart("log_load_ms", logLoadStartNs);
+
+            long contextStartNs = TimingTrace.nowNs();
+            PluginContext context = createContext();
+            timing.markFromStart("context_create_ms", contextStartNs);
+
+            long discoverStartNs = TimingTrace.nowNs();
+            DiscoveryArtifact discovered = discoverModel(context, log, request);
+            timing.markFromStart("discover_ms", discoverStartNs);
+
+            long metricsStartNs = TimingTrace.nowNs();
+            Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
+                context,
+                log,
+                discovered.getNet(),
+                discovered.getInitialMarking(),
+                discovered.getFinalMarking(),
+                request.metrics,
+                timing
+            );
+            timing.markFromStart("metrics_ms", metricsStartNs);
+
+            Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
+            for (String metricName : request.metrics) {
+                Double value = canonicalMetrics.get(metricName);
+                if (value == null) {
+                    throw new IllegalArgumentException("unsupported metric: " + metricName);
+                }
+                selectedMetrics.put(metricName, value);
+            }
+
+            long fingerprintStartNs = TimingTrace.nowNs();
+            String fingerprint = fingerprintBuilder.buildFingerprint(request);
+            timing.markFromStart("fingerprint_ms", fingerprintStartNs);
+
+            long artifactStoreStartNs = TimingTrace.nowNs();
+            EvaluationResult result = artifactStore.store(request, selectedMetrics, discovered.getPnml(), fingerprint);
+            timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
+            return result;
+        } catch (Exception error) {
+            failed = true;
+            failureType = error.getClass().getSimpleName();
+            throw error;
+        } finally {
+            long totalMs = TimingTrace.elapsedMs(evaluationStartNs);
+            timing.logSummary(
+                totalMs,
+                failed,
+                failureType,
+                experimentId,
+                minerKey,
+                minerVariant,
+                preprocessingKey,
+                requestedMetrics
+            );
+        }
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {
@@ -112,5 +168,19 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             }
         }
         return false;
+    }
+
+    private static String joinMetrics(PipelineRequest request) {
+        if (request == null || request.metrics == null || request.metrics.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        for (String metric : request.metrics) {
+            if (out.length() > 0) {
+                out.append(',');
+            }
+            out.append(TextUtils.safe(metric));
+        }
+        return out.toString();
     }
 }

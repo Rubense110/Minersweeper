@@ -1,5 +1,6 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
+import com.minersweeper.javaservice.app.logging.TimingTrace;
 import org.deckfour.xes.classification.XEventClass;
 import org.deckfour.xes.classification.XEventClasses;
 import org.deckfour.xes.classification.XEventClassifier;
@@ -25,6 +26,7 @@ public class ConformanceComputation {
     private final Petrinet net;
     private final Marking initialMarking;
     private final Marking finalMarking;
+    private final TimingTrace timing;
 
     private XEventClassifier classifier;
     private XEventClasses eventClasses;
@@ -38,13 +40,15 @@ public class ConformanceComputation {
         XLog log,
         Petrinet net,
         Marking initialMarking,
-        Marking finalMarking
+        Marking finalMarking,
+        TimingTrace timing
     ) {
         this.context = context;
         this.log = log;
         this.net = net;
         this.initialMarking = initialMarking;
         this.finalMarking = finalMarking;
+        this.timing = timing;
     }
 
     public Petrinet getNet() {
@@ -55,6 +59,7 @@ public class ConformanceComputation {
         if (mapping != null) {
             return mapping;
         }
+        long mappingStartNs = TimingTrace.nowNs();
 
         TransEvClassMapping resolvedMapping = new TransEvClassMapping(getClassifier(), getDummyEventClass());
         for (Transition transition : net.getTransitions()) {
@@ -69,6 +74,9 @@ public class ConformanceComputation {
         }
 
         mapping = resolvedMapping;
+        if (timing != null) {
+            timing.markFromStart("mapping_ms", mappingStartNs);
+        }
         return mapping;
     }
 
@@ -76,6 +84,7 @@ public class ConformanceComputation {
         if (replayResult != null) {
             return replayResult;
         }
+        long replayStartNs = TimingTrace.nowNs();
 
         CostBasedCompleteParam replayParam = new CostBasedCompleteParam(
             getEventClasses().getClasses(),
@@ -93,6 +102,9 @@ public class ConformanceComputation {
         PNLogReplayer replayer = new PNLogReplayer();
         PetrinetReplayerWithILP replayAlgorithm = new PetrinetReplayerWithILP();
         replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        if (timing != null) {
+            timing.markFromStart("replay_ms", replayStartNs);
+        }
         return replayResult;
     }
 
@@ -100,6 +112,7 @@ public class ConformanceComputation {
         if (alignment != null) {
             return alignment;
         }
+        long alignmentStartNs = TimingTrace.nowNs();
 
         AlignmentPrecGen alignmentPrecGen = new AlignmentPrecGen();
         alignment = alignmentPrecGen.measureConformanceAssumingCorrectAlignment(
@@ -110,6 +123,9 @@ public class ConformanceComputation {
             initialMarking,
             false
         );
+        if (timing != null) {
+            timing.markFromStart("alignment_ms", alignmentStartNs);
+        }
         return alignment;
     }
 

@@ -219,6 +219,8 @@ Variables de entorno soportadas:
 - `LOGS_ROOT` (default: `../pm_site/pm_app/logs`)
 - `ARTIFACTS_ROOT` (default: `/tmp/minersweeper-artifacts`)
 - `JAVA_LIBRARY_PATH_EXTRA` (opcional, para rutas nativas extra)
+- `PROM_TIMING_ENABLED` (default: `false`)
+- `PROM_TIMING_SLOW_MS` (default: `0`; si es `>0`, solo loguea evaluaciones con `total_ms >= umbral`)
 
 Ejemplo:
 
@@ -227,8 +229,14 @@ PORT=7070 \
 PROM_HOME=/ruta/prom-lite-1.4-all-platforms \
 LOGS_ROOT=/ruta/logs \
 ARTIFACTS_ROOT=/tmp/minersweeper-artifacts \
+PROM_TIMING_ENABLED=true \
+PROM_TIMING_SLOW_MS=2000 \
 ./run_prom_service.sh
 ```
+
+Cuando `PROM_TIMING_ENABLED=true`, el servicio emite una linea por evaluacion con desglose de fases
+(`log_load_ms`, `discover_ms`, `replay_ms`, `alignment_ms`, `metric_*_ms`, `store_artifact_ms`, etc.)
+y un `trace_id` para correlacion.
 
 ## Flujo rapido de prueba
 
