@@ -51,7 +51,7 @@ curl -sS -X POST http://localhost:8080/optimizations \
     "max_evaluations":50,
     "population_size":20,
     "n_workers":1,
-    "excluded_miners":["split"]
+    "excluded_miners":["split","ilp"]
   }'
 ```
 

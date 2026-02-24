@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import threading
@@ -16,6 +17,14 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 
 from java_service_client import ProMServiceClient
+
+_LOG_LEVEL_NAME = (os.getenv("OPTIMIZATION_LOG_LEVEL") or "INFO").strip().upper()
+_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format="[%(asctime)s] [optimization_service] [%(levelname)s] %(message)s",
+)
+LOGGER = logging.getLogger("optimization_service.jobs")
 
 
 def _utc_now_iso() -> str:
@@ -34,8 +43,7 @@ def _to_bool(value: Any, default: bool = False) -> bool:
 def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
     attrs = getattr(solution, "attributes", {}) or {}
     evaluation_id = attrs.get("evaluation_id")
-
-    return {
+    payload = {
         "evaluation_id": evaluation_id,
         "experiment_id": attrs.get("experiment_id"),
         "fingerprint": attrs.get("fingerprint"),
@@ -45,6 +53,9 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "variables": list(getattr(solution, "variables", []) or []),
         "is_pareto": bool(evaluation_id and evaluation_id in pareto_ids),
     }
+    if attrs.get("evaluation_error"):
+        payload["evaluation_error"] = attrs.get("evaluation_error")
+    return payload
 
 
 class OptimizationJobManager:
@@ -68,7 +79,7 @@ class OptimizationJobManager:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
         metrics = payload.get("metrics")
-        excluded_miners = payload.get("excluded_miners", ["split"])
+        excluded_miners = payload.get("excluded_miners", ["split", "ilp"])
 
         discover_cfg = {
             "max_evaluations": int(payload.get("max_evaluations", 1000)),
@@ -115,6 +126,15 @@ class OptimizationJobManager:
 
         worker = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
         worker.start()
+        LOGGER.info(
+            "job queued job_id=%s execution=%s log_path=%s max_evaluations=%s population_size=%s n_workers=%s",
+            job_id,
+            execution_name,
+            log_path,
+            discover_cfg["max_evaluations"],
+            discover_cfg["population_size"],
+            discover_cfg["n_workers"],
+        )
         return self._public_job(job)
 
     def _run_job(self, job_id: str) -> None:
@@ -124,6 +144,14 @@ class OptimizationJobManager:
                 return
             job["status"] = "running"
             job["started_at"] = _utc_now_iso()
+            request_data = dict(job["request"])
+        LOGGER.info(
+            "job running job_id=%s execution=%s metrics=%s service_url=%s",
+            job_id,
+            request_data.get("execution_name"),
+            request_data.get("metrics"),
+            request_data.get("service_url"),
+        )
         self._publish_event(
             job_id,
             "status_changed",
@@ -147,6 +175,17 @@ class OptimizationJobManager:
                 current = int(progress.get("evaluations_done") or 0)
                 if max_evaluations > current:
                     progress["evaluations_done"] = max_evaluations
+            all_solutions = result.get("all_solutions", [])
+            failed_solutions = sum(1 for item in all_solutions if item.get("evaluation_error"))
+            total_solutions = len(all_solutions)
+            LOGGER.info(
+                "job completed job_id=%s execution=%s total_solutions=%s pareto_solutions=%s failed_solutions=%s",
+                job_id,
+                result.get("execution_name"),
+                total_solutions,
+                result.get("counts", {}).get("pareto_solutions", 0),
+                failed_solutions,
+            )
             self._publish_event(
                 job_id,
                 "status_changed",
@@ -197,13 +236,60 @@ class OptimizationJobManager:
                     "error_type": type(exc).__name__,
                 },
             )
+            LOGGER.exception("job failed job_id=%s", job_id)
 
     def _execute(self, job_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
         # Lazy import so API module is lightweight to import and easier to test.
         from process_miner import OptimizedProcessMiner
 
-        def on_evaluation(_event: Dict[str, Any]) -> None:
-            self._update_progress(job_id, int(_event.get("evaluations_done") or 0))
+        discover = config["discover"]
+        max_evaluations = int(discover["max_evaluations"])
+        progress_log_step = max(1, max_evaluations // 10)
+        progress_state = {
+            "last_progress_logged": 0,
+            "error_count": 0,
+            "error_occurrences": {},
+            "unique_errors_logged": 0,
+        }
+
+        def on_evaluation(event: Dict[str, Any]) -> None:
+            evaluations_done = int(event.get("evaluations_done") or 0)
+            self._update_progress(job_id, evaluations_done)
+
+            should_log_progress = (
+                evaluations_done == 1
+                or evaluations_done >= max_evaluations
+                or evaluations_done - int(progress_state["last_progress_logged"]) >= progress_log_step
+            )
+            if should_log_progress:
+                progress_state["last_progress_logged"] = evaluations_done
+                LOGGER.info(
+                    "job progress job_id=%s evaluations=%s/%s cache_hit=%s errors=%s",
+                    job_id,
+                    evaluations_done,
+                    max_evaluations,
+                    bool(event.get("cache_hit")),
+                    progress_state["error_count"],
+                )
+
+            if not event.get("has_error"):
+                return
+
+            progress_state["error_count"] = int(progress_state["error_count"]) + 1
+            error_message = str(event.get("evaluation_error") or "evaluation_failed")
+            error_occurrences = progress_state["error_occurrences"]
+            error_count_for_message = int(error_occurrences.get(error_message, 0)) + 1
+            error_occurrences[error_message] = error_count_for_message
+
+            if error_count_for_message == 1 and int(progress_state["unique_errors_logged"]) < 5:
+                progress_state["unique_errors_logged"] = int(progress_state["unique_errors_logged"]) + 1
+                LOGGER.warning(
+                    "job evaluation failed job_id=%s evaluation=%s/%s error=%s",
+                    job_id,
+                    evaluations_done,
+                    max_evaluations,
+                    error_message,
+                )
 
         miner = OptimizedProcessMiner(
             execution_name=config["execution_name"],
@@ -213,7 +299,6 @@ class OptimizationJobManager:
             excluded_miners=tuple(config.get("excluded_miners") or ()),
         )
 
-        discover = config["discover"]
         miner.discover(
             max_evaluations=discover["max_evaluations"],
             population_size=discover["population_size"],

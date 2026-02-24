@@ -120,6 +120,20 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("pareto", body["scope"])
         self.assertEqual(1, body["count"])
 
+    def test_serialize_solution_includes_evaluation_error(self):
+        class Sol:
+            objectives = [0.1]
+            variables = [0.2]
+            attributes = {
+                "evaluation_id": None,
+                "pipeline": {"miner": {"key": "heuristics"}},
+                "metrics": {"fitness": 0.0},
+                "evaluation_error": "HTTPError: 500 Server Error",
+            }
+
+        payload = api._serialize_solution(Sol(), pareto_ids=set())
+        self.assertEqual("HTTPError: 500 Server Error", payload["evaluation_error"])
+
     def test_get_solutions_invalid_scope(self):
         response = self.client.get("/optimizations/job-1/solutions?scope=bad")
         self.assertEqual(400, response.status_code)

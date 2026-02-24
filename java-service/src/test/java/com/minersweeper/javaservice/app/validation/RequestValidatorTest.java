@@ -24,6 +24,7 @@ public class RequestValidatorTest {
 
         assertNotNull(request.pipeline.preprocessing.parameters);
         assertNotNull(request.pipeline.miner.parameters);
+        assertNotNull(request.excluded_miners);
     }
 
     @Test

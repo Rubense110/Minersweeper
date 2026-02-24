@@ -66,7 +66,11 @@ class PipelineOptimizationProblem(FloatProblem):
                 solution.attributes["experiment_id"] = cached["experiment_id"]
             if cached.get("fingerprint"):
                 solution.attributes["fingerprint"] = cached["fingerprint"]
-            self._notify_evaluation(cache_hit=True, has_error=bool(cached.get("evaluation_error")))
+            self._notify_evaluation(
+                cache_hit=True,
+                has_error=bool(cached.get("evaluation_error")),
+                evaluation_error=cached.get("evaluation_error"),
+            )
             return solution
 
         decoded_pipeline = self.search_space.decode(solution.variables)
@@ -119,10 +123,14 @@ class PipelineOptimizationProblem(FloatProblem):
                 "fingerprint": fingerprint,
                 "evaluation_error": evaluation_error,
             }
-        self._notify_evaluation(cache_hit=False, has_error=bool(evaluation_error))
+        self._notify_evaluation(
+            cache_hit=False,
+            has_error=bool(evaluation_error),
+            evaluation_error=evaluation_error,
+        )
         return solution
 
-    def _notify_evaluation(self, cache_hit: bool, has_error: bool) -> None:
+    def _notify_evaluation(self, cache_hit: bool, has_error: bool, evaluation_error: str | None = None) -> None:
         if self.on_evaluation is None:
             return
         with self._eval_lock:
@@ -134,6 +142,7 @@ class PipelineOptimizationProblem(FloatProblem):
                     "evaluations_done": done,
                     "cache_hit": cache_hit,
                     "has_error": has_error,
+                    "evaluation_error": evaluation_error,
                 }
             )
         except Exception:

@@ -24,7 +24,7 @@ class OptimizedProcessMiner:
         log: str,
         metrics: Optional[List[str]] = None,
         service_url: Optional[str] = None,
-        excluded_miners: Optional[Sequence[str]] = ("split",),
+        excluded_miners: Optional[Sequence[str]] = ("split", "ilp"),
     ):
         self.execution_name = execution_name
         self.log_path = log
@@ -53,7 +53,11 @@ class OptimizedProcessMiner:
             raise ValueError("service_url is required to evaluate candidate pipelines")
 
         self.search_space = PipelineSearchSpace(excluded_miners=self.excluded_miners)
-        self.service_client = ProMServiceClient(base_url=url, experiment_id=self.execution_name)
+        self.service_client = ProMServiceClient(
+            base_url=url,
+            experiment_id=self.execution_name,
+            excluded_miners=self.excluded_miners,
+        )
 
         self.problem = PipelineOptimizationProblem(
             log_path=self.log_path,

@@ -152,7 +152,8 @@ Eventos emitidos:
       }
     }
   },
-  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"]
+  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+  "excluded_miners": ["split", "ilp"]
 }
 ```
 
@@ -241,7 +242,7 @@ Definido en `parameters/miners/`:
   - Variante: `hybrid`
   - Gating por `lp_filter`
 - `split`
-  - Incluido en catalogo, pero excluido por defecto en ejecucion (`excluded_miners=("split",)`).
+  - Incluido en catalogo, pero excluido por defecto en ejecucion (`excluded_miners=("split", "ilp")`).
 
 ## Configuracion de optimizacion (NSGA-III)
 

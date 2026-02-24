@@ -19,6 +19,11 @@ final class HttpResponses {
     }
 
     static String buildErrorMessage(Throwable error) {
+        String directMessage = error.getMessage();
+        if (directMessage != null && !directMessage.trim().isEmpty()) {
+            return error.getClass().getSimpleName() + ": " + directMessage;
+        }
+
         Throwable root = error;
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();

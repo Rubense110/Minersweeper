@@ -72,6 +72,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {
         String minerKey = TextUtils.safe(request.pipeline.miner.key).toLowerCase();
+        if (isExcludedByRequest(request, minerKey)) {
+            throw new IllegalArgumentException("miner excluded by request: " + minerKey);
+        }
         MinerDiscoverer discoverer = minersByKey.get(minerKey);
         if (discoverer == null) {
             throw new IllegalArgumentException("unsupported miner for real evaluator: " + minerKey);
@@ -97,5 +100,17 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private void register(Map<String, MinerDiscoverer> discoverers, MinerDiscoverer discoverer) {
         discoverers.put(discoverer.key(), discoverer);
+    }
+
+    private boolean isExcludedByRequest(PipelineRequest request, String minerKey) {
+        if (request == null || request.excluded_miners == null || request.excluded_miners.isEmpty()) {
+            return false;
+        }
+        for (String excluded : request.excluded_miners) {
+            if (minerKey.equals(TextUtils.safe(excluded).toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

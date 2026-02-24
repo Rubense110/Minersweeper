@@ -8,6 +8,7 @@ public class PipelineRequest {
     public String log_path;
     public PipelineConfig pipeline;
     public List<String> metrics;
+    public List<String> excluded_miners;
 
     public static class PipelineConfig {
         public PreprocessingConfig preprocessing;

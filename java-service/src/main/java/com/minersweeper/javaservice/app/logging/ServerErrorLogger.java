@@ -4,11 +4,14 @@ public final class ServerErrorLogger {
     private ServerErrorLogger() {}
 
     public static void log(String code, Throwable error, boolean verboseExceptions) {
+        java.io.PrintStream err = UnknownExtensionLogFilter.originalErr();
         if (verboseExceptions) {
-            error.printStackTrace();
+            error.printStackTrace(err);
+            err.flush();
             return;
         }
-        System.err.println("prom_service error [" + code + "]: " + buildErrorMessage(error));
+        err.println("prom_service error [" + code + "]: " + buildErrorMessage(error));
+        err.flush();
     }
 
     private static String buildErrorMessage(Throwable error) {

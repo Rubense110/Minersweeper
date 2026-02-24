@@ -3,6 +3,7 @@ package com.minersweeper.javaservice.app.validation;
 import com.minersweeper.javaservice.api.dto.ArtifactBulkRequest;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMetricCatalog;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 
@@ -42,6 +43,9 @@ public final class RequestValidator {
         }
         if (payload.pipeline.miner.parameters == null) {
             payload.pipeline.miner.parameters = new HashMap<String, Object>();
+        }
+        if (payload.excluded_miners == null) {
+            payload.excluded_miners = new ArrayList<String>();
         }
         Map<String, ?> metricsByKey = ConformanceMetricCatalog.metricsByKey();
         for (String metric : payload.metrics) {

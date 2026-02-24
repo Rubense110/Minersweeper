@@ -3,6 +3,8 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+import requests
+
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -29,7 +31,11 @@ class ProMServiceClientTest(unittest.TestCase):
         response.raise_for_status.return_value = None
         mock_post.return_value = response
 
-        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        client = ProMServiceClient(
+            base_url="http://service",
+            experiment_id="exp-1",
+            excluded_miners=("split", "ilp"),
+        )
         result = client.evaluate_pipeline(
             log_path="dummy.xes",
             pipeline={"miner": {}, "preprocessing": {}},
@@ -41,6 +47,12 @@ class ProMServiceClientTest(unittest.TestCase):
         self.assertEqual(result["evaluation_id"], "eval-1")
         self.assertEqual(result["fingerprint"], "fp-1")
         mock_post.assert_called_once()
+        sent_metrics = mock_post.call_args.kwargs["json"]["metrics"]
+        self.assertEqual(
+            sent_metrics,
+            ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+        )
+        self.assertEqual(mock_post.call_args.kwargs["json"]["excluded_miners"], ["split", "ilp"])
 
     @patch("java_service_client.requests.post")
     def test_evaluate_pipeline_works_with_flat_body(self, mock_post):
@@ -61,6 +73,11 @@ class ProMServiceClientTest(unittest.TestCase):
             metrics=["fitness", "precision", "simplicity", "generalisation"],
         )
         self.assertEqual(result["metrics"]["generalisation"], 0.4)
+        sent_metrics = mock_post.call_args.kwargs["json"]["metrics"]
+        self.assertEqual(
+            sent_metrics,
+            ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+        )
 
     @patch("java_service_client.requests.post")
     def test_missing_metric_raises(self, mock_post):
@@ -76,6 +93,25 @@ class ProMServiceClientTest(unittest.TestCase):
                 pipeline={"miner": {}, "preprocessing": {}},
                 metrics=["fitness", "precision"],
             )
+
+    @patch("java_service_client.requests.post")
+    def test_http_error_includes_service_payload_details(self, mock_post):
+        response = Mock()
+        response.raise_for_status.side_effect = requests.HTTPError("400 Client Error")
+        response.json.return_value = {
+            "error": "invalid_request",
+            "message": "unsupported metric: precision",
+        }
+        mock_post.return_value = response
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        with self.assertRaises(requests.HTTPError) as ctx:
+            client.evaluate_pipeline(
+                log_path="dummy.xes",
+                pipeline={"miner": {}, "preprocessing": {}},
+                metrics=["fitness", "precision"],
+            )
+        self.assertIn("invalid_request: unsupported metric: precision", str(ctx.exception))
 
     @patch("java_service_client.requests.post")
     def test_fetch_artifacts_returns_list(self, mock_post):

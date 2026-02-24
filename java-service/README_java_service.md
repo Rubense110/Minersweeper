@@ -50,7 +50,8 @@ Request JSON:
       }
     }
   },
-  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"]
+  "metrics": ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+  "excluded_miners": ["split", "ilp"]
 }
 ```
 
@@ -164,11 +165,11 @@ Estructura por experimento:
   - variantes: `im`, `imf`, `imlc`, `imflc`, `impt`, `imfpt`, `imfpta`
 - `heuristics`
   - `hm` o `fhm` (si la variante contiene `flexible`, usa FHM)
-- `ilp`
-  - variante estandar o `variable fitness`
 - `hybrid_ilp`
+- `ilp`
 
 Si el `miner.key` no esta soportado, responde `400 invalid_request`.
+Si el `miner.key` aparece en `excluded_miners`, responde `400 invalid_request`.
 
 ## Metricas
 

@@ -55,6 +55,7 @@ public final class PromHttpHandlers {
             );
             return HttpResponses.respondJson(res, 200, response, mapper);
         } catch (IllegalArgumentException e) {
+            ServerErrorLogger.log("invalid_request", e, verboseExceptions);
             return HttpResponses.respondError(res, 400, "invalid_request", HttpResponses.buildErrorMessage(e));
         } catch (Exception e) {
             ServerErrorLogger.log("evaluation_failed", e, verboseExceptions);

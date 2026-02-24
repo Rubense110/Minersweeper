@@ -11,6 +11,8 @@ services:
       PORT: 7070
       LOGS_ROOT: /data/logs
       PIPELINE_EVALUATOR_MODE: real
+      PROM_VERBOSE_EXCEPTIONS: "true"
+      PROM_SUPPRESS_HEURISTICS_LOG_NOISE: "true"
     volumes:
       - ./pm_site/pm_app/logs:/data/logs
     healthcheck:
@@ -33,6 +35,7 @@ services:
       LOGS_ROOT: /data/logs
       OPTIMIZATION_HOST: 0.0.0.0
       OPTIMIZATION_PORT: 8080
+      OPTIMIZATION_LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
       PYTHONPATH: /app/optimization-service
     ports:

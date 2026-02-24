@@ -52,13 +52,17 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             log="dummy.xes",
             metrics=["fitness", "precision", "simplicity", "generalisation"],
             service_url="http://service",
-            excluded_miners=("split",),
+            excluded_miners=("split", "ilp"),
         )
         result = miner.discover(max_evaluations=50, population_size=20, n_partitions=3, n_workers=4)
 
         self.assertEqual(result, ["sol"])
-        mock_space_cls.assert_called_once_with(excluded_miners=("split",))
-        mock_client_cls.assert_called_once_with(base_url="http://service", experiment_id="exec")
+        mock_space_cls.assert_called_once_with(excluded_miners=("split", "ilp"))
+        mock_client_cls.assert_called_once_with(
+            base_url="http://service",
+            experiment_id="exec",
+            excluded_miners=("split", "ilp"),
+        )
 
         _, kwargs = mock_problem_cls.call_args
         self.assertEqual(kwargs["log_path"], "dummy.xes")
