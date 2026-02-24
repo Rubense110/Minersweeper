@@ -6,11 +6,13 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 import traceback
 import uuid
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, Response, jsonify, request, stream_with_context
@@ -18,17 +20,27 @@ from flask_cors import CORS
 
 from java_service_client import ProMServiceClient
 
-_LOG_LEVEL_NAME = (os.getenv("OPTIMIZATION_LOG_LEVEL") or "INFO").strip().upper()
-_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
-logging.basicConfig(
-    level=_LOG_LEVEL,
-    format="[%(asctime)s] [optimization_service] [%(levelname)s] %(message)s",
-)
-LOGGER = logging.getLogger("optimization_service.jobs")
 
+class ServiceLineFormatter(logging.Formatter):
+    _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    def __init__(self, service_name: str):
+        super().__init__()
+        self.service_name = service_name
+
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = self.formatTime(record, self.datefmt)
+        level = record.levelname
+        message = self._ANSI_RE.sub("", str(record.getMessage()))
+        lines = message.splitlines() or [""]
+        prefix = f"[{timestamp}] [{self.service_name}] [{level}] "
+        rendered = "\n".join(prefix + line for line in lines)
+
+        if record.exc_info:
+            exc_text = self.formatException(record.exc_info)
+            if exc_text:
+                rendered += "\n" + "\n".join(prefix + line for line in exc_text.splitlines())
+        return rendered
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -38,6 +50,65 @@ def _to_bool(value: Any, default: bool = False) -> bool:
         return value
     text = str(value).strip().lower()
     return text in {"1", "true", "yes", "y", "on"}
+
+
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _configure_logging() -> logging.Logger:
+    log_level_name = (os.getenv("OPTIMIZATION_LOG_LEVEL") or "INFO").strip().upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    handlers: List[logging.Handler] = [logging.StreamHandler()]
+
+    if _to_bool(os.getenv("OPT_LOG_TO_FILE"), default=False):
+        log_file = (os.getenv("OPT_LOG_FILE") or "").strip()
+        if log_file:
+            log_max_bytes = _to_int(os.getenv("OPT_LOG_MAX_BYTES"), 10 * 1024 * 1024)
+            log_backup_count = _to_int(os.getenv("OPT_LOG_BACKUP_COUNT"), 5)
+            try:
+                log_dir = os.path.dirname(log_file)
+                if log_dir:
+                    os.makedirs(log_dir, exist_ok=True)
+                if log_max_bytes > 0 and log_backup_count > 0:
+                    handlers.append(
+                        RotatingFileHandler(
+                            log_file,
+                            mode="a",
+                            maxBytes=log_max_bytes,
+                            backupCount=log_backup_count,
+                            encoding="utf-8",
+                        )
+                    )
+                else:
+                    handlers.append(logging.FileHandler(log_file, mode="a", encoding="utf-8"))
+            except OSError as error:
+                logging.getLogger("optimization_service.jobs").warning(
+                    "file logging disabled: cannot initialize OPT_LOG_FILE=%s (%s)",
+                    log_file,
+                    error,
+                )
+
+    formatter = ServiceLineFormatter(service_name="optimization_service")
+    for handler in handlers:
+        handler.setFormatter(formatter)
+
+    logging.basicConfig(
+        level=log_level,
+        handlers=handlers,
+        force=True,
+    )
+    return logging.getLogger("optimization_service.jobs")
+
+
+LOGGER = _configure_logging()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:

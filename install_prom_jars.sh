@@ -36,7 +36,6 @@ install "$PROM_HOME/packages/basicutils-6.9.126/BasicUtils.jar" prom BasicUtils 
 install "$PROM_HOME/packages/inductiveminer-6.10.566/InductiveMiner.jar" prom InductiveMiner 6.10.566
 install "$PROM_HOME/packages/inductiveminerdeprecated-6.10.72/InductiveMinerDeprecated.jar" prom InductiveMinerDeprecated 6.10.72
 install "$PROM_HOME/packages/heuristicsminer-6.10.78/HeuristicsMiner.jar" prom HeuristicsMiner 6.10.78
-install "$PROM_HOME/packages/splitminer-1.7.1/split-miner-1.7.1-all.jar" prom SplitMiner 1.7.1
 install "$PROM_HOME/packages/ilpminer-6.9.62/ILPMiner.jar" prom ILPMiner 6.9.62
 install "$PROM_HOME/packages/hybridilpminer-6.10.154/HybridILPMiner.jar" prom HybridILPMiner 6.10.154
 install "$PROM_HOME/packages/lpengine-6.9.90/LPEngine.jar" prom LPEngine 6.9.90

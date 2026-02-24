@@ -26,3 +26,4 @@ __pycache__/*
 /.m2-local/
 !/frontend-service/package.json
 /optimization-service/reports/*
+/logs

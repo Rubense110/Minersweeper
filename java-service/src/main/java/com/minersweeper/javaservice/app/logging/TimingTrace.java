@@ -1,6 +1,5 @@
 package com.minersweeper.javaservice.app.logging;
 
-import java.io.PrintStream;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -76,9 +75,7 @@ public final class TimingTrace {
         boolean failed,
         String failureType,
         String experimentId,
-        String minerKey,
-        String minerVariant,
-        String preprocessingKey,
+        String pipeline,
         String requestedMetrics
     ) {
         if (!enabled) {
@@ -89,15 +86,12 @@ public final class TimingTrace {
         }
 
         StringBuilder line = new StringBuilder(512);
-        line.append("prom_service timing");
         appendField(line, "trace_id", traceId);
         appendField(line, "event", "evaluation_summary");
         appendField(line, "status", failed ? "failed" : "ok");
         appendField(line, "total_ms", Long.toString(totalMs));
         appendField(line, "experiment_id", experimentId);
-        appendField(line, "miner_key", minerKey);
-        appendField(line, "miner_variant", minerVariant);
-        appendField(line, "preprocessing_key", preprocessingKey);
+        appendField(line, "pipeline", pipeline);
         appendField(line, "metrics", requestedMetrics);
         if (failed) {
             appendField(line, "error_type", failureType);
@@ -108,9 +102,7 @@ public final class TimingTrace {
         for (Map.Entry<String, Long> entry : durationsMs.entrySet()) {
             appendField(line, entry.getKey(), String.valueOf(entry.getValue()));
         }
-        PrintStream err = UnknownExtensionLogFilter.originalErr();
-        err.println(line.toString());
-        err.flush();
+        System.err.println("[EVAL] " + line.toString());
     }
 
     private static String env(String key, String fallback) {
@@ -130,7 +122,10 @@ public final class TimingTrace {
     }
 
     private static void appendField(StringBuilder line, String key, String value) {
-        line.append(' ').append(key).append('=').append(quoteIfNeeded(value));
+        if (line.length() > 0) {
+            line.append(' ');
+        }
+        line.append(key).append('=').append(quoteIfNeeded(value));
     }
 
     private static String quoteIfNeeded(String value) {

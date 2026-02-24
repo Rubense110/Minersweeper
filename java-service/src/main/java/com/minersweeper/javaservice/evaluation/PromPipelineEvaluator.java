@@ -17,10 +17,12 @@ import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
+import java.util.ArrayList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.deckfour.xes.model.XLog;
 import org.processmining.contexts.cli.CLIContext;
@@ -51,18 +53,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
         String experimentId = TextUtils.safe(request == null ? null : request.experiment_id);
         String requestedMetrics = joinMetrics(request);
-        String minerKey = "";
-        String minerVariant = "";
-        String preprocessingKey = "";
-        if (request != null && request.pipeline != null) {
-            if (request.pipeline.miner != null) {
-                minerKey = TextUtils.safe(request.pipeline.miner.key);
-                minerVariant = TextUtils.safe(request.pipeline.miner.variant);
-            }
-            if (request.pipeline.preprocessing != null) {
-                preprocessingKey = TextUtils.safe(request.pipeline.preprocessing.key);
-            }
-        }
+        String pipelineSummary = summarizePipeline(request);
 
         try {
             long logLoadStartNs = TimingTrace.nowNs();
@@ -119,9 +110,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 failed,
                 failureType,
                 experimentId,
-                minerKey,
-                minerVariant,
-                preprocessingKey,
+                pipelineSummary,
                 requestedMetrics
             );
         }
@@ -188,5 +177,79 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             out.append(TextUtils.safe(metric));
         }
         return out.toString();
+    }
+
+    private static String summarizePipeline(PipelineRequest request) {
+        if (request == null || request.pipeline == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(192);
+        appendPreprocessingSummary(out, request.pipeline.preprocessing);
+        appendMinerSummary(out, request.pipeline.miner);
+        return out.toString();
+    }
+
+    private static void appendPreprocessingSummary(StringBuilder out, PipelineRequest.PreprocessingConfig preprocessing) {
+        if (preprocessing == null) {
+            return;
+        }
+        appendSectionStart(out, "pre");
+        appendNamedValue(out, "key", preprocessing.key);
+        appendNamedValue(out, "method", preprocessing.method);
+        appendNamedValue(out, "variant", preprocessing.variant);
+        appendParameters(out, preprocessing.parameters);
+        out.append('}');
+    }
+
+    private static void appendMinerSummary(StringBuilder out, PipelineRequest.MinerConfig miner) {
+        if (miner == null) {
+            return;
+        }
+        appendSectionStart(out, "miner");
+        appendNamedValue(out, "key", miner.key);
+        appendNamedValue(out, "family", miner.family);
+        appendNamedValue(out, "variant", miner.variant);
+        appendParameters(out, miner.parameters);
+        out.append('}');
+    }
+
+    private static void appendSectionStart(StringBuilder out, String section) {
+        if (out.length() > 0) {
+            out.append('|');
+        }
+        out.append(section).append('{');
+    }
+
+    private static void appendNamedValue(StringBuilder out, String key, String value) {
+        String safeValue = TextUtils.safe(value);
+        if (safeValue.isEmpty()) {
+            return;
+        }
+        if (out.charAt(out.length() - 1) != '{') {
+            out.append(',');
+        }
+        out.append(key).append('=').append(safeValue);
+    }
+
+    private static void appendParameters(StringBuilder out, Map<String, Object> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return;
+        }
+        List<String> names = new ArrayList<String>(parameters.keySet());
+        Collections.sort(names);
+
+        if (out.charAt(out.length() - 1) != '{') {
+            out.append(',');
+        }
+        out.append("params=");
+        for (int i = 0; i < names.size(); i++) {
+            if (i > 0) {
+                out.append(';');
+            }
+            String name = names.get(i);
+            out.append(TextUtils.safe(name));
+            out.append(':');
+            out.append(TextUtils.safeObj(parameters.get(name)));
+        }
     }
 }
