@@ -15,6 +15,7 @@ services:
       PROM_SUPPRESS_HEURISTICS_LOG_NOISE: "true"
       PROM_TIMING_ENABLED: "true"
       PROM_TIMING_SLOW_MS: "0"
+      PROM_LOG_CACHE_MAX_EXPERIMENTS: "8"
     volumes:
       - ./pm_site/pm_app/logs:/data/logs
     healthcheck:

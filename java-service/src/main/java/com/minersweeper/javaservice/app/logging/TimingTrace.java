@@ -1,6 +1,7 @@
 package com.minersweeper.javaservice.app.logging;
 
 import java.io.PrintStream;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -12,6 +13,7 @@ public final class TimingTrace {
 
     private final String traceId;
     private final boolean enabled;
+    private final Map<String, String> fields = new LinkedHashMap<String, String>();
     private final Map<String, Long> durationsMs = new LinkedHashMap<String, Long>();
 
     private TimingTrace(boolean enabled, String traceId) {
@@ -55,6 +57,20 @@ public final class TimingTrace {
         durationsMs.put(phaseKey, Long.valueOf(durationMs));
     }
 
+    public void putField(String key, String value) {
+        if (!enabled) {
+            return;
+        }
+        if (key == null || key.trim().isEmpty()) {
+            return;
+        }
+        fields.put(key, value == null ? "" : value);
+    }
+
+    public Map<String, String> fields() {
+        return Collections.unmodifiableMap(fields);
+    }
+
     public void logSummary(
         long totalMs,
         boolean failed,
@@ -85,6 +101,9 @@ public final class TimingTrace {
         appendField(line, "metrics", requestedMetrics);
         if (failed) {
             appendField(line, "error_type", failureType);
+        }
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            appendField(line, entry.getKey(), entry.getValue());
         }
         for (Map.Entry<String, Long> entry : durationsMs.entrySet()) {
             appendField(line, entry.getKey(), String.valueOf(entry.getValue()));

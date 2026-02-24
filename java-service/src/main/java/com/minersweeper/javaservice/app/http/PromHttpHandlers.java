@@ -97,6 +97,7 @@ public final class PromHttpHandlers {
 
         try {
             int deletedPaths = artifactStore.cleanupExperiment(experimentId);
+            pipelineEvaluator.cleanupExperiment(experimentId);
             Map<String, Object> response = new LinkedHashMap<String, Object>();
             response.put("experiment_id", experimentId);
             response.put("deleted_paths", Integer.valueOf(deletedPaths));

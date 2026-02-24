@@ -221,6 +221,7 @@ Variables de entorno soportadas:
 - `JAVA_LIBRARY_PATH_EXTRA` (opcional, para rutas nativas extra)
 - `PROM_TIMING_ENABLED` (default: `false`)
 - `PROM_TIMING_SLOW_MS` (default: `0`; si es `>0`, solo loguea evaluaciones con `total_ms >= umbral`)
+- `PROM_LOG_CACHE_MAX_EXPERIMENTS` (default: `8`; cache en memoria de `XLog` por `experiment_id`, expulsa por LRU)
 
 Ejemplo:
 
@@ -231,12 +232,14 @@ LOGS_ROOT=/ruta/logs \
 ARTIFACTS_ROOT=/tmp/minersweeper-artifacts \
 PROM_TIMING_ENABLED=true \
 PROM_TIMING_SLOW_MS=2000 \
+PROM_LOG_CACHE_MAX_EXPERIMENTS=8 \
 ./run_prom_service.sh
 ```
 
 Cuando `PROM_TIMING_ENABLED=true`, el servicio emite una linea por evaluacion con desglose de fases
 (`log_load_ms`, `discover_ms`, `replay_ms`, `alignment_ms`, `metric_*_ms`, `store_artifact_ms`, etc.)
-y un `trace_id` para correlacion.
+y un `trace_id` para correlacion. Incluye `log_cache=hit|miss`.
+El cache de logs se invalida para un experimento al llamar `POST /experiments/:experimentId/cleanup`.
 
 ## Flujo rapido de prueba
 

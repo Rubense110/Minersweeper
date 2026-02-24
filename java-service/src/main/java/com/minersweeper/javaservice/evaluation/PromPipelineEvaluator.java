@@ -66,8 +66,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
         try {
             long logLoadStartNs = TimingTrace.nowNs();
-            Path logFile = logLoader.resolveLogPath(request.log_path);
-            XLog log = logLoader.loadLog(logFile.toFile());
+            LogLoader.LogAccess logAccess = logLoader.loadForExperiment(request.experiment_id, request.log_path);
+            XLog log = logAccess.log();
+            timing.putField("log_cache", logAccess.cacheHit() ? "hit" : "miss");
             timing.markFromStart("log_load_ms", logLoadStartNs);
 
             long contextStartNs = TimingTrace.nowNs();
@@ -124,6 +125,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 requestedMetrics
             );
         }
+    }
+
+    @Override
+    public void cleanupExperiment(String experimentId) {
+        logLoader.evictExperiment(experimentId);
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {
