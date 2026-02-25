@@ -79,6 +79,30 @@ def _normalize_n_workers(value: Any) -> int:
     return min(requested, _logical_cpu_count())
 
 
+def _normalize_log_path(value: Any) -> str:
+    raw = "" if value is None else str(value).strip()
+    if not raw:
+        raise ValueError("'log_path' is required")
+
+    normalized_input = os.path.normpath(raw)
+    if os.path.isabs(normalized_input):
+        return normalized_input
+
+    logs_root = (os.getenv("LOGS_ROOT") or "/data/logs").strip() or "/data/logs"
+    normalized_root = os.path.normpath(logs_root)
+
+    rel_parts = [part for part in normalized_input.split(os.sep) if part not in ("", ".")]
+    root_parts = [part for part in normalized_root.split(os.sep) if part not in ("", ".")]
+
+    if root_parts and rel_parts[: len(root_parts)] == root_parts:
+        rel_parts = rel_parts[len(root_parts) :]
+
+    if not rel_parts:
+        return normalized_root
+
+    return os.path.normpath(os.path.join(normalized_root, *rel_parts))
+
+
 def _java_service_timeout_seconds() -> int:
     return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 300))
 
@@ -280,9 +304,8 @@ class OptimizationJobManager:
             payload = {}
 
         execution_name = payload.get("execution_name") or f"run_{int(time.time() * 1000)}"
-        log_path = payload.get("log_path") or payload.get("log")
-        if not log_path:
-            raise ValueError("'log_path' is required")
+        raw_log_path = payload.get("log_path") or payload.get("log")
+        log_path = _normalize_log_path(raw_log_path)
 
         service_url = payload.get("service_url") or self.default_service_url
         if not service_url:

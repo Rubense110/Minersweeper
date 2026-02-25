@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createOptimization } from '../api'
 
-const DEFAULT_LOG_PATH = '/data/logs/BPI_Challenge_2013_open_problems.xes'
+const DEFAULT_LOG_PATH = 'BPI_Challenge_2013_open_problems.xes'
 const HW_CONCURRENCY =
   typeof navigator !== 'undefined' && Number.isFinite(navigator.hardwareConcurrency)
     ? Math.max(1, Math.floor(navigator.hardwareConcurrency))
@@ -73,7 +73,7 @@ export default function RunPage() {
               value={logPath}
               onChange={(event) => setLogPath(event.target.value)}
               required
-              placeholder="/data/logs/BPI_Challenge_2013_open_problems.xes"
+              placeholder="BPI_Challenge_2013_open_problems.xes"
             />
           </label>
 
