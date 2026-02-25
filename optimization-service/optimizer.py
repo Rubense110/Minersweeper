@@ -89,7 +89,12 @@ class PipelineNSGAIIIOptimizer:
 
     def run(self):
         self.algorithm.run()
-        self.result = self.algorithm.result()
+        # In jMetalPy NSGAIII, result() returns only the non-dominated front.
+        # We need the full final population for downstream persistence/API.
+        population = list(getattr(self.algorithm, "solutions", []) or [])
+        if not population:
+            population = list(self.algorithm.result() or [])
+        self.result = population
         self.non_dominated = self._calculate_non_dominated(self.result)
         return self.result
 
