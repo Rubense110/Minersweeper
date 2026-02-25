@@ -39,7 +39,7 @@ export default function RunPage() {
         max_evaluations: Number(maxEvaluations),
         population_size: Number(populationSize),
         n_workers: normalizeWorkers(nWorkers),
-        excluded_miners: ['split', 'ilp', 'hybrid_ilp'],
+        excluded_miners: ['ilp', 'hybrid_ilp'],
         //metrics: ['simplicity']
       })
       navigate(`/results/${job.job_id}`)

@@ -289,7 +289,7 @@ class OptimizationJobManager:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
         metrics = payload.get("metrics")
-        excluded_miners = payload.get("excluded_miners", ["split", "ilp"])
+        excluded_miners = payload.get("excluded_miners", ["ilp"])
 
         requested_n_workers = payload.get("n_workers", 1)
         normalized_n_workers = _normalize_n_workers(requested_n_workers)

@@ -13,6 +13,7 @@ import com.minersweeper.javaservice.evaluation.discovery.miners.HeuristicsMinerD
 import com.minersweeper.javaservice.evaluation.discovery.miners.HybridIlpMinerDiscoverer;
 import com.minersweeper.javaservice.evaluation.discovery.miners.IlpMinerDiscoverer;
 import com.minersweeper.javaservice.evaluation.discovery.miners.InductiveMinerDiscoverer;
+import com.minersweeper.javaservice.evaluation.discovery.miners.SplitMinerDiscoverer;
 import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
@@ -144,6 +145,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         register(discoverers, new AlphaMinerDiscoverer(artifactFactory));
         register(discoverers, new InductiveMinerDiscoverer(artifactFactory));
         register(discoverers, new HeuristicsMinerDiscoverer(artifactFactory));
+        register(discoverers, new SplitMinerDiscoverer(artifactFactory));
         register(discoverers, new IlpMinerDiscoverer(artifactFactory));
         register(discoverers, new HybridIlpMinerDiscoverer(artifactFactory));
         return Collections.unmodifiableMap(discoverers);

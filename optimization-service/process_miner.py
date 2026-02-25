@@ -25,7 +25,7 @@ class OptimizedProcessMiner:
         metrics: Optional[List[str]] = None,
         service_url: Optional[str] = None,
         service_timeout_seconds: int = 300,
-        excluded_miners: Optional[Sequence[str]] = ("split", "ilp"),
+        excluded_miners: Optional[Sequence[str]] = ("ilp",),
     ):
         self.execution_name = execution_name
         self.log_path = log

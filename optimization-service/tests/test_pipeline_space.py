@@ -8,9 +8,16 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from pipeline_space import PipelineSearchSpace
+from parameters.miners import MINER_CATALOG
 
 
 class PipelineSearchSpaceTest(unittest.TestCase):
+    def test_split_catalog_exposes_single_sm_variant(self):
+        split_spec = MINER_CATALOG["split"]
+        variant_keys = [variant.key for variant in split_spec.variants]
+        self.assertEqual(variant_keys, ["sm"])
+        self.assertEqual(set(split_spec.parameters.keys()), {"epsilon", "eta"})
+
     def test_build_space_has_basic_selectors(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
         self.assertIn("preprocessing::selected", space.index_by_key)
@@ -76,4 +83,3 @@ class PipelineSearchSpaceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
