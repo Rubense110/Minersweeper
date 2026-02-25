@@ -1,46 +1,55 @@
 # Minersweeper
 
-Repositorio del backend de optimizacion de pipelines de process mining:
+Plataforma para optimizacion de pipelines de process mining con NSGA-III y evaluacion real en ProM.
 
-- `prom_service` (Java + ProM): descubre modelos y calcula metricas.
-- `optimization_service` (Python + jMetalPy): ejecuta NSGA-III y expone jobs HTTP.
-- `frontend_service` (React + Vite): UI simple para lanzar ejecuciones y ver resultados.
+## Arquitectura
 
-## Documentacion por servicio
+- `prom_service` (`java-service`, SparkJava + ProM):
+  - evalua pipelines
+  - descubre modelos Petri (PNML)
+  - calcula metricas
+  - persiste artefactos por evaluacion
+- `optimization_service` (`optimization-service`, Flask + jMetalPy):
+  - ejecuta optimizacion NSGA-III
+  - expone jobs HTTP (`queued/running/completed/failed`)
+  - persiste resultados finales de experimento en PostgreSQL
+- `frontend_service` (`frontend-service`, React + Vite):
+  - lanza optimizaciones
+  - consume SSE de progreso
+  - visualiza soluciones y PNML
+- `postgres`:
+  - BBDD unica para persistencia del `optimization_service`
 
-- `java-service/README_java_service.md`
-- `optimization-service/README_optimization_service.md`
-- `frontend-service/README_frontend_service.md`
+## Prerrequisitos
 
-## Lanzar la app con Docker
+- Docker + Docker Compose
+- `prom-lite-1.4-all-platforms/` en la raiz del repo
+- Logs XES en `pm_site/pm_app/logs/`
 
-Prerequisitos:
-
-- Docker y Docker Compose instalados.
-- La carpeta `prom-lite-1.4-all-platforms/` presente en la raiz del repo.
-- Logs XES en `pm_site/pm_app/logs/` (se montan como `/data/logs` en contenedores).
-
-### 1. Construir y levantar
+## Arranque con Docker
 
 ```bash
 cd Minersweeper
 docker compose up --build -d
 ```
 
-Servicios publicados:
+Servicios:
 
 - `prom_service`: `http://localhost:7070`
 - `optimization_service`: `http://localhost:8080`
 - `frontend_service`: `http://localhost:5173`
+- `postgres`: `localhost:5432` (`minersweeper/minersweeper`)
 
-### 2. Verificar salud
+Healthchecks:
 
 ```bash
 curl -sS http://localhost:7070/health
 curl -sS http://localhost:8080/health
 ```
 
-### 3. Lanzar una optimizacion (API Python)
+## Flujo rapido
+
+1. Lanzar optimizacion:
 
 ```bash
 curl -sS -X POST http://localhost:8080/optimizations \
@@ -55,52 +64,159 @@ curl -sS -X POST http://localhost:8080/optimizations \
   }'
 ```
 
-La respuesta devuelve `job_id`.
-
-### 4. Consultar estado del job
+2. Consultar estado:
 
 ```bash
 curl -sS http://localhost:8080/optimizations/<job_id>
+curl -sS http://localhost:8080/optimizations/<job_id>/progress
 ```
 
-Estados terminales:
-
-- `completed`
-- `failed`
-
-### 5. Recuperar resultados del frente
-
-Soluciones:
+3. Obtener resultados:
 
 ```bash
 curl -sS "http://localhost:8080/optimizations/<job_id>/solutions?scope=pareto"
-```
-
-Artefactos (PNML):
-
-```bash
 curl -sS "http://localhost:8080/optimizations/<job_id>/artifacts?scope=pareto&include_pnml=true"
 ```
+
+## API de `optimization_service`
+
+Endpoints:
+
+- `GET /health`
+- `GET /optimizations`
+- `POST /optimizations`
+- `GET /optimizations/:job_id`
+- `GET /optimizations/:job_id/progress`
+- `GET /optimizations/:job_id/events` (SSE)
+- `GET /optimizations/:job_id/solutions?scope=pareto|all`
+- `GET /optimizations/:job_id/artifacts?scope=pareto|all&include_pnml=true|false`
+
+Eventos SSE:
+
+- `status_changed`
+- `progress`
+- `result_ready`
+- `error`
+
+## API de `prom_service`
+
+Endpoints:
+
+- `GET /health`
+- `POST /pipeline`
+- `POST /artifacts/bulk`
+- `POST /experiments/:experimentId/cleanup`
+- `GET /experiments/:experimentId/fingerprints`
+
+### Nuevo endpoint: fingerprints por experimento
+
+Devuelve `evaluation_id` + `fingerprint` para todas las evaluaciones encontradas en ese experimento.
+
+```bash
+curl -sS "http://localhost:7070/experiments/<experiment_id>/fingerprints"
+```
+
+Respuesta:
+
+```json
+{
+  "experiment_id": "run_001",
+  "fingerprints": [
+    { "evaluation_id": "1770734531539-1", "fingerprint": "..." }
+  ]
+}
+```
+
+## Persistencia en PostgreSQL (`optimization_service`)
+
+La persistencia se hace al finalizar el job, guardando la poblacion final del experimento.
+
+### `Experiment`
+
+- `ExperimentID` (PK)
+- `ExperimentName`
+- `StartAt`
+- `EndAt`
+- `Max_evals`
+- `Pop_size`
+- `Miners` (catalogo usado)
+- `Preprocessing` (catalogo usado)
+- `log_path`
+- `metrics` (orden oficial)
+- `workers`
+
+### `Solution`
+
+- `SolutionID` (PK)
+- `ExperimentID` (FK)
+- `variables`
+- `objectives`
+- `pipeline` (compactado: `variant` + `parameters`)
+- `is_pareto`
+- `places`
+- `transitions`
+- `arcs`
+
+Contrato de `metrics/objectives`:
+
+- `Experiment.metrics[i]` corresponde a `Solution.objectives[i]`.
+- `objectives` estan en espacio del optimizador (si se maximiza, se almacenan negadas).
+
+## Desarrollo local por servicio
+
+### Java service
+
+Prerequisitos:
+
+- Java 8+
+- Maven
+- `install_prom_jars.sh` ejecutado
+
+Compilar:
+
+```bash
+cd java-service
+mvn -DskipTests package dependency:copy-dependencies
+```
+
+Run recomendado:
+
+```bash
+cd java-service
+./run_prom_service.sh
+```
+
+### Optimization service
+
+Tests:
+
+```bash
+venv/bin/python -m unittest discover -s optimization-service/tests -p "test_*.py" -v
+```
+
+### Frontend service
+
+```bash
+cd frontend-service
+npm install
+npm run dev
+```
+
+`VITE_OPTIMIZATION_API_URL` default: `http://localhost:8080`.
 
 ## Logs utiles
 
 ```bash
 docker compose logs -f prom_service
 docker compose logs -f optimization_service
+docker compose logs -f postgres
 ```
 
-## Parar stack
+## Parada
 
 ```bash
 docker compose down
-```
-
-Para eliminar tambien redes/estado de contenedores:
-
-```bash
 docker compose down -v
 ```
 
-## Nota
-
-Existe un compose anterior en `docker-compose.old.yml` para referencia, pero el flujo activo es `docker-compose.yml`.
+`docker-compose.old.yml` queda como referencia historica.
