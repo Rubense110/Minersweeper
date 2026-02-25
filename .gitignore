@@ -12,7 +12,6 @@ __pycache__/*
 .vscode/
 /pycache/*
 /out
-*.xes
 *.ipynb
 *.env
 /form_tests/*
@@ -26,4 +25,6 @@ __pycache__/*
 /.m2-local/
 !/frontend-service/package.json
 /optimization-service/reports/*
-/logs
+logs/services.log
+pm_site/pm_app/logs/*
+/event_logs/*.xes

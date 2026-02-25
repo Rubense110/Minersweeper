@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
+
+
+LOGGER = logging.getLogger("optimization_service.jobs")
 
 
 class ProMServiceClient:
@@ -93,6 +98,15 @@ class ProMServiceClient:
         }
         if self.excluded_miners:
             payload["excluded_miners"] = list(self.excluded_miners)
+
+        pipeline_text = json.dumps(pipeline or {}, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+        LOGGER.info(
+            "evaluation dispatch experiment_id=%s log_path=%s metrics=%s pipeline=%s",
+            resolved_experiment_id,
+            log_path,
+            ",".join(service_metrics),
+            pipeline_text,
+        )
 
         response = requests.post(
             f"{self.base_url}{self.endpoint}",
