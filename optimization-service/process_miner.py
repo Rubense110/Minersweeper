@@ -24,12 +24,14 @@ class OptimizedProcessMiner:
         log: str,
         metrics: Optional[List[str]] = None,
         service_url: Optional[str] = None,
+        service_timeout_seconds: int = 300,
         excluded_miners: Optional[Sequence[str]] = ("split", "ilp"),
     ):
         self.execution_name = execution_name
         self.log_path = log
         self.metrics_list = metrics or ["fitness", "precision", "simplicity", "generalisation"]
         self.service_url = service_url
+        self.service_timeout_seconds = max(1, int(service_timeout_seconds))
         self.excluded_miners = tuple(excluded_miners or ())
 
         self.search_space: Optional[PipelineSearchSpace] = None
@@ -56,6 +58,7 @@ class OptimizedProcessMiner:
         self.service_client = ProMServiceClient(
             base_url=url,
             experiment_id=self.execution_name,
+            timeout_seconds=self.service_timeout_seconds,
             excluded_miners=self.excluded_miners,
         )
 

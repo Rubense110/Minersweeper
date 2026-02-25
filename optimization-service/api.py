@@ -79,6 +79,10 @@ def _normalize_n_workers(value: Any) -> int:
     return min(requested, _logical_cpu_count())
 
 
+def _java_service_timeout_seconds() -> int:
+    return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 300))
+
+
 def _configure_logging() -> logging.Logger:
     log_level_name = (os.getenv("OPTIMIZATION_LOG_LEVEL") or "INFO").strip().upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -263,8 +267,9 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
 
 
 class OptimizationJobManager:
-    def __init__(self, default_service_url: str, db_url: str):
+    def __init__(self, default_service_url: str, db_url: str, java_service_timeout_seconds: int):
         self.default_service_url = default_service_url
+        self.java_service_timeout_seconds = max(1, int(java_service_timeout_seconds))
         self.job_store = JobStore(db_url=db_url)
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
@@ -520,6 +525,7 @@ class OptimizationJobManager:
             log=config["log_path"],
             metrics=config.get("metrics"),
             service_url=config["service_url"],
+            service_timeout_seconds=self.java_service_timeout_seconds,
             excluded_miners=tuple(config.get("excluded_miners") or ()),
         )
 
@@ -583,6 +589,7 @@ class OptimizationJobManager:
             client = ProMServiceClient(
                 base_url=str(request_data.get("service_url") or self.default_service_url),
                 experiment_id=str(request_data.get("execution_name") or ""),
+                timeout_seconds=self.java_service_timeout_seconds,
             )
             artifacts = client.fetch_artifacts(
                 evaluation_ids=evaluation_ids,
@@ -705,6 +712,7 @@ class OptimizationJobManager:
         client = ProMServiceClient(
             base_url=request_data["service_url"],
             experiment_id=request_data["execution_name"],
+            timeout_seconds=self.java_service_timeout_seconds,
         )
         artifacts = client.fetch_artifacts(
             evaluation_ids=eval_ids,
@@ -845,6 +853,7 @@ CORS(app)
 _manager = OptimizationJobManager(
     default_service_url=os.getenv("JAVA_SERVICE_URL", ""),
     db_url=os.getenv("OPT_DB_URL", "sqlite:////tmp/minersweeper-optimization.db"),
+    java_service_timeout_seconds=_java_service_timeout_seconds(),
 )
 
 
