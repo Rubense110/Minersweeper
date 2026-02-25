@@ -36,7 +36,7 @@ services:
       PROM_LOG_TO_FILE: "true"
       PROM_LOG_FILE: /var/log/minersweeper/services.log
     volumes:
-      - ./pm_site/pm_app/logs:/data/logs
+      - ./event_logs:/data/logs
       - ./logs:/var/log/minersweeper
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7070/health"]
@@ -73,7 +73,7 @@ services:
       - "8080:8080"
     volumes:
       - .:/app
-      - ./pm_site/pm_app/logs:/data/logs
+      - ./event_logs:/data/logs
       - ./logs:/var/log/minersweeper
     working_dir: /app/optimization-service
 
