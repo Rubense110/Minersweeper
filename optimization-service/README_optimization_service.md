@@ -344,3 +344,49 @@ Cobertura actual de tests:
 ## Estado actual
 
 El servicio Python ya maneja trazabilidad por evaluacion (`evaluation_id`) y recuperacion de PNML del no dominado final, sin necesidad de re-ejecutar discovery.
+
+## Base de datos (propuesta actual)
+
+Se usara una unica BBDD en `optimization_service` para persistir resultados de experimentos.
+La persistencia se realiza al finalizar cada experimento.
+
+### Tabla `Experiment`
+
+- `ExperimentID` (PK)
+- `ExperimentName`
+- `StartAt`
+- `EndAt`
+- `Max_evals`
+- `Pop_size`
+- `Miners` (catalogo de mineros utilizado)
+- `Preprocessing` (catalogo de preprocesados utilizado)
+- `log_path`
+- `metrics` (metricas utilizadas, en orden)
+- `workers`
+
+### Tabla `Solution`
+
+- `SolutionID` (PK)
+- `ExperimentID` (FK -> `Experiment.ExperimentID`)
+- `variables`
+- `objectives`
+- `pipeline`
+- `is_pareto`
+- `places`
+- `transitions`
+- `arcs`
+
+### Contrato de `metrics` y `objectives`
+
+- `Experiment.metrics` define el orden oficial de metricas del experimento.
+- `Solution.objectives[i]` corresponde a `Experiment.metrics[i]`.
+- `objectives` se almacenan en el espacio del optimizador (si una metrica se maximiza, su objetivo se guarda negado).
+- Para visualizacion de negocio, usar `metrics` o deshacer el signo de `objectives` cuando aplique.
+
+### Notas de modelado recomendadas
+
+- Guardar `variables`, `objectives`, `pipeline`, `places`, `transitions` y `arcs` como JSON/JSONB.
+- Guardar `StartAt` y `EndAt` con zona horaria.
+- Indices recomendados:
+  - `Solution(ExperimentID)`
+  - `Solution(ExperimentID, is_pareto)`

@@ -14,10 +14,12 @@ import uuid
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
+from xml.etree import ElementTree as ET
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 
+from job_store import JobStore
 from java_service_client import ProMServiceClient
 
 
@@ -111,6 +113,107 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_utc_iso(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _to_int_or_none(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _local_xml_name(tag: str) -> str:
+    if not tag:
+        return ""
+    if "}" in tag:
+        return tag.split("}", 1)[1]
+    return tag
+
+
+def _xml_node_label(element: ET.Element) -> str:
+    for child in element.iter():
+        if _local_xml_name(child.tag) == "text":
+            text = (child.text or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _petri_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if not pnml_text:
+        return [], [], []
+
+    try:
+        root = ET.fromstring(pnml_text)
+    except ET.ParseError:
+        return [], [], []
+
+    places: List[Dict[str, Any]] = []
+    transitions: List[Dict[str, Any]] = []
+    arcs: List[Dict[str, Any]] = []
+
+    for node in root.iter():
+        tag = _local_xml_name(node.tag)
+        if tag == "place":
+            places.append(
+                {
+                    "id": (node.attrib.get("id") or "").strip(),
+                    "label": _xml_node_label(node),
+                }
+            )
+        elif tag == "transition":
+            transitions.append(
+                {
+                    "id": (node.attrib.get("id") or "").strip(),
+                    "label": _xml_node_label(node),
+                }
+            )
+        elif tag == "arc":
+            arcs.append(
+                {
+                    "id": (node.attrib.get("id") or "").strip(),
+                    "source": (node.attrib.get("source") or "").strip(),
+                    "target": (node.attrib.get("target") or "").strip(),
+                }
+            )
+
+    return places, transitions, arcs
+
+
+def _compact_pipeline_for_storage(pipeline: Any) -> Dict[str, Any]:
+    if not isinstance(pipeline, dict):
+        return {
+            "preprocessing": {"variant": "", "parameters": {}},
+            "miner": {"variant": "", "parameters": {}},
+        }
+
+    preprocessing = pipeline.get("preprocessing") if isinstance(pipeline.get("preprocessing"), dict) else {}
+    miner = pipeline.get("miner") if isinstance(pipeline.get("miner"), dict) else {}
+
+    return {
+        "preprocessing": {
+            "variant": preprocessing.get("variant") or "",
+            "parameters": preprocessing.get("parameters") if isinstance(preprocessing.get("parameters"), dict) else {},
+        },
+        "miner": {
+            "variant": miner.get("variant") or "",
+            "parameters": miner.get("parameters") if isinstance(miner.get("parameters"), dict) else {},
+        },
+    }
+
+
 def _pipeline_for_log(pipeline: Any, max_length: int = 1500) -> str:
     if not pipeline:
         return ""
@@ -142,8 +245,9 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
 
 
 class OptimizationJobManager:
-    def __init__(self, default_service_url: str):
+    def __init__(self, default_service_url: str, db_url: str):
         self.default_service_url = default_service_url
+        self.job_store = JobStore(db_url=db_url)
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._lock = threading.Lock()
@@ -250,7 +354,6 @@ class OptimizationJobManager:
                 job = self._jobs.get(job_id)
                 if not job:
                     return
-                job["status"] = "completed"
                 job["finished_at"] = _utc_now_iso()
                 job["result"] = result
                 progress = job.get("progress", {})
@@ -258,6 +361,15 @@ class OptimizationJobManager:
                 current = int(progress.get("evaluations_done") or 0)
                 if max_evaluations > current:
                     progress["evaluations_done"] = max_evaluations
+
+            self._persist_completed_experiment(job_id)
+
+            with self._lock:
+                job = self._jobs.get(job_id)
+                if not job:
+                    return
+                job["status"] = "completed"
+
             all_solutions = result.get("all_solutions", [])
             failed_solutions = sum(1 for item in all_solutions if item.get("evaluation_error"))
             total_solutions = len(all_solutions)
@@ -401,6 +513,7 @@ class OptimizationJobManager:
 
         return {
             "execution_name": config["execution_name"],
+            "metrics_order": list(miner.metrics_list),
             "counts": {
                 "all_solutions": len(all_solutions),
                 "pareto_solutions": len(pareto_solutions),
@@ -410,7 +523,91 @@ class OptimizationJobManager:
             "pareto_solutions": pareto_solutions,
             "non_dominated_pipelines": miner.get_non_dominated_pipelines(),
             "non_dominated_metrics": miner.get_non_dominated_metrics(),
+            "catalogs": {
+                "miners": list(miner.search_space.miner_keys if miner.search_space else []),
+                "preprocessing": list(miner.search_space.preprocessing_keys if miner.search_space else []),
+            },
         }
+
+    def _persist_completed_experiment(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            request_data = dict(job.get("request") or {})
+            result = dict(job.get("result") or {})
+            started_at = job.get("started_at")
+            finished_at = job.get("finished_at")
+
+        discover = request_data.get("discover") or {}
+        all_solutions = list(result.get("all_solutions") or [])
+
+        evaluation_ids: List[str] = []
+        seen = set()
+        for solution in all_solutions:
+            evaluation_id = solution.get("evaluation_id")
+            if not evaluation_id or evaluation_id in seen:
+                continue
+            seen.add(evaluation_id)
+            evaluation_ids.append(evaluation_id)
+
+        artifacts_by_evaluation_id: Dict[str, Dict[str, Any]] = {}
+        if evaluation_ids:
+            client = ProMServiceClient(
+                base_url=str(request_data.get("service_url") or self.default_service_url),
+                experiment_id=str(request_data.get("execution_name") or ""),
+            )
+            artifacts = client.fetch_artifacts(
+                evaluation_ids=evaluation_ids,
+                include_pnml=True,
+                experiment_id=str(request_data.get("execution_name") or ""),
+            )
+            for artifact in artifacts:
+                evaluation_id = artifact.get("evaluation_id")
+                if not evaluation_id:
+                    continue
+                artifacts_by_evaluation_id[str(evaluation_id)] = artifact
+
+        parsed_solutions: List[Dict[str, Any]] = []
+        for solution in all_solutions:
+            places: List[Dict[str, Any]] = []
+            transitions: List[Dict[str, Any]] = []
+            arcs: List[Dict[str, Any]] = []
+
+            evaluation_id = solution.get("evaluation_id")
+            if evaluation_id:
+                artifact = artifacts_by_evaluation_id.get(str(evaluation_id))
+                if artifact:
+                    pnml_text = str(artifact.get("pnml") or "")
+                    places, transitions, arcs = _petri_from_pnml(pnml_text)
+
+            parsed_solutions.append(
+                {
+                    "variables": solution.get("variables", []),
+                    "objectives": solution.get("objectives", []),
+                    "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
+                    "is_pareto": bool(solution.get("is_pareto")),
+                    "places": places,
+                    "transitions": transitions,
+                    "arcs": arcs,
+                }
+            )
+
+        experiment_data = {
+            "experiment_id": job_id,
+            "experiment_name": request_data.get("execution_name") or job_id,
+            "start_at": _parse_utc_iso(started_at) or datetime.now(timezone.utc),
+            "end_at": _parse_utc_iso(finished_at) or datetime.now(timezone.utc),
+            "max_evals": int(discover.get("max_evaluations") or 0),
+            "pop_size": _to_int_or_none(discover.get("population_size")),
+            "miners": (result.get("catalogs") or {}).get("miners", []),
+            "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
+            "log_path": request_data.get("log_path") or "",
+            "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
+            "workers": int(discover.get("n_workers") or 1),
+        }
+
+        self.job_store.save_completed_experiment(experiment_data, parsed_solutions)
 
     def get(self, job_id: str) -> Dict[str, Any]:
         with self._lock:
@@ -618,7 +815,10 @@ class OptimizationJobManager:
 
 app = Flask(__name__)
 CORS(app)
-_manager = OptimizationJobManager(default_service_url=os.getenv("JAVA_SERVICE_URL", ""))
+_manager = OptimizationJobManager(
+    default_service_url=os.getenv("JAVA_SERVICE_URL", ""),
+    db_url=os.getenv("OPT_DB_URL", "sqlite:////tmp/minersweeper-optimization.db"),
+)
 
 
 @app.get("/health")
