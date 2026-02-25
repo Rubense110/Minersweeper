@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -50,6 +50,7 @@ class Solution(Base):
     variables: Mapped[Any] = mapped_column(JSON, nullable=False)
     objectives: Mapped[Any] = mapped_column(JSON, nullable=False)
     pipeline: Mapped[Any] = mapped_column(JSON, nullable=False)
+    runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_pareto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
@@ -65,6 +66,29 @@ class JobStore:
         self.engine = create_engine(db_url, future=True, pool_pre_ping=True)
         self._session_factory = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
         Base.metadata.create_all(self.engine)
+        self._ensure_runtime_ms_column()
+
+    def _ensure_runtime_ms_column(self) -> None:
+        inspector = inspect(self.engine)
+        table_names = set(inspector.get_table_names())
+        if "solutions" not in table_names:
+            return
+
+        columns = {column["name"] for column in inspector.get_columns("solutions")}
+        if "runtime_ms" in columns:
+            return
+
+        with self.engine.begin() as connection:
+            connection.execute(text("ALTER TABLE solutions ADD COLUMN runtime_ms INTEGER"))
+
+    @staticmethod
+    def _to_int_or_none(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def save_completed_experiment(self, experiment_data: Dict[str, Any], solutions: List[Dict[str, Any]]) -> None:
         experiment_id = str(experiment_data["experiment_id"])
@@ -98,6 +122,7 @@ class JobStore:
                             variables=item.get("variables", []),
                             objectives=item.get("objectives", []),
                             pipeline=item.get("pipeline", {}),
+                            runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
                             places=item.get("places", []),
                             transitions=item.get("transitions", []),

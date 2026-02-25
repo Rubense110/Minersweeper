@@ -129,11 +129,13 @@ class OptimizationApiTest(unittest.TestCase):
                 "evaluation_id": None,
                 "pipeline": {"miner": {"key": "heuristics"}},
                 "metrics": {"fitness": 0.0},
+                "runtime_ms": 321,
                 "evaluation_error": "HTTPError: 500 Server Error",
             }
 
         payload = api._serialize_solution(Sol(), pareto_ids=set())
         self.assertEqual("HTTPError: 500 Server Error", payload["evaluation_error"])
+        self.assertEqual(321, payload["runtime_ms"])
 
     def test_get_solutions_invalid_scope(self):
         response = self.client.get("/optimizations/job-1/solutions?scope=bad")

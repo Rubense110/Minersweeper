@@ -158,6 +158,7 @@ La persistencia se hace al finalizar el job, guardando la poblacion final del ex
 - `variables`
 - `objectives`
 - `pipeline` (compactado: `variant` + `parameters`)
+- `runtime_ms` (tiempo de evaluacion de esa solucion, en milisegundos)
 - `is_pareto`
 - `places`
 - `transitions`
