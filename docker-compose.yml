@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: optimization_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: minersweeper
+      POSTGRES_USER: minersweeper
+      POSTGRES_PASSWORD: minersweeper
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minersweeper -d minersweeper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   prom_service:
     container_name: prom_service
     restart: unless-stopped
@@ -35,8 +53,11 @@ services:
     depends_on:
       prom_service:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       JAVA_SERVICE_URL: http://prom_service:7070
+      OPT_DB_URL: postgresql+psycopg://minersweeper:minersweeper@postgres:5432/minersweeper
       LOGS_ROOT: /data/logs
       OPTIMIZATION_HOST: 0.0.0.0
       OPTIMIZATION_PORT: 8080
@@ -75,3 +96,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  postgres_data:
