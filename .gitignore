@@ -19,7 +19,8 @@ __pycache__/*
 /backups/*
 /java-service/target/
 /java-service/target/dependency/
-/java-service/lib/
+/java-service/lib/*
+!/java-service/lib/.gitkeep
 /m2-local/
 /.m2-local/
 !/frontend-service/package.json
