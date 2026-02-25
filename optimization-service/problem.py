@@ -70,6 +70,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 cache_hit=True,
                 has_error=bool(cached.get("evaluation_error")),
                 evaluation_error=cached.get("evaluation_error"),
+                pipeline=cached.get("pipeline"),
             )
             return solution
 
@@ -127,10 +128,17 @@ class PipelineOptimizationProblem(FloatProblem):
             cache_hit=False,
             has_error=bool(evaluation_error),
             evaluation_error=evaluation_error,
+            pipeline=decoded_pipeline,
         )
         return solution
 
-    def _notify_evaluation(self, cache_hit: bool, has_error: bool, evaluation_error: str | None = None) -> None:
+    def _notify_evaluation(
+        self,
+        cache_hit: bool,
+        has_error: bool,
+        evaluation_error: str | None = None,
+        pipeline: Dict[str, Any] | None = None,
+    ) -> None:
         if self.on_evaluation is None:
             return
         with self._eval_lock:
@@ -143,6 +151,7 @@ class PipelineOptimizationProblem(FloatProblem):
                     "cache_hit": cache_hit,
                     "has_error": has_error,
                     "evaluation_error": evaluation_error,
+                    "pipeline": pipeline or {},
                 }
             )
         except Exception:

@@ -111,6 +111,18 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _pipeline_for_log(pipeline: Any, max_length: int = 1500) -> str:
+    if not pipeline:
+        return ""
+    try:
+        text = json.dumps(pipeline, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        text = str(pipeline)
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
 def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
     attrs = getattr(solution, "attributes", {}) or {}
     evaluation_id = attrs.get("evaluation_id")
@@ -354,12 +366,14 @@ class OptimizationJobManager:
 
             if error_count_for_message == 1 and int(progress_state["unique_errors_logged"]) < 5:
                 progress_state["unique_errors_logged"] = int(progress_state["unique_errors_logged"]) + 1
+                pipeline_text = _pipeline_for_log(event.get("pipeline"))
                 LOGGER.warning(
-                    "job evaluation failed job_id=%s evaluation=%s/%s error=%s",
+                    "job evaluation failed job_id=%s evaluation=%s/%s error=%s pipeline=%s",
                     job_id,
                     evaluations_done,
                     max_evaluations,
                     error_message,
+                    pipeline_text,
                 )
 
         miner = OptimizedProcessMiner(
