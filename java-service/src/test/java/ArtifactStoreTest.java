@@ -1,5 +1,6 @@
 import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.ExperimentFingerprintsResponse;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
 
@@ -13,8 +14,10 @@ import static org.junit.Assert.fail;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 public class ArtifactStoreTest {
@@ -121,5 +124,42 @@ public class ArtifactStoreTest {
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("evaluation_id not found"));
         }
+    }
+
+    @Test
+    public void readFingerprintsListsStoredEvaluationFingerprints() throws Exception {
+        Path tmp = Files.createTempDirectory("artifact-store-test-fingerprints");
+        ArtifactStore store = new ArtifactStore(tmp.toString());
+
+        PipelineRequest request = TestFixtures.buildRequest(
+            "run_fp",
+            "/tmp/log.xes",
+            TestFixtures.matrixFilter(),
+            TestFixtures.inductiveImf(),
+            TestFixtures.defaultMetrics()
+        );
+
+        Map<String, Double> metrics = new LinkedHashMap<String, Double>();
+        metrics.put("fitness", Double.valueOf(0.8));
+
+        EvaluationResult evalA = store.store(request, metrics, "<pnml/>", "fingerprint-a");
+        EvaluationResult evalB = store.store(request, metrics, "<pnml/>", "fingerprint-b");
+
+        ExperimentFingerprintsResponse response = store.readFingerprints("run_fp");
+
+        assertEquals("run_fp", response.experiment_id);
+        assertEquals(2, response.fingerprints.size());
+
+        Set<String> evaluationIds = new HashSet<String>();
+        Set<String> fingerprints = new HashSet<String>();
+        for (ExperimentFingerprintsResponse.FingerprintEntry entry : response.fingerprints) {
+            evaluationIds.add(entry.evaluation_id);
+            fingerprints.add(entry.fingerprint);
+        }
+
+        assertTrue(evaluationIds.contains(evalA.evaluation_id));
+        assertTrue(evaluationIds.contains(evalB.evaluation_id));
+        assertTrue(fingerprints.contains("fingerprint-a"));
+        assertTrue(fingerprints.contains("fingerprint-b"));
     }
 }

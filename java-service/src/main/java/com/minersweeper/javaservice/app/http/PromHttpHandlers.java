@@ -7,6 +7,7 @@ import com.minersweeper.javaservice.app.validation.RequestValidator;
 import com.minersweeper.javaservice.api.dto.ArtifactBulkRequest;
 import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.ExperimentFingerprintsResponse;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.api.dto.PipelineResponse;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
@@ -106,6 +107,23 @@ public final class PromHttpHandlers {
         } catch (Exception e) {
             ServerErrorLogger.log("cleanup_failed", e, verboseExceptions);
             return HttpResponses.respondError(res, 500, "cleanup_failed", HttpResponses.buildErrorMessage(e));
+        }
+    }
+
+    public Object handleExperimentFingerprints(spark.Request req, spark.Response res) throws Exception {
+        String experimentId = req.params(":experimentId");
+        try {
+            RequestValidator.validateExperimentIdPath(experimentId);
+        } catch (BadRequestException e) {
+            return HttpResponses.respondError(res, 400, "invalid_request", e.getMessage());
+        }
+
+        try {
+            ExperimentFingerprintsResponse response = artifactStore.readFingerprints(experimentId);
+            return HttpResponses.respondJson(res, 200, response, mapper);
+        } catch (Exception e) {
+            ServerErrorLogger.log("fingerprints_read_failed", e, verboseExceptions);
+            return HttpResponses.respondError(res, 500, "fingerprints_read_failed", HttpResponses.buildErrorMessage(e));
         }
     }
 

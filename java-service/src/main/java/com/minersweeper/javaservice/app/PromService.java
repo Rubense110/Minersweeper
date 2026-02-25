@@ -40,6 +40,7 @@ public class PromService {
         post("/pipeline", (req, res) -> HTTP_HANDLERS.handlePipeline(req, res));
         post("/artifacts/bulk", (req, res) -> HTTP_HANDLERS.handleArtifactsBulk(req, res));
         post("/experiments/:experimentId/cleanup", (req, res) -> HTTP_HANDLERS.handleCleanup(req, res));
+        get("/experiments/:experimentId/fingerprints", (req, res) -> HTTP_HANDLERS.handleExperimentFingerprints(req, res));
     }
 
     private static String env(String key, String fallback) {
