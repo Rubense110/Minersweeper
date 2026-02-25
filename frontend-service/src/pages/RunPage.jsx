@@ -3,6 +3,19 @@ import { useNavigate } from 'react-router-dom'
 import { createOptimization } from '../api'
 
 const DEFAULT_LOG_PATH = '/data/logs/BPI_Challenge_2013_open_problems.xes'
+const HW_CONCURRENCY =
+  typeof navigator !== 'undefined' && Number.isFinite(navigator.hardwareConcurrency)
+    ? Math.max(1, Math.floor(navigator.hardwareConcurrency))
+    : 1
+const DEFAULT_N_WORKERS = HW_CONCURRENCY
+
+function normalizeWorkers(value) {
+  const parsed = Number.parseInt(String(value), 10)
+  if (!Number.isFinite(parsed)) {
+    return 1
+  }
+  return Math.max(1, parsed)
+}
 
 export default function RunPage() {
   const navigate = useNavigate()
@@ -10,6 +23,7 @@ export default function RunPage() {
   const [logPath, setLogPath] = useState(DEFAULT_LOG_PATH)
   const [maxEvaluations, setMaxEvaluations] = useState(50)
   const [populationSize, setPopulationSize] = useState(20)
+  const [nWorkers, setNWorkers] = useState(DEFAULT_N_WORKERS)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -24,7 +38,7 @@ export default function RunPage() {
         log_path: logPath,
         max_evaluations: Number(maxEvaluations),
         population_size: Number(populationSize),
-        n_workers: 1,
+        n_workers: normalizeWorkers(nWorkers),
         excluded_miners: ['split', 'ilp', 'hybrid_ilp'],
         //metrics: ['simplicity']
       })
@@ -86,6 +100,20 @@ export default function RunPage() {
               />
             </label>
           </div>
+
+          <label>
+            Parallel Workers
+            <input
+              type="number"
+              min="1"
+              value={nWorkers}
+              onChange={(event) => setNWorkers(normalizeWorkers(event.target.value))}
+              required
+            />
+          </label>
+          <p className="small muted">
+            Detected logical cores in browser: {HW_CONCURRENCY}. Backend will clamp to the server limit.
+          </p>
 
           {error ? <p className="error">{error}</p> : null}
 

@@ -16,6 +16,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
+import psutil
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 
@@ -59,6 +60,23 @@ def _to_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _logical_cpu_count() -> int:
+    count = psutil.cpu_count(logical=True)
+    if isinstance(count, int) and count > 0:
+        return count
+    count = os.cpu_count()
+    if isinstance(count, int) and count > 0:
+        return count
+    return 1
+
+
+def _normalize_n_workers(value: Any) -> int:
+    requested = _to_int(value, 1)
+    if requested < 1:
+        requested = 1
+    return min(requested, _logical_cpu_count())
 
 
 def _configure_logging() -> logging.Logger:
@@ -268,12 +286,21 @@ class OptimizationJobManager:
         metrics = payload.get("metrics")
         excluded_miners = payload.get("excluded_miners", ["split", "ilp"])
 
+        requested_n_workers = payload.get("n_workers", 1)
+        normalized_n_workers = _normalize_n_workers(requested_n_workers)
         discover_cfg = {
             "max_evaluations": int(payload.get("max_evaluations", 1000)),
             "population_size": payload.get("population_size", 100),
             "n_partitions": payload.get("n_partitions"),
-            "n_workers": int(payload.get("n_workers", 1)),
+            "n_workers": normalized_n_workers,
         }
+        if normalized_n_workers != _to_int(requested_n_workers, 1):
+            LOGGER.info(
+                "n_workers clamped requested=%s normalized=%s logical_cpus=%s",
+                requested_n_workers,
+                normalized_n_workers,
+                _logical_cpu_count(),
+            )
 
         job_id = str(uuid.uuid4())
         job = {
