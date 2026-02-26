@@ -19,6 +19,7 @@ import org.processmining.models.semantics.petrinet.Marking;
 import org.processmining.plugins.etconformance.ETCAlgorithm;
 import org.processmining.plugins.etconformance.ETCResults;
 import org.processmining.plugins.astar.petrinet.PetrinetReplayerWithILP;
+import org.processmining.plugins.astar.petrinet.PetrinetReplayerWithoutILP;
 import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMapping;
 import org.processmining.plugins.petrinet.replayer.PNLogReplayer;
 import org.processmining.plugins.petrinet.replayer.algorithms.costbasedcomplete.CostBasedCompleteParam;
@@ -113,8 +114,13 @@ public class ConformanceComputation {
         replayParam.setNumThreads(1);
 
         PNLogReplayer replayer = new PNLogReplayer();
-        PetrinetReplayerWithILP replayAlgorithm = new PetrinetReplayerWithILP();
-        replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        if (conformanceMode.isAlignment()) {
+            PetrinetReplayerWithILP replayAlgorithm = new PetrinetReplayerWithILP();
+            replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        } else {
+            PetrinetReplayerWithoutILP replayAlgorithm = new PetrinetReplayerWithoutILP();
+            replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        }
         if (timing != null) {
             timing.markFromStart("replay_ms", replayStartNs);
         }
@@ -122,6 +128,9 @@ public class ConformanceComputation {
     }
 
     public synchronized double getFitness() throws Exception {
+        if (!conformanceMode.isAlignment()) {
+            return getReplayFitnessLikePm4py();
+        }
         Map<String, Object> info = getReplayResult().getInfo();
         return MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
     }
@@ -232,6 +241,24 @@ public class ConformanceComputation {
             timing.markFromStart("replay_generalisation_ms", replayGeneralisationStartNs);
         }
         return replayGeneralisation.doubleValue();
+    }
+
+    private synchronized double getReplayFitnessLikePm4py() throws Exception {
+        Map<String, Object> info = getReplayResult().getInfo();
+        double moveLogFitness = MetricUtils.toDouble(info.get(PNRepResult.MOVELOGFITNESS), Double.NaN);
+        double moveModelFitness = MetricUtils.toDouble(info.get(PNRepResult.MOVEMODELFITNESS), Double.NaN);
+
+        if (!Double.isNaN(moveLogFitness) && !Double.isNaN(moveModelFitness)) {
+            // Legacy pm4py token fitness combines two complementary ratios.
+            return (moveLogFitness + moveModelFitness) / 2.0;
+        }
+        if (!Double.isNaN(moveLogFitness)) {
+            return moveLogFitness;
+        }
+        if (!Double.isNaN(moveModelFitness)) {
+            return moveModelFitness;
+        }
+        return MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
     }
 
     private XEventClassifier getClassifier() {

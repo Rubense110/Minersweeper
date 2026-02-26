@@ -161,7 +161,11 @@ Ejemplo de request:
 `replay`:
 
 - `fitness`:
-  - Igual que en `alignment` (replay ILP + `TRACEFITNESS`).
+  - Replay con `PNLogReplayer` + `PetrinetReplayerWithoutILP` (`PNetReplayer`).
+  - Enfoque tipo PM4Py legacy (token-based-like): combina dos componentes del replay:
+    - `Move-Log Fitness`
+    - `Move-Model Fitness`
+  - score final: promedio de ambos (`(move_log + move_model) / 2`), con fallback a `TRACEFITNESS` si faltan componentes.
 - `precision`:
   - ETConformance replay-based (`ETCAlgorithm`, plugin `ETConformance`), valor `ETCp` (`ETCResults.getEtcp()`).
 - `generalisation`:
