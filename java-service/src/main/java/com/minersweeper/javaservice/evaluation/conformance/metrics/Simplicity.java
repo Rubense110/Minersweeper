@@ -5,7 +5,7 @@ import org.processmining.models.graphbased.directed.petrinet.Petrinet;
 import org.processmining.models.graphbased.directed.petrinet.elements.Transition;
 
 public class Simplicity implements ConformanceMetric {
-    public static final String KEY = "simplicity_structural";
+    public static final String KEY = "simplicity";
 
     @Override
     public String key() {

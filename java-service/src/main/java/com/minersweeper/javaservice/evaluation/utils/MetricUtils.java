@@ -6,17 +6,23 @@ public class MetricUtils {
         if (value == null) {
             return fallback;
         }
+        double parsed;
         if (value instanceof Number) {
-            return ((Number) value).doubleValue();
+            parsed = ((Number) value).doubleValue();
+            return Double.isFinite(parsed) ? parsed : fallback;
         }
         try {
-            return Double.parseDouble(String.valueOf(value));
+            parsed = Double.parseDouble(String.valueOf(value));
+            return Double.isFinite(parsed) ? parsed : fallback;
         } catch (Exception ignored) {
             return fallback;
         }
     }
 
     public static double clamp01(double value) {
+        if (!Double.isFinite(value)) {
+            return 0.0;
+        }
         if (value < 0.0) {
             return 0.0;
         }

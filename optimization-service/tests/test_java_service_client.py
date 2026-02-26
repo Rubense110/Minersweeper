@@ -50,7 +50,7 @@ class ProMServiceClientTest(unittest.TestCase):
         sent_metrics = mock_post.call_args.kwargs["json"]["metrics"]
         self.assertEqual(
             sent_metrics,
-            ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+            ["fitness", "precision", "simplicity", "generalisation"],
         )
         self.assertEqual(mock_post.call_args.kwargs["json"]["excluded_miners"], ["split", "ilp"])
 
@@ -76,7 +76,7 @@ class ProMServiceClientTest(unittest.TestCase):
         sent_metrics = mock_post.call_args.kwargs["json"]["metrics"]
         self.assertEqual(
             sent_metrics,
-            ["fitness", "precision_alignment", "simplicity_structural", "generalization_alignment"],
+            ["fitness", "precision", "simplicity", "generalisation"],
         )
 
     @patch("java_service_client.requests.post")
@@ -100,7 +100,7 @@ class ProMServiceClientTest(unittest.TestCase):
         response.raise_for_status.side_effect = requests.HTTPError("400 Client Error")
         response.json.return_value = {
             "error": "invalid_request",
-            "message": "unsupported metric: precision",
+            "message": "unsupported metric: foo",
         }
         mock_post.return_value = response
 
@@ -109,9 +109,9 @@ class ProMServiceClientTest(unittest.TestCase):
             client.evaluate_pipeline(
                 log_path="dummy.xes",
                 pipeline={"miner": {}, "preprocessing": {}},
-                metrics=["fitness", "precision"],
+                metrics=["fitness", "foo"],
             )
-        self.assertIn("invalid_request: unsupported metric: precision", str(ctx.exception))
+        self.assertIn("invalid_request: unsupported metric: foo", str(ctx.exception))
 
     @patch("java_service_client.requests.post")
     def test_fetch_artifacts_returns_list(self, mock_post):

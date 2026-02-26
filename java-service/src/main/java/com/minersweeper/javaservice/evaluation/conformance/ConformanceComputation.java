@@ -1,6 +1,10 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
+import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.deckfour.xes.classification.XEventClass;
 import org.deckfour.xes.classification.XEventClasses;
 import org.deckfour.xes.classification.XEventClassifier;
@@ -12,13 +16,18 @@ import org.processmining.framework.plugin.PluginContext;
 import org.processmining.models.graphbased.directed.petrinet.Petrinet;
 import org.processmining.models.graphbased.directed.petrinet.elements.Transition;
 import org.processmining.models.semantics.petrinet.Marking;
+import org.processmining.plugins.etconformance.ETCAlgorithm;
+import org.processmining.plugins.etconformance.ETCResults;
 import org.processmining.plugins.astar.petrinet.PetrinetReplayerWithILP;
+import org.processmining.plugins.astar.petrinet.PetrinetReplayerWithoutILP;
 import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMapping;
 import org.processmining.plugins.petrinet.replayer.PNLogReplayer;
 import org.processmining.plugins.petrinet.replayer.algorithms.costbasedcomplete.CostBasedCompleteParam;
 import org.processmining.plugins.petrinet.replayresult.PNRepResult;
+import org.processmining.plugins.petrinet.replayresult.StepTypes;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGen;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGenRes;
+import org.processmining.plugins.replayer.replayresult.SyncReplayResult;
 
 public class ConformanceComputation {
     private final PluginContext context;
@@ -26,6 +35,7 @@ public class ConformanceComputation {
     private final Petrinet net;
     private final Marking initialMarking;
     private final Marking finalMarking;
+    private final ConformanceMode conformanceMode;
     private final TimingTrace timing;
 
     private XEventClassifier classifier;
@@ -34,6 +44,8 @@ public class ConformanceComputation {
     private TransEvClassMapping mapping;
     private PNRepResult replayResult;
     private AlignmentPrecGenRes alignment;
+    private Double replayPrecision;
+    private Double replayGeneralisation;
 
     public ConformanceComputation(
         PluginContext context,
@@ -41,6 +53,7 @@ public class ConformanceComputation {
         Petrinet net,
         Marking initialMarking,
         Marking finalMarking,
+        ConformanceMode conformanceMode,
         TimingTrace timing
     ) {
         this.context = context;
@@ -48,6 +61,7 @@ public class ConformanceComputation {
         this.net = net;
         this.initialMarking = initialMarking;
         this.finalMarking = finalMarking;
+        this.conformanceMode = conformanceMode == null ? ConformanceMode.ALIGNMENT : conformanceMode;
         this.timing = timing;
     }
 
@@ -100,12 +114,39 @@ public class ConformanceComputation {
         replayParam.setNumThreads(1);
 
         PNLogReplayer replayer = new PNLogReplayer();
-        PetrinetReplayerWithILP replayAlgorithm = new PetrinetReplayerWithILP();
-        replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        if (conformanceMode.isAlignment()) {
+            PetrinetReplayerWithILP replayAlgorithm = new PetrinetReplayerWithILP();
+            replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        } else {
+            PetrinetReplayerWithoutILP replayAlgorithm = new PetrinetReplayerWithoutILP();
+            replayResult = replayer.replayLog(context, net, log, getMapping(), replayAlgorithm, replayParam);
+        }
         if (timing != null) {
             timing.markFromStart("replay_ms", replayStartNs);
         }
         return replayResult;
+    }
+
+    public synchronized double getFitness() throws Exception {
+        if (!conformanceMode.isAlignment()) {
+            return getReplayFitnessLikePm4py();
+        }
+        Map<String, Object> info = getReplayResult().getInfo();
+        return MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
+    }
+
+    public synchronized double getPrecision() throws Exception {
+        if (conformanceMode.isAlignment()) {
+            return getAlignment().getPrecision();
+        }
+        return getReplayPrecision();
+    }
+
+    public synchronized double getGeneralisation() throws Exception {
+        if (conformanceMode.isAlignment()) {
+            return getAlignment().getGeneralization();
+        }
+        return getReplayGeneralisation();
     }
 
     public synchronized AlignmentPrecGenRes getAlignment() throws Exception {
@@ -127,6 +168,97 @@ public class ConformanceComputation {
             timing.markFromStart("alignment_ms", alignmentStartNs);
         }
         return alignment;
+    }
+
+    private synchronized double getReplayPrecision() throws Exception {
+        if (replayPrecision != null) {
+            return replayPrecision.doubleValue();
+        }
+        long replayPrecisionStartNs = TimingTrace.nowNs();
+
+        ETCResults results = new ETCResults();
+        ETCAlgorithm.exec(context, log, net, initialMarking, getMapping(), results);
+        replayPrecision = Double.valueOf(results.getEtcp());
+
+        if (timing != null) {
+            timing.markFromStart("replay_precision_ms", replayPrecisionStartNs);
+        }
+        return replayPrecision.doubleValue();
+    }
+
+    private synchronized double getReplayGeneralisation() throws Exception {
+        if (replayGeneralisation != null) {
+            return replayGeneralisation.doubleValue();
+        }
+        long replayGeneralisationStartNs = TimingTrace.nowNs();
+
+        Map<Transition, Integer> transitionActivations = new HashMap<Transition, Integer>();
+        PNRepResult result = getReplayResult();
+        for (SyncReplayResult replay : result) {
+            List<Object> nodes = replay.getNodeInstance();
+            List<StepTypes> stepTypes = replay.getStepTypes();
+            if (nodes == null || stepTypes == null) {
+                continue;
+            }
+            int multiplicity = replay.getTraceIndex() == null ? 1 : Math.max(1, replay.getTraceIndex().size());
+            int limit = Math.min(nodes.size(), stepTypes.size());
+            for (int i = 0; i < limit; i++) {
+                StepTypes stepType = stepTypes.get(i);
+                if (stepType == StepTypes.L) {
+                    continue;
+                }
+                Object node = nodes.get(i);
+                if (!(node instanceof Transition)) {
+                    continue;
+                }
+                Transition transition = (Transition) node;
+                Integer current = transitionActivations.get(transition);
+                int updated = (current == null ? 0 : current.intValue()) + multiplicity;
+                transitionActivations.put(transition, Integer.valueOf(updated));
+            }
+        }
+
+        int transitionCount = net.getTransitions().size();
+        if (transitionCount <= 0) {
+            replayGeneralisation = Double.valueOf(1.0);
+        } else {
+            double penalty = 0.0;
+            for (Transition transition : net.getTransitions()) {
+                int activations = transitionActivations.containsKey(transition)
+                    ? transitionActivations.get(transition).intValue()
+                    : 0;
+                if (activations <= 0) {
+                    penalty += 1.0;
+                } else {
+                    penalty += 1.0 / Math.sqrt((double) activations);
+                }
+            }
+            double value = 1.0 - (penalty / (double) transitionCount);
+            replayGeneralisation = Double.valueOf(value);
+        }
+
+        if (timing != null) {
+            timing.markFromStart("replay_generalisation_ms", replayGeneralisationStartNs);
+        }
+        return replayGeneralisation.doubleValue();
+    }
+
+    private synchronized double getReplayFitnessLikePm4py() throws Exception {
+        Map<String, Object> info = getReplayResult().getInfo();
+        double moveLogFitness = MetricUtils.toDouble(info.get(PNRepResult.MOVELOGFITNESS), Double.NaN);
+        double moveModelFitness = MetricUtils.toDouble(info.get(PNRepResult.MOVEMODELFITNESS), Double.NaN);
+
+        if (!Double.isNaN(moveLogFitness) && !Double.isNaN(moveModelFitness)) {
+            // Legacy pm4py token fitness combines two complementary ratios.
+            return (moveLogFitness + moveModelFitness) / 2.0;
+        }
+        if (!Double.isNaN(moveLogFitness)) {
+            return moveLogFitness;
+        }
+        if (!Double.isNaN(moveModelFitness)) {
+            return moveModelFitness;
+        }
+        return MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
     }
 
     private XEventClassifier getClassifier() {

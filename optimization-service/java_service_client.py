@@ -15,20 +15,20 @@ LOGGER = logging.getLogger("optimization_service.jobs")
 class ProMServiceClient:
     _SERVICE_METRIC_BY_ALIAS = {
         "fitness": "fitness",
-        "precision": "precision_alignment",
-        "precision_alignment": "precision_alignment",
-        "simplicity": "simplicity_structural",
-        "simplicity_structural": "simplicity_structural",
-        "generalisation": "generalization_alignment",
-        "generalization": "generalization_alignment",
-        "generalization_alignment": "generalization_alignment",
+        "precision": "precision",
+        "precision_alignment": "precision",
+        "simplicity": "simplicity",
+        "simplicity_structural": "simplicity",
+        "generalisation": "generalisation",
+        "generalization": "generalisation",
+        "generalization_alignment": "generalisation",
     }
 
     _METRIC_READ_ALIASES = {
         "fitness": ("fitness",),
-        "precision_alignment": ("precision_alignment", "precision"),
-        "simplicity_structural": ("simplicity_structural", "simplicity"),
-        "generalization_alignment": ("generalization_alignment", "generalization", "generalisation"),
+        "precision": ("precision", "precision_alignment"),
+        "simplicity": ("simplicity", "simplicity_structural"),
+        "generalisation": ("generalisation", "generalization", "generalization_alignment"),
     }
 
     def __init__(
@@ -37,6 +37,7 @@ class ProMServiceClient:
         endpoint: str = "/pipeline",
         timeout_seconds: int = 300,
         experiment_id: Optional[str] = None,
+        conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = None,
         artifacts_bulk_endpoint: str = "/artifacts/bulk",
         cleanup_endpoint_template: str = "/experiments/{experiment_id}/cleanup",
@@ -45,6 +46,7 @@ class ProMServiceClient:
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.experiment_id = experiment_id
+        self.conformance_mode = (conformance_mode or "").strip() or None
         self.excluded_miners = tuple(excluded_miners or ())
         self.artifacts_bulk_endpoint = artifacts_bulk_endpoint
         self.cleanup_endpoint_template = cleanup_endpoint_template
@@ -96,6 +98,8 @@ class ProMServiceClient:
             "pipeline": pipeline,
             "metrics": service_metrics,
         }
+        if self.conformance_mode:
+            payload["conformance_mode"] = self.conformance_mode
         if self.excluded_miners:
             payload["excluded_miners"] = list(self.excluded_miners)
 

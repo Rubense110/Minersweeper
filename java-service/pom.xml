@@ -216,6 +216,13 @@
       <artifactId>PNetAlignmentAnalysis</artifactId>
       <version>6.10.114</version>
     </dependency>
+    <dependency>
+      <groupId>prom.local</groupId>
+      <artifactId>ETConformance-local</artifactId>
+      <version>6.9.52</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/ETConformance.jar</systemPath>
+    </dependency>
 
     <dependency>
       <groupId>junit</groupId>

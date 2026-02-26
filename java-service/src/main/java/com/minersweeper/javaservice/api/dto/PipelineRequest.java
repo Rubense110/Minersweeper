@@ -6,6 +6,7 @@ import java.util.Map;
 public class PipelineRequest {
     public String experiment_id;
     public String log_path;
+    public String conformance_mode;
     public PipelineConfig pipeline;
     public List<String> metrics;
     public List<String> excluded_miners;

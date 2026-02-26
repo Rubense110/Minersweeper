@@ -3,9 +3,10 @@ package com.minersweeper.javaservice.app.validation;
 import com.minersweeper.javaservice.api.dto.ArtifactBulkRequest;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMetricCatalog;
+import com.minersweeper.javaservice.evaluation.conformance.ConformanceMode;
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.HashMap;
+import java.util.List;
 
 public final class RequestValidator {
     private RequestValidator() {}
@@ -47,14 +48,21 @@ public final class RequestValidator {
         if (payload.excluded_miners == null) {
             payload.excluded_miners = new ArrayList<String>();
         }
-        Map<String, ?> metricsByKey = ConformanceMetricCatalog.metricsByKey();
-        for (String metric : payload.metrics) {
-            if (isBlank(metric)) {
-                throw new BadRequestException("metrics cannot contain empty values");
-            }
-            if (!metricsByKey.containsKey(metric)) {
-                throw new BadRequestException("unsupported metric: " + metric);
-            }
+        ConformanceMode conformanceMode;
+        try {
+            conformanceMode = ConformanceMode.resolve(payload.conformance_mode);
+        } catch (IllegalArgumentException error) {
+            throw new BadRequestException(error.getMessage());
+        }
+        payload.conformance_mode = conformanceMode.key();
+        try {
+            List<String> canonicalMetrics = ConformanceMetricCatalog.canonicalizeRequestedMetrics(
+                payload.metrics,
+                conformanceMode
+            );
+            payload.metrics = canonicalMetrics;
+        } catch (IllegalArgumentException error) {
+            throw new BadRequestException(error.getMessage());
         }
     }
 

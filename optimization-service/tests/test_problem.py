@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+import math
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -139,6 +140,34 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertIn("evaluation_error", evaluated.attributes)
         self.assertIn("runtime_ms", evaluated.attributes)
         self.assertGreaterEqual(evaluated.attributes["runtime_ms"], 0)
+
+    def test_non_finite_metric_values_are_sanitized(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+
+        def evaluator(_log, _pipeline, _metrics):
+            return {
+                "metrics": {
+                    "fitness": 0.5,
+                    "precision": float("nan"),
+                    "simplicity": 0.8,
+                    "generalisation": 1.0,
+                }
+            }
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes",
+            metrics_list=["fitness", "precision", "simplicity", "generalisation"],
+            search_space=space,
+            evaluator=evaluator,
+            maximize_metrics=[True, True, True, True],
+        )
+
+        solution = problem.create_solution()
+        evaluated = problem.evaluate(solution)
+        self.assertTrue(all(math.isfinite(value) for value in evaluated.objectives))
+        self.assertEqual(evaluated.objectives[0], -0.5)
+        self.assertEqual(evaluated.objectives[1], -0.0)
+        self.assertIn("evaluation_error", evaluated.attributes)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ public class ConformanceMetricsCalculator {
         Marking initial,
         Marking fin,
         Iterable<String> requestedMetrics,
+        ConformanceMode conformanceMode,
         TimingTrace timing
     ) throws Exception {
         if (requestedMetrics == null) {
@@ -33,14 +34,19 @@ public class ConformanceMetricsCalculator {
         }
 
         Set<String> canonicalRequestedMetrics = new LinkedHashSet<String>();
-        for (String requestedMetric : requestedMetrics) {
-            if (!metricsByKey.containsKey(requestedMetric)) {
-                throw new IllegalArgumentException("unsupported metric: " + requestedMetric);
-            }
-            canonicalRequestedMetrics.add(requestedMetric);
-        }
+        canonicalRequestedMetrics.addAll(
+            ConformanceMetricCatalog.canonicalizeRequestedMetrics(requestedMetrics, conformanceMode)
+        );
 
-        ConformanceComputation computation = new ConformanceComputation(context, log, net, initial, fin, timing);
+        ConformanceComputation computation = new ConformanceComputation(
+            context,
+            log,
+            net,
+            initial,
+            fin,
+            conformanceMode,
+            timing
+        );
 
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
         for (String metricKey : canonicalRequestedMetrics) {
