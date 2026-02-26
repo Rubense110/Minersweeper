@@ -114,6 +114,69 @@ Endpoints:
 - `POST /experiments/:experimentId/cleanup`
 - `GET /experiments/:experimentId/fingerprints`
 
+### Metricas y `conformance_mode`
+
+`POST /pipeline` acepta ahora metricas funcionales y un selector explicito de modo de conformance:
+
+- `conformance_mode`: `alignment` | `replay` (default: `alignment`)
+- metricas canonicas soportadas en request:
+  - `fitness`
+  - `precision`
+  - `simplicity`
+  - `generalisation`
+
+Compatibilidad hacia atras (se normalizan internamente):
+
+- `precision_alignment` -> `precision`
+- `simplicity_structural` -> `simplicity`
+- `generalization` / `generalization_alignment` -> `generalisation`
+
+Ejemplo de request:
+
+```json
+{
+  "experiment_id": "run_001",
+  "log_path": "/data/logs/BPI_Challenge_2013_open_problems.xes",
+  "conformance_mode": "replay",
+  "pipeline": {
+    "preprocessing": { "key": "variant_filter", "variant": "Variant Log Filter", "parameters": { "keep_threshold_vf": 45 } },
+    "miner": { "key": "inductive", "family": "inductive", "variant": "Inductive Miner (IM)", "parameters": { "is_debug": false, "use_multithreading": true } }
+  },
+  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
+}
+```
+
+#### Implementacion tecnica por modo
+
+`alignment` (default):
+
+- `fitness`:
+  - Replay sobre Petri net con `PNLogReplayer` + `PetrinetReplayerWithILP` (`PNetReplayer`).
+  - Se usa `PNRepResult.TRACEFITNESS`.
+- `precision` y `generalisation`:
+  - `AlignmentPrecGen.measureConformanceAssumingCorrectAlignment` (`PNetAlignmentAnalysis`) sobre el replay anterior.
+- `simplicity`:
+  - Metrica estructural propia (lugares/transiciones/arcos + penalizacion por branching).
+
+`replay`:
+
+- `fitness`:
+  - Igual que en `alignment` (replay ILP + `TRACEFITNESS`).
+- `precision`:
+  - ETConformance replay-based (`ETCAlgorithm`, plugin `ETConformance`), valor `ETCp` (`ETCResults.getEtcp()`).
+- `generalisation`:
+  - Replay-based (inspirado en el enfoque de conteo de activaciones de PM4Py):
+    - se cuentan activaciones de transiciones a partir del `PNRepResult` (ponderando por multiplicidad de trazas representadas),
+    - penalizacion por transicion: `1` si no aparece, si aparece `1/sqrt(n_activaciones)`,
+    - score final: `1 - promedio_penalizacion`.
+- `simplicity`:
+  - Igual que en `alignment`.
+
+Notas:
+
+- Ambos modos reutilizan el mismo modelo descubierto y el mismo mapping log->transicion.
+- El `fingerprint` incluye `conformance_mode` para evitar colisiones entre evaluaciones con distinto modo.
+
 ### Nuevo endpoint: fingerprints por experimento
 
 Devuelve `evaluation_id` + `fingerprint` para todas las evaluaciones encontradas en ese experimento.

@@ -16,7 +16,7 @@ import java.util.Set;
 public enum ConformanceMetricCatalog {
     FITNESS(new Fitness(), MetricScope.ANY),
     PRECISION(new Precision(), MetricScope.ANY),
-    GENERALISATION(new Generalisation(), MetricScope.ALIGNMENT_ONLY),
+    GENERALISATION(new Generalisation(), MetricScope.ANY),
     SIMPLICITY(new Simplicity(), MetricScope.ANY);
 
     private static final Map<String, ConformanceMetric> METRICS_BY_KEY = new LinkedHashMap<String, ConformanceMetric>();

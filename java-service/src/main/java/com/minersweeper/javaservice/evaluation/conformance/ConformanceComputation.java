@@ -2,6 +2,8 @@ package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
 import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.deckfour.xes.classification.XEventClass;
 import org.deckfour.xes.classification.XEventClasses;
@@ -21,8 +23,10 @@ import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMap
 import org.processmining.plugins.petrinet.replayer.PNLogReplayer;
 import org.processmining.plugins.petrinet.replayer.algorithms.costbasedcomplete.CostBasedCompleteParam;
 import org.processmining.plugins.petrinet.replayresult.PNRepResult;
+import org.processmining.plugins.petrinet.replayresult.StepTypes;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGen;
 import org.processmining.plugins.pnalignanalysis.conformance.AlignmentPrecGenRes;
+import org.processmining.plugins.replayer.replayresult.SyncReplayResult;
 
 public class ConformanceComputation {
     private final PluginContext context;
@@ -40,6 +44,7 @@ public class ConformanceComputation {
     private PNRepResult replayResult;
     private AlignmentPrecGenRes alignment;
     private Double replayPrecision;
+    private Double replayGeneralisation;
 
     public ConformanceComputation(
         PluginContext context,
@@ -129,12 +134,10 @@ public class ConformanceComputation {
     }
 
     public synchronized double getGeneralisation() throws Exception {
-        if (!conformanceMode.isAlignment()) {
-            throw new IllegalArgumentException(
-                "metric generalisation is not available for conformance_mode=" + conformanceMode.key()
-            );
+        if (conformanceMode.isAlignment()) {
+            return getAlignment().getGeneralization();
         }
-        return getAlignment().getGeneralization();
+        return getReplayGeneralisation();
     }
 
     public synchronized AlignmentPrecGenRes getAlignment() throws Exception {
@@ -172,6 +175,63 @@ public class ConformanceComputation {
             timing.markFromStart("replay_precision_ms", replayPrecisionStartNs);
         }
         return replayPrecision.doubleValue();
+    }
+
+    private synchronized double getReplayGeneralisation() throws Exception {
+        if (replayGeneralisation != null) {
+            return replayGeneralisation.doubleValue();
+        }
+        long replayGeneralisationStartNs = TimingTrace.nowNs();
+
+        Map<Transition, Integer> transitionActivations = new HashMap<Transition, Integer>();
+        PNRepResult result = getReplayResult();
+        for (SyncReplayResult replay : result) {
+            List<Object> nodes = replay.getNodeInstance();
+            List<StepTypes> stepTypes = replay.getStepTypes();
+            if (nodes == null || stepTypes == null) {
+                continue;
+            }
+            int multiplicity = replay.getTraceIndex() == null ? 1 : Math.max(1, replay.getTraceIndex().size());
+            int limit = Math.min(nodes.size(), stepTypes.size());
+            for (int i = 0; i < limit; i++) {
+                StepTypes stepType = stepTypes.get(i);
+                if (stepType == StepTypes.L) {
+                    continue;
+                }
+                Object node = nodes.get(i);
+                if (!(node instanceof Transition)) {
+                    continue;
+                }
+                Transition transition = (Transition) node;
+                Integer current = transitionActivations.get(transition);
+                int updated = (current == null ? 0 : current.intValue()) + multiplicity;
+                transitionActivations.put(transition, Integer.valueOf(updated));
+            }
+        }
+
+        int transitionCount = net.getTransitions().size();
+        if (transitionCount <= 0) {
+            replayGeneralisation = Double.valueOf(1.0);
+        } else {
+            double penalty = 0.0;
+            for (Transition transition : net.getTransitions()) {
+                int activations = transitionActivations.containsKey(transition)
+                    ? transitionActivations.get(transition).intValue()
+                    : 0;
+                if (activations <= 0) {
+                    penalty += 1.0;
+                } else {
+                    penalty += 1.0 / Math.sqrt((double) activations);
+                }
+            }
+            double value = 1.0 - (penalty / (double) transitionCount);
+            replayGeneralisation = Double.valueOf(value);
+        }
+
+        if (timing != null) {
+            timing.markFromStart("replay_generalisation_ms", replayGeneralisationStartNs);
+        }
+        return replayGeneralisation.doubleValue();
     }
 
     private XEventClassifier getClassifier() {
