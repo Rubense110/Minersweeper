@@ -313,6 +313,7 @@ class OptimizationJobManager:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
         metrics = payload.get("metrics")
+        conformance_mode = payload.get("conformance_mode")
         excluded_miners = payload.get("excluded_miners", ["ilp"])
 
         requested_n_workers = payload.get("n_workers", 1)
@@ -348,6 +349,7 @@ class OptimizationJobManager:
                 "log_path": log_path,
                 "service_url": service_url,
                 "metrics": metrics,
+                "conformance_mode": conformance_mode,
                 "excluded_miners": excluded_miners,
                 "discover": discover_cfg,
             },
@@ -389,10 +391,11 @@ class OptimizationJobManager:
             job["started_at"] = _utc_now_iso()
             request_data = dict(job["request"])
         LOGGER.info(
-            "job running job_id=%s execution=%s metrics=%s service_url=%s",
+            "job running job_id=%s execution=%s metrics=%s conformance_mode=%s service_url=%s",
             job_id,
             request_data.get("execution_name"),
             request_data.get("metrics"),
+            request_data.get("conformance_mode"),
             request_data.get("service_url"),
         )
         self._publish_event(
@@ -550,6 +553,7 @@ class OptimizationJobManager:
             metrics=config.get("metrics"),
             service_url=config["service_url"],
             service_timeout_seconds=self.java_service_timeout_seconds,
+            conformance_mode=config.get("conformance_mode"),
             excluded_miners=tuple(config.get("excluded_miners") or ()),
         )
 

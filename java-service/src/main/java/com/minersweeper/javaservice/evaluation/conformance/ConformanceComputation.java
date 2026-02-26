@@ -1,6 +1,8 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
+import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
+import java.util.Map;
 import org.deckfour.xes.classification.XEventClass;
 import org.deckfour.xes.classification.XEventClasses;
 import org.deckfour.xes.classification.XEventClassifier;
@@ -12,6 +14,8 @@ import org.processmining.framework.plugin.PluginContext;
 import org.processmining.models.graphbased.directed.petrinet.Petrinet;
 import org.processmining.models.graphbased.directed.petrinet.elements.Transition;
 import org.processmining.models.semantics.petrinet.Marking;
+import org.processmining.plugins.etconformance.ETCAlgorithm;
+import org.processmining.plugins.etconformance.ETCResults;
 import org.processmining.plugins.astar.petrinet.PetrinetReplayerWithILP;
 import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMapping;
 import org.processmining.plugins.petrinet.replayer.PNLogReplayer;
@@ -26,6 +30,7 @@ public class ConformanceComputation {
     private final Petrinet net;
     private final Marking initialMarking;
     private final Marking finalMarking;
+    private final ConformanceMode conformanceMode;
     private final TimingTrace timing;
 
     private XEventClassifier classifier;
@@ -34,6 +39,7 @@ public class ConformanceComputation {
     private TransEvClassMapping mapping;
     private PNRepResult replayResult;
     private AlignmentPrecGenRes alignment;
+    private Double replayPrecision;
 
     public ConformanceComputation(
         PluginContext context,
@@ -41,6 +47,7 @@ public class ConformanceComputation {
         Petrinet net,
         Marking initialMarking,
         Marking finalMarking,
+        ConformanceMode conformanceMode,
         TimingTrace timing
     ) {
         this.context = context;
@@ -48,6 +55,7 @@ public class ConformanceComputation {
         this.net = net;
         this.initialMarking = initialMarking;
         this.finalMarking = finalMarking;
+        this.conformanceMode = conformanceMode == null ? ConformanceMode.ALIGNMENT : conformanceMode;
         this.timing = timing;
     }
 
@@ -108,6 +116,27 @@ public class ConformanceComputation {
         return replayResult;
     }
 
+    public synchronized double getFitness() throws Exception {
+        Map<String, Object> info = getReplayResult().getInfo();
+        return MetricUtils.toDouble(info.get(PNRepResult.TRACEFITNESS), 0.0);
+    }
+
+    public synchronized double getPrecision() throws Exception {
+        if (conformanceMode.isAlignment()) {
+            return getAlignment().getPrecision();
+        }
+        return getReplayPrecision();
+    }
+
+    public synchronized double getGeneralisation() throws Exception {
+        if (!conformanceMode.isAlignment()) {
+            throw new IllegalArgumentException(
+                "metric generalisation is not available for conformance_mode=" + conformanceMode.key()
+            );
+        }
+        return getAlignment().getGeneralization();
+    }
+
     public synchronized AlignmentPrecGenRes getAlignment() throws Exception {
         if (alignment != null) {
             return alignment;
@@ -127,6 +156,22 @@ public class ConformanceComputation {
             timing.markFromStart("alignment_ms", alignmentStartNs);
         }
         return alignment;
+    }
+
+    private synchronized double getReplayPrecision() throws Exception {
+        if (replayPrecision != null) {
+            return replayPrecision.doubleValue();
+        }
+        long replayPrecisionStartNs = TimingTrace.nowNs();
+
+        ETCResults results = new ETCResults();
+        ETCAlgorithm.exec(context, log, net, initialMarking, getMapping(), results);
+        replayPrecision = Double.valueOf(results.getEtcp());
+
+        if (timing != null) {
+            timing.markFromStart("replay_precision_ms", replayPrecisionStartNs);
+        }
+        return replayPrecision.doubleValue();
     }
 
     private XEventClassifier getClassifier() {

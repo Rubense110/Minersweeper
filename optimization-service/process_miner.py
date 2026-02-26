@@ -25,6 +25,7 @@ class OptimizedProcessMiner:
         metrics: Optional[List[str]] = None,
         service_url: Optional[str] = None,
         service_timeout_seconds: int = 300,
+        conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = ("ilp",),
     ):
         self.execution_name = execution_name
@@ -32,6 +33,7 @@ class OptimizedProcessMiner:
         self.metrics_list = metrics or ["fitness", "precision", "simplicity", "generalisation"]
         self.service_url = service_url
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
+        self.conformance_mode = (conformance_mode or "").strip() or None
         self.excluded_miners = tuple(excluded_miners or ())
 
         self.search_space: Optional[PipelineSearchSpace] = None
@@ -59,6 +61,7 @@ class OptimizedProcessMiner:
             base_url=url,
             experiment_id=self.execution_name,
             timeout_seconds=self.service_timeout_seconds,
+            conformance_mode=self.conformance_mode,
             excluded_miners=self.excluded_miners,
         )
 

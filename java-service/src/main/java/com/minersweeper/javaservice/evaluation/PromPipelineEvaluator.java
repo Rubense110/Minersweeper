@@ -5,6 +5,7 @@ import com.minersweeper.javaservice.api.dto.EvaluationResult;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMetricsCalculator;
+import com.minersweeper.javaservice.evaluation.conformance.ConformanceMode;
 import com.minersweeper.javaservice.evaluation.discovery.DiscoveryArtifact;
 import com.minersweeper.javaservice.evaluation.discovery.DiscoveryArtifactFactory;
 import com.minersweeper.javaservice.evaluation.discovery.MinerDiscoverer;
@@ -54,7 +55,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
         String experimentId = TextUtils.safe(request == null ? null : request.experiment_id);
         String requestedMetrics = joinMetrics(request);
-        String pipelineSummary = summarizePipeline(request);
+            String pipelineSummary = summarizePipeline(request);
+            ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
+            timing.putField("conformance_mode", conformanceMode.key());
 
         try {
             long logLoadStartNs = TimingTrace.nowNs();
@@ -79,6 +82,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 discovered.getInitialMarking(),
                 discovered.getFinalMarking(),
                 request.metrics,
+                conformanceMode,
                 timing
             );
             timing.markFromStart("metrics_ms", metricsStartNs);
