@@ -6,6 +6,7 @@ COPY install_prom_jars.sh /app/install_prom_jars.sh
 COPY prom-lite-1.4-all-platforms /app/prom-lite-1.4-all-platforms
 COPY java-service/pom.xml /app/pom.xml
 COPY java-service/src /app/src
+COPY java-service/lib/ETConformance.jar /app/lib/ETConformance.jar
 
 RUN chmod +x /app/install_prom_jars.sh \
   && /app/install_prom_jars.sh \

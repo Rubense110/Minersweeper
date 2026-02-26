@@ -21,6 +21,7 @@ export default function RunPage() {
   const navigate = useNavigate()
   const [executionName, setExecutionName] = useState(`run_${Date.now()}`)
   const [logPath, setLogPath] = useState(DEFAULT_LOG_PATH)
+  const [conformanceMode, setConformanceMode] = useState('alignment')
   const [maxEvaluations, setMaxEvaluations] = useState(50)
   const [populationSize, setPopulationSize] = useState(20)
   const [nWorkers, setNWorkers] = useState(DEFAULT_N_WORKERS)
@@ -36,6 +37,7 @@ export default function RunPage() {
       const job = await createOptimization({
         execution_name: executionName,
         log_path: logPath,
+        conformance_mode: conformanceMode,
         max_evaluations: Number(maxEvaluations),
         population_size: Number(populationSize),
         n_workers: normalizeWorkers(nWorkers),
@@ -75,6 +77,17 @@ export default function RunPage() {
               required
               placeholder="BPI_Challenge_2013_open_problems.xes"
             />
+          </label>
+
+          <label>
+            Conformance Mode
+            <select
+              value={conformanceMode}
+              onChange={(event) => setConformanceMode(event.target.value)}
+            >
+              <option value="alignment">Alignments</option>
+              <option value="replay">Replay</option>
+            </select>
           </label>
 
           <div className="row">

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple
@@ -110,9 +111,26 @@ class PipelineOptimizationProblem(FloatProblem):
             fingerprint = None
             evaluation_error = str(error)
 
+        if not isinstance(metric_values, dict):
+            raise ValueError("evaluator returned an invalid metrics payload")
+        metric_values = dict(metric_values)
+
         objectives: List[float] = []
         for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics):
-            value = float(metric_values[metric_name])
+            fallback = 0.0 if maximize else 1.0
+            raw_value = metric_values.get(metric_name)
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                value = fallback
+                if evaluation_error is None:
+                    evaluation_error = f"invalid metric value for '{metric_name}': {raw_value!r}"
+            else:
+                if not math.isfinite(value):
+                    value = fallback
+                    if evaluation_error is None:
+                        evaluation_error = f"non-finite metric value for '{metric_name}': {raw_value!r}"
+            metric_values[metric_name] = value
             objectives.append(-value if maximize else value)
 
         solution.objectives = objectives

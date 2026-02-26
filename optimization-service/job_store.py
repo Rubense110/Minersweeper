@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any, Dict, List
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, create_engine, inspect, text
@@ -90,6 +91,18 @@ class JobStore:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _sanitize_json(value: Any) -> Any:
+        if isinstance(value, float):
+            return value if math.isfinite(value) else 0.0
+        if isinstance(value, list):
+            return [JobStore._sanitize_json(item) for item in value]
+        if isinstance(value, tuple):
+            return [JobStore._sanitize_json(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): JobStore._sanitize_json(item) for key, item in value.items()}
+        return value
+
     def save_completed_experiment(self, experiment_data: Dict[str, Any], solutions: List[Dict[str, Any]]) -> None:
         experiment_id = str(experiment_data["experiment_id"])
 
@@ -119,13 +132,13 @@ class JobStore:
                     session.add(
                         Solution(
                             experiment_id=experiment_id,
-                            variables=item.get("variables", []),
-                            objectives=item.get("objectives", []),
-                            pipeline=item.get("pipeline", {}),
+                            variables=self._sanitize_json(item.get("variables", [])),
+                            objectives=self._sanitize_json(item.get("objectives", [])),
+                            pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
-                            places=item.get("places", []),
-                            transitions=item.get("transitions", []),
-                            arcs=item.get("arcs", []),
+                            places=self._sanitize_json(item.get("places", [])),
+                            transitions=self._sanitize_json(item.get("transitions", [])),
+                            arcs=self._sanitize_json(item.get("arcs", [])),
                         )
                     )

@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+import math
 from datetime import datetime, timezone
 
 from sqlalchemy import inspect
@@ -94,6 +95,44 @@ class JobStoreRuntimeTest(unittest.TestCase):
             store = JobStore(db_url=f"sqlite:///{db_path}")
             columns = {column["name"] for column in inspect(store.engine).get_columns("solutions")}
             self.assertIn("runtime_ms", columns)
+
+    def test_save_completed_experiment_sanitizes_non_finite_json_values(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "nan.db")
+            store = JobStore(db_url=f"sqlite:///{db_path}")
+
+            experiment_data = {
+                "experiment_id": "exp-nan",
+                "experiment_name": "exp-nan",
+                "start_at": datetime.now(timezone.utc),
+                "end_at": datetime.now(timezone.utc),
+                "max_evals": 1,
+                "pop_size": 1,
+                "miners": ["inductive"],
+                "preprocessing": ["matrix_filter"],
+                "log_path": "/data/logs/log.xes",
+                "metrics": ["fitness", "precision"],
+                "workers": 1,
+            }
+            solutions = [
+                {
+                    "variables": [0.1],
+                    "objectives": [-0.5, float("nan")],
+                    "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "runtime_ms": 100,
+                    "is_pareto": True,
+                    "places": [],
+                    "transitions": [],
+                    "arcs": [],
+                }
+            ]
+
+            store.save_completed_experiment(experiment_data, solutions)
+
+            with store._session_factory() as session:
+                persisted = session.query(Solution).one()
+                self.assertTrue(all(math.isfinite(float(value)) for value in persisted.objectives))
+                self.assertEqual(persisted.objectives, [-0.5, 0.0])
 
 
 if __name__ == "__main__":
