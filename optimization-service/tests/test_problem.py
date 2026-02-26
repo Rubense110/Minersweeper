@@ -20,6 +20,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
                 "experiment_id": "exp-1",
                 "evaluation_id": "ev-1",
                 "fingerprint": "fp-1",
+                "runtime_ms": 123,
                 "metrics": {
                     "fitness": 0.9,
                     "precision": 0.8,
@@ -44,6 +45,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(evaluated.attributes["evaluation_id"], "ev-1")
         self.assertEqual(evaluated.attributes["experiment_id"], "exp-1")
         self.assertEqual(evaluated.attributes["fingerprint"], "fp-1")
+        self.assertEqual(evaluated.attributes["runtime_ms"], 123)
 
     def test_cache_prevents_duplicate_evaluations(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
@@ -93,6 +95,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
                 "experiment_id": "exp-1",
                 "evaluation_id": "ev-2",
                 "fingerprint": "fp-2",
+                "runtime_ms": 77,
                 "metrics": {
                     "fitness": 0.4,
                     "precision": 0.3,
@@ -115,6 +118,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         evaluated_cached = problem.evaluate(cached_solution)
         self.assertEqual(evaluated_cached.attributes["evaluation_id"], "ev-2")
         self.assertEqual(evaluated_cached.attributes["fingerprint"], "fp-2")
+        self.assertEqual(evaluated_cached.attributes["runtime_ms"], 77)
 
     def test_evaluator_error_is_penalized_without_crash(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
@@ -133,6 +137,8 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         evaluated = problem.evaluate(solution)
         self.assertEqual(evaluated.objectives, [0.0, 0.0, 0.0, 0.0])
         self.assertIn("evaluation_error", evaluated.attributes)
+        self.assertIn("runtime_ms", evaluated.attributes)
+        self.assertGreaterEqual(evaluated.attributes["runtime_ms"], 0)
 
 
 if __name__ == "__main__":

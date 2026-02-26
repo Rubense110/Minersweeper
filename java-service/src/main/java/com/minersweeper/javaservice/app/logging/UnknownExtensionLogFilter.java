@@ -17,6 +17,7 @@ public final class UnknownExtensionLogFilter {
     private static volatile PrintStream originalErr = System.err;
     private static final String SERVICE_PREFIX = "[prom_service] ";
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss,SSS");
+    private static final boolean SUPPRESS_PROM_NOISE = resolvePromNoiseSuppression();
 
     private UnknownExtensionLogFilter() {}
 
@@ -79,6 +80,18 @@ public final class UnknownExtensionLogFilter {
         return value;
     }
 
+    private static boolean parseBooleanEnv(String key, boolean fallback) {
+        return Boolean.parseBoolean(env(key, Boolean.toString(fallback)));
+    }
+
+    private static boolean resolvePromNoiseSuppression() {
+        String explicit = System.getenv("PROM_SUPPRESS_PROM_NOISE");
+        if (explicit != null && !explicit.trim().isEmpty()) {
+            return Boolean.parseBoolean(explicit);
+        }
+        return parseBooleanEnv("PROM_SUPPRESS_SPLIT_MINER_NOISE", true);
+    }
+
     private static final class TeeOutputStream extends OutputStream {
         private final OutputStream first;
         private final OutputStream second;
@@ -136,6 +149,7 @@ public final class UnknownExtensionLogFilter {
         private static final String PREFIX = "Unknown extension:";
         private static final String LIFE_CYCLE_REPAIR_MESSAGE = "life cycle repair not yet implemented";
         private static final String UNMATCHED_MESSAGE = "unmatched";
+        private static final String EVAL_MARKER = "[EVAL]";
         private static final String[] HEURISTICS_PREFIXES = new String[] {
             "Event classes defined by Event Name",
             "Best Start:",
@@ -187,6 +201,24 @@ public final class UnknownExtensionLogFilter {
             "Inputs of ",
             "--x--"
         };
+        private static final String[] SPLIT_MINER_NOISE_MARKERS = new String[] {
+            "split task:",
+            "discovering relations",
+            "double relation for:",
+            "low frequency observations",
+            "skipcounter =",
+            "total potential concurrencies",
+            "removed parallelism edges",
+            "loop-back outgoing edge",
+            "potential parallelisms",
+            "max parallelisms allowed",
+            "event subprocesses",
+            "pair (",
+            "fwd removed:",
+            "bkw removed:",
+            "not removable!",
+            "printing parallelisms"
+        };
         private static final Pattern MATRIX_SIZE = Pattern.compile("^\\s*\\d+\\s+x\\s+\\d+\\s+matrix\\s*$");
         private static final Pattern NUMERIC_ROW = Pattern.compile("^\\s*-?\\d+(?:\\.\\d+)?(?:\\s+-?\\d+(?:\\.\\d+)?)+\\s*$");
         private static final Pattern BOOLEAN_ROW = Pattern.compile("^\\s*(?:true|false|-1)(?:\\s+(?:true|false|-1))*\\s*$");
@@ -194,6 +226,7 @@ public final class UnknownExtensionLogFilter {
         private static final Pattern SIMPLE_MAP = Pattern.compile("^\\s*\\{[A-Za-z0-9_\\- ]+=\\d+(?:,\\s*[A-Za-z0-9_\\- ]+=\\d+)*\\}\\s*$");
         private static final Pattern STRUCTURAL_ROW = Pattern.compile("^[\\s\\d\\-\\.,\\[\\]]+$");
         private static final Pattern QUEUE_STATUS_ROW = Pattern.compile("^\\s*(?:Accepted|Completed|Queued)(?:\\s+(?:Accepted|Completed|Queued))*\\s*$");
+        private static final Pattern ANSI_ESCAPE = Pattern.compile("\\u001B\\[[;\\d]*m");
         private final PrintStream delegate;
         private final StringBuilder lineBuffer = new StringBuilder();
 
@@ -236,6 +269,9 @@ public final class UnknownExtensionLogFilter {
         }
 
         private boolean shouldSuppress(String line) {
+            if (!SUPPRESS_PROM_NOISE) {
+                return false;
+            }
             if (line.startsWith(PREFIX)) {
                 return true;
             }
@@ -244,6 +280,9 @@ public final class UnknownExtensionLogFilter {
                 return true;
             }
             if (normalized.equals(UNMATCHED_MESSAGE)) {
+                return true;
+            }
+            if (isSplitMinerNoise(line, normalized)) {
                 return true;
             }
             if (line.trim().isEmpty()) {
@@ -282,6 +321,46 @@ public final class UnknownExtensionLogFilter {
                 }
             }
             return false;
+        }
+
+        private static boolean isSplitMinerNoise(String line, String normalized) {
+            if (line.contains(EVAL_MARKER)) {
+                return false;
+            }
+            String normalizedCore = normalizeCoreLine(normalized);
+            if (normalizedCore.contains(EVAL_MARKER.toLowerCase())) {
+                return false;
+            }
+            if (normalizedCore.startsWith("dfgp - ")) {
+                return true;
+            }
+            if (normalizedCore.startsWith("info - log parsed at ")) {
+                return true;
+            }
+            if (normalizedCore.equals("lpsolve libraries loaded")) {
+                return true;
+            }
+            if (!(normalizedCore.startsWith("debug -") || normalizedCore.startsWith("warning -"))) {
+                return false;
+            }
+            for (String marker : SPLIT_MINER_NOISE_MARKERS) {
+                if (normalizedCore.contains(marker)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static String normalizeCoreLine(String normalizedLowercase) {
+            String current = ANSI_ESCAPE.matcher(normalizedLowercase).replaceAll("").trim();
+            while (current.startsWith("[")) {
+                int close = current.indexOf(']');
+                if (close < 0) {
+                    break;
+                }
+                current = current.substring(close + 1).trim();
+            }
+            return current;
         }
     }
 }

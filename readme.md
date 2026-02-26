@@ -28,6 +28,12 @@ Plataforma para optimizacion de pipelines de process mining con NSGA-III y evalu
 
 ## Arranque con Docker
 
+Antes del primer build (solo una vez), generar el jar slim de Split Miner:
+
+```bash
+./tools/build_splitminer_slim.sh
+```
+
 ```bash
 cd Minersweeper
 docker compose up --build -d
@@ -60,7 +66,7 @@ curl -sS -X POST http://localhost:8080/optimizations \
     "max_evaluations":50,
     "population_size":20,
     "n_workers":1,
-    "excluded_miners":["split","ilp"]
+    "excluded_miners":["ilp"]
   }'
 ```
 
@@ -152,6 +158,7 @@ La persistencia se hace al finalizar el job, guardando la poblacion final del ex
 - `variables`
 - `objectives`
 - `pipeline` (compactado: `variant` + `parameters`)
+- `runtime_ms` (tiempo de evaluacion de esa solucion, en milisegundos)
 - `is_pareto`
 - `places`
 - `transitions`

@@ -153,6 +153,18 @@ final class TestFixtures {
         );
     }
 
+    static PipelineRequest.MinerConfig splitMiner() {
+        return miner(
+            "split",
+            "split",
+            "Split Miner",
+            mapOf(
+                "epsilon", Double.valueOf(0.5),
+                "eta", Double.valueOf(0.5)
+            )
+        );
+    }
+
     static PipelineRequest.MinerConfig ilpDefault() {
         return miner(
             "ilp",
@@ -186,6 +198,7 @@ final class TestFixtures {
             alphaClassic(),
             inductiveImf(),
             heuristicsHm(),
+            splitMiner(),
             ilpDefault(),
             hybridIlpDefault()
         );

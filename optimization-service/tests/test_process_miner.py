@@ -12,6 +12,14 @@ from process_miner import OptimizedProcessMiner
 
 
 class OptimizedProcessMinerTest(unittest.TestCase):
+    def test_default_excluded_miners_only_ilp(self):
+        miner = OptimizedProcessMiner(
+            execution_name="exec",
+            log="dummy.xes",
+            metrics=["fitness", "precision", "simplicity", "generalisation"],
+        )
+        self.assertEqual(miner.excluded_miners, ("ilp",))
+
     def test_discover_requires_service_url(self):
         miner = OptimizedProcessMiner(
             execution_name="exec",

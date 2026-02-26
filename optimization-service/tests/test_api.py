@@ -2,6 +2,7 @@ import os
 import queue
 import sys
 import unittest
+from unittest import mock
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -128,11 +129,13 @@ class OptimizationApiTest(unittest.TestCase):
                 "evaluation_id": None,
                 "pipeline": {"miner": {"key": "heuristics"}},
                 "metrics": {"fitness": 0.0},
+                "runtime_ms": 321,
                 "evaluation_error": "HTTPError: 500 Server Error",
             }
 
         payload = api._serialize_solution(Sol(), pareto_ids=set())
         self.assertEqual("HTTPError: 500 Server Error", payload["evaluation_error"])
+        self.assertEqual(321, payload["runtime_ms"])
 
     def test_get_solutions_invalid_scope(self):
         response = self.client.get("/optimizations/job-1/solutions?scope=bad")
@@ -177,6 +180,24 @@ class OptimizationApiTest(unittest.TestCase):
         payload = response.get_data(as_text=True)
         self.assertIn("event: status_changed", payload)
         self.assertIn("\"status\": \"completed\"", payload)
+
+
+class LogPathNormalizationTest(unittest.TestCase):
+    def test_relative_filename_uses_logs_root(self):
+        with mock.patch.dict(os.environ, {"LOGS_ROOT": "/data/logs"}, clear=False):
+            self.assertEqual("/data/logs/BPI_Challenge_2013_open_problems.xes", api._normalize_log_path("BPI_Challenge_2013_open_problems.xes"))
+
+    def test_absolute_path_is_kept(self):
+        with mock.patch.dict(os.environ, {"LOGS_ROOT": "/data/logs"}, clear=False):
+            self.assertEqual("/tmp/custom-log.xes", api._normalize_log_path("/tmp/custom-log.xes"))
+
+    def test_relative_path_with_logs_prefix_is_not_duplicated(self):
+        with mock.patch.dict(os.environ, {"LOGS_ROOT": "/data/logs"}, clear=False):
+            self.assertEqual("/data/logs/BPI_Challenge_2013_open_problems.xes", api._normalize_log_path("data/logs/BPI_Challenge_2013_open_problems.xes"))
+
+    def test_blank_path_is_rejected(self):
+        with self.assertRaises(ValueError):
+            api._normalize_log_path("   ")
 
 
 if __name__ == "__main__":

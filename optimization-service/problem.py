@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 from jmetal.core.problem import FloatProblem
@@ -58,6 +59,8 @@ class PipelineOptimizationProblem(FloatProblem):
             solution.objectives = cached["objectives"]
             solution.attributes["pipeline"] = cached["pipeline"]
             solution.attributes["metrics"] = cached["metrics"]
+            if cached.get("runtime_ms") is not None:
+                solution.attributes["runtime_ms"] = cached["runtime_ms"]
             if cached.get("evaluation_error"):
                 solution.attributes["evaluation_error"] = cached["evaluation_error"]
             if cached.get("evaluation_id"):
@@ -75,13 +78,21 @@ class PipelineOptimizationProblem(FloatProblem):
             return solution
 
         decoded_pipeline = self.search_space.decode(solution.variables)
+        eval_started_ns = time.perf_counter_ns()
         try:
             evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
+            runtime_ms = int((time.perf_counter_ns() - eval_started_ns) / 1_000_000)
             if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
                 metric_values = evaluation_payload["metrics"]
                 evaluation_id = evaluation_payload.get("evaluation_id")
                 experiment_id = evaluation_payload.get("experiment_id")
                 fingerprint = evaluation_payload.get("fingerprint")
+                payload_runtime_ms = evaluation_payload.get("runtime_ms")
+                if payload_runtime_ms is not None:
+                    try:
+                        runtime_ms = int(payload_runtime_ms)
+                    except (TypeError, ValueError):
+                        pass
             else:
                 metric_values = evaluation_payload
                 evaluation_id = None
@@ -89,6 +100,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 fingerprint = None
             evaluation_error = None
         except Exception as error:  # noqa: BLE001 - We must keep optimization running.
+            runtime_ms = int((time.perf_counter_ns() - eval_started_ns) / 1_000_000)
             metric_values = {
                 metric_name: (0.0 if maximize else 1.0)
                 for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics)
@@ -106,6 +118,7 @@ class PipelineOptimizationProblem(FloatProblem):
         solution.objectives = objectives
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
+        solution.attributes["runtime_ms"] = runtime_ms
         if evaluation_error is not None:
             solution.attributes["evaluation_error"] = evaluation_error
         if evaluation_id:
@@ -119,6 +132,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 "objectives": objectives,
                 "pipeline": decoded_pipeline,
                 "metrics": metric_values,
+                "runtime_ms": runtime_ms,
                 "evaluation_id": evaluation_id,
                 "experiment_id": experiment_id,
                 "fingerprint": fingerprint,

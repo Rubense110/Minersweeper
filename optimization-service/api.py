@@ -79,6 +79,30 @@ def _normalize_n_workers(value: Any) -> int:
     return min(requested, _logical_cpu_count())
 
 
+def _normalize_log_path(value: Any) -> str:
+    raw = "" if value is None else str(value).strip()
+    if not raw:
+        raise ValueError("'log_path' is required")
+
+    normalized_input = os.path.normpath(raw)
+    if os.path.isabs(normalized_input):
+        return normalized_input
+
+    logs_root = (os.getenv("LOGS_ROOT") or "/data/logs").strip() or "/data/logs"
+    normalized_root = os.path.normpath(logs_root)
+
+    rel_parts = [part for part in normalized_input.split(os.sep) if part not in ("", ".")]
+    root_parts = [part for part in normalized_root.split(os.sep) if part not in ("", ".")]
+
+    if root_parts and rel_parts[: len(root_parts)] == root_parts:
+        rel_parts = rel_parts[len(root_parts) :]
+
+    if not rel_parts:
+        return normalized_root
+
+    return os.path.normpath(os.path.join(normalized_root, *rel_parts))
+
+
 def _java_service_timeout_seconds() -> int:
     return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 300))
 
@@ -257,6 +281,7 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "fingerprint": attrs.get("fingerprint"),
         "pipeline": attrs.get("pipeline", {}),
         "metrics": attrs.get("metrics", {}),
+        "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),
         "variables": list(getattr(solution, "variables", []) or []),
         "is_pareto": bool(evaluation_id and evaluation_id in pareto_ids),
@@ -280,16 +305,15 @@ class OptimizationJobManager:
             payload = {}
 
         execution_name = payload.get("execution_name") or f"run_{int(time.time() * 1000)}"
-        log_path = payload.get("log_path") or payload.get("log")
-        if not log_path:
-            raise ValueError("'log_path' is required")
+        raw_log_path = payload.get("log_path") or payload.get("log")
+        log_path = _normalize_log_path(raw_log_path)
 
         service_url = payload.get("service_url") or self.default_service_url
         if not service_url:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
         metrics = payload.get("metrics")
-        excluded_miners = payload.get("excluded_miners", ["split", "ilp"])
+        excluded_miners = payload.get("excluded_miners", ["ilp"])
 
         requested_n_workers = payload.get("n_workers", 1)
         normalized_n_workers = _normalize_n_workers(requested_n_workers)
@@ -620,6 +644,7 @@ class OptimizationJobManager:
                     "variables": solution.get("variables", []),
                     "objectives": solution.get("objectives", []),
                     "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
+                    "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
                     "is_pareto": bool(solution.get("is_pareto")),
                     "places": places,
                     "transitions": transitions,

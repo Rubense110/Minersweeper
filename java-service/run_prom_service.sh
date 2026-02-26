@@ -19,7 +19,9 @@ if [[ ! -d "${PROM_HOME}" ]]; then
   exit 1
 fi
 
-PROM_JARS="$(find "${PROM_HOME}/lib" "${PROM_HOME}/packages" -type f -name '*.jar' | sort | paste -sd: -)"
+PROM_JARS="$(find "${PROM_HOME}/lib" "${PROM_HOME}/packages" -type f -name '*.jar' \
+  ! -path "${PROM_HOME}/packages/splitminer-1.7.1/split-miner-1.7.1-all.jar" \
+  | sort | paste -sd: -)"
 BASE_CP="${SCRIPT_DIR}/target/prom-service-0.1.0.jar:${SCRIPT_DIR}/target/dependency/*"
 CLASSPATH="${BASE_CP}:${PROM_JARS}"
 NATIVE_DIRS="$(find "${PROM_HOME}" -type f \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -printf '%h\n' | sort -u | paste -sd: -)"
@@ -43,4 +45,3 @@ exec env \
   LOGS_ROOT="${LOGS_ROOT}" \
   LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
   java -Djava.library.path="${JAVA_LIBRARY_PATH}" -cp "${CLASSPATH}" com.minersweeper.javaservice.app.PromService
-
