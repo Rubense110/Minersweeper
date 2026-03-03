@@ -112,10 +112,98 @@ function PipelineSection({ title, node }) {
   )
 }
 
+function objectiveGroupingKey(objectives, precision = 8) {
+  if (!Array.isArray(objectives)) return '[]'
+  return objectives
+    .map((value) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value.toFixed(precision)
+      }
+      return String(value)
+    })
+    .join('|')
+}
+
+function runtimeSortValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value
+  }
+  return Number.MAX_SAFE_INTEGER
+}
+
+function sortSolutionsByRuntime(items) {
+  return [...items].sort((a, b) => {
+    const delta = runtimeSortValue(a.runtimeMs) - runtimeSortValue(b.runtimeMs)
+    if (delta !== 0) return delta
+    return String(a.id).localeCompare(String(b.id))
+  })
+}
+
+function buildSolutionGroups(items) {
+  const groupsByObjectives = new Map()
+
+  for (const solution of items) {
+    const objectivesKey = objectiveGroupingKey(solution.objectives)
+    const existing = groupsByObjectives.get(objectivesKey)
+    if (existing) {
+      existing.solutions.push(solution)
+      continue
+    }
+    groupsByObjectives.set(objectivesKey, {
+      id: objectivesKey,
+      objectives: Array.isArray(solution.objectives) ? [...solution.objectives] : [],
+      solutions: [solution],
+    })
+  }
+
+  const groups = [...groupsByObjectives.values()].map((group) => {
+    const sortedSolutions = sortSolutionsByRuntime(group.solutions)
+    const best = sortedSolutions[0] || null
+    const paretoCount = sortedSolutions.filter((solution) => solution.isPareto).length
+    const uniquePipelines = new Set(sortedSolutions.map((solution) => JSON.stringify(solution.pipeline || {}))).size
+
+    return {
+      id: group.id,
+      objectives: group.objectives,
+      solutions: sortedSolutions,
+      best,
+      size: sortedSolutions.length,
+      paretoCount,
+      uniquePipelines,
+      bestRuntimeMs: best ? runtimeSortValue(best.runtimeMs) : Number.MAX_SAFE_INTEGER,
+    }
+  })
+
+  groups.sort((a, b) => {
+    const runtimeDelta = a.bestRuntimeMs - b.bestRuntimeMs
+    if (runtimeDelta !== 0) return runtimeDelta
+    const sizeDelta = b.size - a.size
+    if (sizeDelta !== 0) return sizeDelta
+    return a.id.localeCompare(b.id)
+  })
+
+  return groups
+}
+
+function formatRuntime(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return `${value} ms`
+  }
+  return '-'
+}
+
+function formatObjectiveValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number(value.toFixed(8)).toString()
+  }
+  return String(value)
+}
+
 export default function ResultsPage() {
   const { jobId } = useParams()
   const [job, setJob] = useState(null)
   const [solutions, setSolutions] = useState([])
+  const [selectedGroupId, setSelectedGroupId] = useState('')
   const [selectedSolutionId, setSelectedSolutionId] = useState('')
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState('')
@@ -127,13 +215,6 @@ export default function ResultsPage() {
 
     let active = true
     let stream = null
-
-    function keepOrPickFirst(mapped) {
-      setSelectedSolutionId((previous) => {
-        if (previous && mapped.some((item) => item.id === previous)) return previous
-        return mapped.length > 0 ? mapped[0].id : ''
-      })
-    }
 
     async function loadDbData(experimentId, options = {}) {
       const { allowEmpty = true } = options
@@ -176,7 +257,6 @@ export default function ResultsPage() {
         percentage: 100,
       })
       setSolutions(mapped)
-      keepOrPickFirst(mapped)
       return mapped.length
     }
 
@@ -290,10 +370,37 @@ export default function ResultsPage() {
     }
   }, [jobId])
 
-  const selectedSolution = useMemo(
-    () => solutions.find((item) => item.id === selectedSolutionId) || null,
-    [solutions, selectedSolutionId]
+  const solutionGroups = useMemo(() => buildSolutionGroups(solutions), [solutions])
+
+  useEffect(() => {
+    setSelectedGroupId((previous) => {
+      if (previous && solutionGroups.some((group) => group.id === previous)) return previous
+      return solutionGroups[0]?.id || ''
+    })
+  }, [solutionGroups])
+
+  const selectedGroup = useMemo(
+    () => solutionGroups.find((group) => group.id === selectedGroupId) || null,
+    [solutionGroups, selectedGroupId]
   )
+
+  useEffect(() => {
+    if (!selectedGroup) {
+      setSelectedSolutionId('')
+      return
+    }
+    setSelectedSolutionId((previous) => {
+      if (previous && selectedGroup.solutions.some((solution) => solution.id === previous)) {
+        return previous
+      }
+      return selectedGroup.solutions[0]?.id || ''
+    })
+  }, [selectedGroup])
+
+  const selectedSolution = useMemo(() => {
+    if (!selectedGroup) return null
+    return selectedGroup.solutions.find((item) => item.id === selectedSolutionId) || selectedGroup.solutions[0] || null
+  }, [selectedGroup, selectedSolutionId])
 
   const preferredMetricOrder = useMemo(() => {
     if (!Array.isArray(job?.request?.metrics)) return []
@@ -336,7 +443,7 @@ export default function ResultsPage() {
       window.removeEventListener('resize', syncListHeight)
       if (observer) observer.disconnect()
     }
-  }, [selectedSolutionId, solutions.length, job?.status])
+  }, [selectedGroupId, selectedSolutionId, solutionGroups.length, job?.status])
 
   return (
     <main className="page">
@@ -398,7 +505,8 @@ export default function ResultsPage() {
 
         {job?.status === 'completed' ? (
           <>
-            <h3>Todas las soluciones ({solutions.length})</h3>
+            <h3>Grupos por objetivos ({solutionGroups.length})</h3>
+            <p className="small muted">Total de soluciones registradas: {solutions.length}</p>
             {solutions.length === 0 ? <p>No hay soluciones registradas para este experimento.</p> : null}
 
             <div className="solutions-grid">
@@ -406,21 +514,27 @@ export default function ResultsPage() {
                 className="solutions-list"
                 style={solutionsListMaxHeight ? { maxHeight: `${solutionsListMaxHeight}px` } : undefined}
               >
-                {solutions.map((solution) => {
-                  const metricEntries = orderedMetricEntries(solution.metrics, preferredMetricOrder)
+                {solutionGroups.map((group, index) => {
+                  const metricEntries = orderedMetricEntries(group.best?.metrics || {}, preferredMetricOrder)
                   return (
                     <button
-                      className={solution.id === selectedSolutionId ? 'solution-item active' : 'solution-item'}
-                      key={solution.id}
-                      onClick={() => setSelectedSolutionId(solution.id)}
+                      className={group.id === selectedGroupId ? 'solution-item active group-item' : 'solution-item group-item'}
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
                       type="button"
                     >
                       <div className="header-row">
-                        <strong>{solution.label}</strong>
-                        {solution.isPareto ? <span className="pareto-tag">pareto</span> : null}
+                        <strong>Grupo #{index + 1}</strong>
+                        {group.paretoCount > 0 ? <span className="pareto-tag">pareto: {group.paretoCount}</span> : null}
                       </div>
-                      <div className="small muted">{solution.pipeline?.miner?.variant || '-'}</div>
-                      {hasAnyMetric(solution) ? (
+                      <div className="small muted">
+                        {group.size} soluciones | {group.uniquePipelines} pipelines | mejor runtime:{' '}
+                        {formatRuntime(group.best?.runtimeMs)}
+                      </div>
+                      <div className="small muted">
+                        Objetivos: [{group.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
+                      </div>
+                      {metricEntries.length > 0 ? (
                         <div className="solution-metric-lines small">
                           {metricEntries.map(([key, value]) => (
                             <span className="solution-metric-chip" key={key}>
@@ -428,17 +542,40 @@ export default function ResultsPage() {
                             </span>
                           ))}
                         </div>
-                      ) : (
-                        <div className="small muted">Sin métricas disponibles</div>
-                      )}
+                      ) : null}
                     </button>
                   )
                 })}
               </aside>
 
               <section className="solution-detail" ref={solutionDetailRef}>
-                {selectedSolution ? (
+                {selectedGroup && selectedSolution ? (
                   <>
+                    <h3>Detalle del grupo</h3>
+                    <p>
+                      <strong>Soluciones en el grupo:</strong> {selectedGroup.size} | <strong>Pipelines distintos:</strong>{' '}
+                      {selectedGroup.uniquePipelines} | <strong>Mejor runtime:</strong> {formatRuntime(selectedGroup.best?.runtimeMs)}
+                    </p>
+                    <p>
+                      <strong>Objetivos del grupo:</strong>{' '}
+                      [{selectedGroup.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
+                    </p>
+
+                    <h4>Soluciones del grupo (ordenadas por runtime)</h4>
+                    <div className="group-member-list">
+                      {selectedGroup.solutions.map((solution) => (
+                        <button
+                          className={solution.id === selectedSolutionId ? 'group-member-item active' : 'group-member-item'}
+                          key={solution.id}
+                          onClick={() => setSelectedSolutionId(solution.id)}
+                          type="button"
+                        >
+                          <span>{solution.label}</span>
+                          <span className="small muted">{formatRuntime(solution.runtimeMs)}</span>
+                        </button>
+                      ))}
+                    </div>
+
                     <h3>Detalle individual</h3>
                     <p>
                       <strong>Runtime (ms):</strong> {selectedSolution.runtimeMs === null ? '-' : selectedSolution.runtimeMs}
@@ -483,7 +620,7 @@ export default function ResultsPage() {
                     </details>
                   </>
                 ) : (
-                  <p>Selecciona una solución para ver el detalle.</p>
+                  <p>Selecciona un grupo para ver el detalle.</p>
                 )}
               </section>
             </div>
