@@ -1,13 +1,33 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import RunPage from './pages/RunPage'
 import ResultsPage from './pages/ResultsPage'
+import HistoryPage from './pages/HistoryPage'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<RunPage />} />
-      <Route path="/results/:jobId" element={<ResultsPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-block">
+          <p className="eyebrow">Minersweeper</p>
+          <h1>Optimization Frontend</h1>
+        </div>
+        <nav className="topnav" aria-label="Main navigation">
+          <NavLink className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} to="/run">
+            Nuevo experimento
+          </NavLink>
+          <NavLink className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} to="/history">
+            Historial
+          </NavLink>
+        </nav>
+      </header>
+
+      <Routes>
+        <Route path="/" element={<Navigate to="/run" replace />} />
+        <Route path="/run" element={<RunPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/results/:jobId" element={<ResultsPage />} />
+        <Route path="*" element={<Navigate to="/run" replace />} />
+      </Routes>
+    </div>
   )
 }

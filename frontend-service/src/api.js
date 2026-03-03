@@ -21,10 +21,21 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const msg = body?.message || body?.error || `HTTP ${response.status}`
-    throw new Error(msg)
+    const error = new Error(msg)
+    error.status = response.status
+    error.payload = body
+    throw error
   }
 
   return body
+}
+
+export async function listLogs() {
+  return request('/logs')
+}
+
+export async function listOptimizations() {
+  return request('/optimizations')
 }
 
 export async function createOptimization(payload) {
@@ -32,6 +43,18 @@ export async function createOptimization(payload) {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export async function listExperiments() {
+  return request('/experiments')
+}
+
+export async function getExperiment(experimentId) {
+  return request(`/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export async function getExperimentSolutions(experimentId, scope = 'all') {
+  return request(`/experiments/${encodeURIComponent(experimentId)}/solutions?scope=${encodeURIComponent(scope)}`)
 }
 
 export async function getOptimization(jobId) {
