@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getExperiment, getExperimentSolutions, getEventsUrl, getOptimization } from '../api'
+import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PnmlViewer from '../components/PnmlViewer'
 
 function toLocalDate(value) {
@@ -560,6 +561,12 @@ export default function ResultsPage() {
                       <strong>Objetivos del grupo:</strong>{' '}
                       [{selectedGroup.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
                     </p>
+
+                    <ParetoFrontScatter
+                      metricOrder={preferredMetricOrder}
+                      selectedSolutionIds={selectedGroup.solutions.map((solution) => solution.id)}
+                      solutions={solutions}
+                    />
 
                     <h4>Soluciones del grupo (ordenadas por runtime)</h4>
                     <div className="group-member-list">
