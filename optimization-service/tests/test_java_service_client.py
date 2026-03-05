@@ -25,7 +25,7 @@ class ProMServiceClientTest(unittest.TestCase):
                 "fitness": 0.9,
                 "precision": 0.8,
                 "simplicity": 0.7,
-                "generalization": 0.6,
+                "generalisation": 0.6,
             }
         }
         response.raise_for_status.return_value = None
@@ -93,6 +93,37 @@ class ProMServiceClientTest(unittest.TestCase):
                 pipeline={"miner": {}, "preprocessing": {}},
                 metrics=["fitness", "precision"],
             )
+
+    @patch("java_service_client.requests.post")
+    def test_new_structural_metrics_are_passthrough(self, mock_post):
+        response = Mock()
+        response.json.return_value = {
+            "metrics": {
+                "places": 12.0,
+                "transitions": 9.0,
+                "arcs": 24.0,
+                "cycl_complx": 5.0,
+                "ratio": 1.3333333333,
+                "joins": 2.0,
+                "splits": 3.0,
+            }
+        }
+        response.raise_for_status.return_value = None
+        mock_post.return_value = response
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        requested = ["places", "transitions", "arcs", "cycl_complx", "ratio", "joins", "splits"]
+        result = client.evaluate_pipeline(
+            log_path="dummy.xes",
+            pipeline={"miner": {}, "preprocessing": {}},
+            metrics=requested,
+        )
+        self.assertEqual(result["metrics"]["places"], 12.0)
+        self.assertEqual(result["metrics"]["cycl_complx"], 5.0)
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["metrics"],
+            requested,
+        )
 
     @patch("java_service_client.requests.post")
     def test_http_error_includes_service_payload_details(self, mock_post):

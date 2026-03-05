@@ -13,24 +13,6 @@ LOGGER = logging.getLogger("optimization_service.jobs")
 
 
 class ProMServiceClient:
-    _SERVICE_METRIC_BY_ALIAS = {
-        "fitness": "fitness",
-        "precision": "precision",
-        "precision_alignment": "precision",
-        "simplicity": "simplicity",
-        "simplicity_structural": "simplicity",
-        "generalisation": "generalisation",
-        "generalization": "generalisation",
-        "generalization_alignment": "generalisation",
-    }
-
-    _METRIC_READ_ALIASES = {
-        "fitness": ("fitness",),
-        "precision": ("precision", "precision_alignment"),
-        "simplicity": ("simplicity", "simplicity_structural"),
-        "generalisation": ("generalisation", "generalization", "generalization_alignment"),
-    }
-
     def __init__(
         self,
         base_url: str,
@@ -55,26 +37,13 @@ class ProMServiceClient:
     def _to_service_metric(metric_name: str) -> str:
         if metric_name is None:
             return ""
-        normalized = str(metric_name).strip().lower()
-        return ProMServiceClient._SERVICE_METRIC_BY_ALIAS.get(normalized, normalized)
+        return str(metric_name).strip()
 
     @staticmethod
     def _extract_metric(metrics_payload: Dict[str, Any], metric_name: str) -> float:
-        canonical = ProMServiceClient._to_service_metric(metric_name)
-        candidates = [metric_name, canonical]
-        candidates.extend(ProMServiceClient._METRIC_READ_ALIASES.get(canonical, ()))
-
-        seen = set()
-        for candidate in candidates:
-            if candidate is None:
-                continue
-            key = str(candidate)
-            if key in seen:
-                continue
-            seen.add(key)
-            if key in metrics_payload:
-                return float(metrics_payload[key])
-
+        key = ProMServiceClient._to_service_metric(metric_name)
+        if key in metrics_payload:
+            return float(metrics_payload[key])
         raise KeyError(f"Metric '{metric_name}' not found in service response")
 
     def _resolve_experiment_id(self, experiment_id: Optional[str]) -> str:
