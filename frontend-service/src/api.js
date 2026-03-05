@@ -75,6 +75,33 @@ export async function getArtifacts(jobId, scope = 'pareto', includePnml = true) 
   )
 }
 
+export async function renderPetriImage(payload, format = 'svg') {
+  const response = await fetch(`${API_BASE}/petri/render?format=${encodeURIComponent(format)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload || {}),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    let body = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch (_error) {
+      body = { raw: text }
+    }
+    const msg = body?.message || body?.error || `HTTP ${response.status}`
+    const error = new Error(msg)
+    error.status = response.status
+    error.payload = body
+    throw error
+  }
+
+  return response.blob()
+}
+
 export function getEventsUrl(jobId) {
   return `${API_BASE}/optimizations/${encodeURIComponent(jobId)}/events`
 }

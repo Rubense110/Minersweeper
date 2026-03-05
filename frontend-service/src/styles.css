@@ -647,6 +647,40 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.petri-view-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.petri-view-button {
+  background: #eef1eb;
+  border-color: #cdd4c8;
+  color: #33413d;
+  padding: 7px 10px;
+}
+
+.petri-view-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.petri-image-panel {
+  min-height: 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+}
+
+.petri-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
 .pnml-canvas {
   height: 420px;
   border: 1px solid var(--line);
@@ -706,5 +740,9 @@ button:disabled {
 
   .pipeline-summary {
     grid-template-columns: 1fr;
+  }
+
+  .petri-view-toggle {
+    flex-wrap: wrap;
   }
 }

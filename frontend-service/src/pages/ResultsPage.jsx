@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getExperiment, getExperimentSolutions, getEventsUrl, getOptimization } from '../api'
+import { getExperiment, getExperimentSolutions, getEventsUrl, getOptimization, renderPetriImage } from '../api'
 import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PnmlViewer from '../components/PnmlViewer'
 
@@ -200,6 +200,13 @@ function formatObjectiveValue(value) {
   return String(value)
 }
 
+function hasRenderablePetri(petri) {
+  if (!petri || typeof petri !== 'object') return false
+  const places = Array.isArray(petri.places) ? petri.places : []
+  const transitions = Array.isArray(petri.transitions) ? petri.transitions : []
+  return places.length > 0 || transitions.length > 0
+}
+
 export default function ResultsPage() {
   const { jobId } = useParams()
   const [job, setJob] = useState(null)
@@ -209,7 +216,20 @@ export default function ResultsPage() {
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState('')
   const [solutionsListMaxHeight, setSolutionsListMaxHeight] = useState(null)
+  const [petriViewMode, setPetriViewMode] = useState('interactive')
+  const [petriImageUrl, setPetriImageUrl] = useState('')
+  const [petriImageLoading, setPetriImageLoading] = useState(false)
+  const [petriImageError, setPetriImageError] = useState('')
   const solutionDetailRef = useRef(null)
+  const petriImageUrlRef = useRef('')
+
+  function replacePetriImageUrl(nextUrl) {
+    if (petriImageUrlRef.current) {
+      URL.revokeObjectURL(petriImageUrlRef.current)
+    }
+    petriImageUrlRef.current = nextUrl
+    setPetriImageUrl(nextUrl)
+  }
 
   useEffect(() => {
     if (!jobId) return undefined
@@ -407,6 +427,60 @@ export default function ResultsPage() {
     if (!Array.isArray(job?.request?.metrics)) return []
     return job.request.metrics
   }, [job])
+
+  useEffect(() => {
+    return () => {
+      if (petriImageUrlRef.current) {
+        URL.revokeObjectURL(petriImageUrlRef.current)
+        petriImageUrlRef.current = ''
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPetriImage() {
+      if (petriViewMode !== 'image') {
+        setPetriImageLoading(false)
+        setPetriImageError('')
+        return
+      }
+      if (!selectedSolution || !hasRenderablePetri(selectedSolution.petri)) {
+        replacePetriImageUrl('')
+        setPetriImageLoading(false)
+        setPetriImageError('No hay modelo Petri renderizable para esta solución.')
+        return
+      }
+
+      setPetriImageLoading(true)
+      setPetriImageError('')
+      try {
+        const blob = await renderPetriImage(
+          {
+            places: selectedSolution.petri.places || [],
+            transitions: selectedSolution.petri.transitions || [],
+            arcs: selectedSolution.petri.arcs || [],
+          },
+          'svg'
+        )
+        if (cancelled) return
+        const imageUrl = URL.createObjectURL(blob)
+        replacePetriImageUrl(imageUrl)
+      } catch (loadError) {
+        if (cancelled) return
+        replacePetriImageUrl('')
+        setPetriImageError(loadError.message || 'No se pudo generar la imagen con PM4Py.')
+      } finally {
+        if (!cancelled) setPetriImageLoading(false)
+      }
+    }
+
+    loadPetriImage()
+    return () => {
+      cancelled = true
+    }
+  }, [petriViewMode, selectedSolution])
 
   useEffect(() => {
     if (!solutionDetailRef.current) return undefined
@@ -608,7 +682,34 @@ export default function ResultsPage() {
                     </div>
 
                     <h4>Modelo Petri</h4>
-                    <PnmlViewer petri={selectedSolution.petri} />
+                    <div className="petri-view-toggle" role="group" aria-label="Modo de visualización del modelo Petri">
+                      <button
+                        className={petriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
+                        onClick={() => setPetriViewMode('interactive')}
+                        type="button"
+                      >
+                        Interactivo
+                      </button>
+                      <button
+                        className={petriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
+                        onClick={() => setPetriViewMode('image')}
+                        type="button"
+                      >
+                        Imagen PM4Py
+                      </button>
+                    </div>
+
+                    {petriViewMode === 'interactive' ? (
+                      <PnmlViewer petri={selectedSolution.petri} />
+                    ) : (
+                      <div className="petri-image-panel">
+                        {petriImageLoading ? <p className="small muted">Generando imagen del modelo...</p> : null}
+                        {petriImageError ? <p className="error">{petriImageError}</p> : null}
+                        {!petriImageLoading && !petriImageError && petriImageUrl ? (
+                          <img alt="Modelo de Petri renderizado con PM4Py" className="petri-image" src={petriImageUrl} />
+                        ) : null}
+                      </div>
+                    )}
 
                     <details className="technical-details">
                       <summary>Ver datos técnicos</summary>

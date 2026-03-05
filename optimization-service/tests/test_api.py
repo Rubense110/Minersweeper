@@ -173,6 +173,31 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])
 
+    def test_render_petri_image_svg(self):
+        with mock.patch.object(api, "_render_petri_image_bytes", return_value=(b"<svg/>", "image/svg+xml")) as patched:
+            response = self.client.post(
+                "/petri/render?format=svg",
+                json={
+                    "places": [{"id": "p1"}],
+                    "transitions": [{"id": "t1"}],
+                    "arcs": [{"source": "p1", "target": "t1"}],
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("image/svg+xml", response.mimetype)
+        self.assertEqual(b"<svg/>", response.data)
+        patched.assert_called_once()
+
+    def test_render_petri_image_invalid_request(self):
+        with mock.patch.object(api, "_render_petri_image_bytes", side_effect=ValueError("bad graph")):
+            response = self.client.post("/petri/render", json={"places": []})
+
+        self.assertEqual(400, response.status_code)
+        body = response.get_json()
+        self.assertEqual("invalid_request", body["error"])
+        self.assertEqual("bad graph", body["message"])
+
     def test_stream_events(self):
         response = self.client.get("/optimizations/job-1/events")
         self.assertEqual(200, response.status_code)
