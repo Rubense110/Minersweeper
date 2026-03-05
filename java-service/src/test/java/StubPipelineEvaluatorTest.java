@@ -26,9 +26,9 @@ public class StubPipelineEvaluatorTest {
 
         List<String> requestedMetrics = Arrays.asList(
             "fitness",
-            "precision_alignment",
-            "simplicity_structural",
-            "generalization_alignment"
+            "precision",
+            "simplicity",
+            "generalisation"
         );
 
         PipelineRequest request = TestFixtures.buildRequest(
@@ -48,7 +48,7 @@ public class StubPipelineEvaluatorTest {
         assertTrue(result.fingerprint.contains("inductive"));
 
         assertEquals(4, result.metrics.size());
-        assertTrue(result.metrics.containsKey("generalization_alignment"));
+        assertTrue(result.metrics.containsKey("generalisation"));
         TestFixtures.assertMetricsRange(result.metrics, requestedMetrics);
 
         ArtifactBulkResponse bulk = store.readBulk("run_stub", Arrays.asList(result.evaluation_id), true);
@@ -126,9 +126,9 @@ public class StubPipelineEvaluatorTest {
 
         List<String> requestedMetrics = Arrays.asList(
             "fitness_replay",
-            "precision_alignment",
-            "simplicity_structural",
-            "generalization_alignment"
+            "precision",
+            "simplicity",
+            "generalisation"
         );
 
         PipelineRequest request = TestFixtures.buildRequest(

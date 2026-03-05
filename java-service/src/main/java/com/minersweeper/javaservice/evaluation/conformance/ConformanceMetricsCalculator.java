@@ -52,7 +52,13 @@ public class ConformanceMetricsCalculator {
         for (String metricKey : canonicalRequestedMetrics) {
             ConformanceMetric metric = metricsByKey.get(metricKey);
             long metricStartNs = TimingTrace.nowNs();
-            metrics.put(metricKey, MetricUtils.clamp01(metric.compute(computation)));
+            double value = metric.compute(computation);
+            if (metric.boundedUnitInterval()) {
+                value = MetricUtils.clamp01(value);
+            } else if (!Double.isFinite(value)) {
+                value = 0.0;
+            }
+            metrics.put(metricKey, value);
             if (timing != null) {
                 timing.markFromStart("metric_" + metricKey + "_ms", metricStartNs);
             }

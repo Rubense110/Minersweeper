@@ -1,10 +1,17 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.evaluation.conformance.metrics.ConformanceMetric;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.CyclComplx;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Fitness;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Generalisation;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Joins;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Precision;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Places;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Ratio;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Simplicity;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Splits;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Transitions;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.Arcs;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -14,6 +21,13 @@ import java.util.Map;
 import java.util.Set;
 
 public enum ConformanceMetricCatalog {
+    PLACES(new Places(), MetricScope.ANY),
+    TRANSITIONS(new Transitions(), MetricScope.ANY),
+    ARCS(new Arcs(), MetricScope.ANY),
+    CYCL_COMPLX(new CyclComplx(), MetricScope.ANY),
+    RATIO(new Ratio(), MetricScope.ANY),
+    JOINS(new Joins(), MetricScope.ANY),
+    SPLITS(new Splits(), MetricScope.ANY),
     FITNESS(new Fitness(), MetricScope.ANY),
     PRECISION(new Precision(), MetricScope.ANY),
     GENERALISATION(new Generalisation(), MetricScope.ANY),
@@ -21,21 +35,12 @@ public enum ConformanceMetricCatalog {
 
     private static final Map<String, ConformanceMetric> METRICS_BY_KEY = new LinkedHashMap<String, ConformanceMetric>();
     private static final Map<String, MetricScope> SCOPE_BY_KEY = new LinkedHashMap<String, MetricScope>();
-    private static final Map<String, String> ALIASES_TO_KEY = new LinkedHashMap<String, String>();
 
     static {
         for (ConformanceMetricCatalog entry : values()) {
             METRICS_BY_KEY.put(entry.metric.key(), entry.metric);
             SCOPE_BY_KEY.put(entry.metric.key(), entry.scope);
         }
-        registerAlias(Fitness.KEY, Fitness.KEY);
-        registerAlias(Precision.KEY, Precision.KEY);
-        registerAlias("precision_alignment", Precision.KEY);
-        registerAlias(Simplicity.KEY, Simplicity.KEY);
-        registerAlias("simplicity_structural", Simplicity.KEY);
-        registerAlias(Generalisation.KEY, Generalisation.KEY);
-        registerAlias("generalization", Generalisation.KEY);
-        registerAlias("generalization_alignment", Generalisation.KEY);
     }
 
     private final ConformanceMetric metric;
@@ -81,7 +86,11 @@ public enum ConformanceMetricCatalog {
         if (requestedMetric == null || requestedMetric.trim().isEmpty()) {
             return null;
         }
-        return ALIASES_TO_KEY.get(requestedMetric.trim().toLowerCase());
+        String metricKey = requestedMetric.trim();
+        if (METRICS_BY_KEY.containsKey(metricKey)) {
+            return metricKey;
+        }
+        return null;
     }
 
     private static boolean isMetricAllowedForMode(String metricKey, ConformanceMode mode) {
@@ -93,10 +102,6 @@ public enum ConformanceMetricCatalog {
             return true;
         }
         return mode != null && mode.isAlignment();
-    }
-
-    private static void registerAlias(String alias, String canonicalKey) {
-        ALIASES_TO_KEY.put(alias.toLowerCase(), canonicalKey);
     }
 
     private enum MetricScope {

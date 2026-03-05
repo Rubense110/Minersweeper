@@ -6,4 +6,8 @@ public interface ConformanceMetric {
     String key();
 
     double compute(ConformanceComputation computation) throws Exception;
+
+    default boolean boundedUnitInterval() {
+        return true;
+    }
 }

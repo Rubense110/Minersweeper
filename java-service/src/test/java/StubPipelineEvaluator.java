@@ -71,12 +71,26 @@ public class StubPipelineEvaluator implements PipelineEvaluator {
         double precision = clamp01(0.50 + (0.25 * (1.0 - hash01)) - (0.05 * complexityPenalty));
         double simplicity = clamp01(0.92 - (0.50 * complexityPenalty));
         double generalizationAlignment = clamp01(0.45 + (0.30 * hash01) - (0.10 * complexityPenalty));
+        double places = 2.0 + preParams + (minerParams % 3);
+        double transitions = 2.0 + minerParams + (preParams % 2);
+        double arcs = places + transitions + (totalParams % 4);
+        double cyclComplx = arcs - (places + transitions) + 2.0;
+        double ratio = transitions <= 0.0 ? 0.0 : places / transitions;
+        double joins = preParams % 4;
+        double splits = minerParams % 4;
 
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
+        metrics.put("places", places);
+        metrics.put("transitions", transitions);
+        metrics.put("arcs", arcs);
+        metrics.put("cycl_complx", cyclComplx);
+        metrics.put("ratio", ratio);
+        metrics.put("joins", joins);
+        metrics.put("splits", splits);
         metrics.put("fitness", fitness);
-        metrics.put("precision_alignment", precision);
-        metrics.put("simplicity_structural", simplicity);
-        metrics.put("generalization_alignment", generalizationAlignment);
+        metrics.put("precision", precision);
+        metrics.put("simplicity", simplicity);
+        metrics.put("generalisation", generalizationAlignment);
         return metrics;
     }
 

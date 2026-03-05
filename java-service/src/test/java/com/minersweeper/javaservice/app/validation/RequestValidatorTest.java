@@ -15,9 +15,16 @@ public class RequestValidatorTest {
     public void pipelineRequestWithCanonicalMetricsIsAccepted() {
         PipelineRequest request = buildValidPipelineRequest(
             "fitness",
-            "precision_alignment",
-            "simplicity_structural",
-            "generalization_alignment"
+            "precision",
+            "simplicity",
+            "generalisation",
+            "places",
+            "transitions",
+            "arcs",
+            "cycl_complx",
+            "ratio",
+            "joins",
+            "splits"
         );
 
         RequestValidator.validatePipelineRequest(request);
@@ -29,7 +36,7 @@ public class RequestValidatorTest {
 
     @Test
     public void pipelineRequestRejectsUnsupportedMetric() {
-        PipelineRequest request = buildValidPipelineRequest("fitness", "precision");
+        PipelineRequest request = buildValidPipelineRequest("fitness", "foo_metric");
 
         try {
             RequestValidator.validatePipelineRequest(request);
@@ -46,6 +53,18 @@ public class RequestValidatorTest {
         try {
             RequestValidator.validatePipelineRequest(request);
             fail("Expected BadRequestException for non-canonical metric casing");
+        } catch (BadRequestException expected) {
+            assertTrue(expected.getMessage().contains("unsupported metric"));
+        }
+    }
+
+    @Test
+    public void pipelineRequestRejectsAliasMetric() {
+        PipelineRequest request = buildValidPipelineRequest("precision_alignment");
+
+        try {
+            RequestValidator.validatePipelineRequest(request);
+            fail("Expected BadRequestException for alias metric name");
         } catch (BadRequestException expected) {
             assertTrue(expected.getMessage().contains("unsupported metric"));
         }
