@@ -107,6 +107,25 @@ def _java_service_timeout_seconds() -> int:
     return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 300))
 
 
+def _list_logs_in_root() -> List[str]:
+    logs_root = (os.getenv("LOGS_ROOT") or "/data/logs").strip() or "/data/logs"
+    if not os.path.isdir(logs_root):
+        return []
+
+    items: List[str] = []
+    for root, _dirs, files in os.walk(logs_root):
+        for file_name in files:
+            if not file_name.lower().endswith(".xes"):
+                continue
+            absolute_path = os.path.join(root, file_name)
+            relative_path = os.path.relpath(absolute_path, logs_root)
+            normalized = relative_path.replace(os.sep, "/")
+            items.append(normalized)
+
+    items.sort()
+    return items
+
+
 def _configure_logging() -> logging.Logger:
     log_level_name = (os.getenv("OPTIMIZATION_LOG_LEVEL") or "INFO").strip().upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -692,6 +711,21 @@ class OptimizationJobManager:
         items.sort(key=lambda item: item["created_at"], reverse=True)
         return items
 
+    def list_experiments(self) -> List[Dict[str, Any]]:
+        return self.job_store.list_experiments()
+
+    def get_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        return self.job_store.get_experiment(experiment_id)
+
+    def get_experiment_solutions(self, experiment_id: str, scope: str) -> Dict[str, Any]:
+        solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
+        return {
+            "experiment_id": experiment_id,
+            "scope": scope,
+            "count": len(solutions),
+            "solutions": solutions,
+        }
+
     def get_solutions(self, job_id: str, scope: str) -> Dict[str, Any]:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -891,9 +925,38 @@ def health() -> Any:
     return jsonify({"status": "ok"})
 
 
+@app.get("/logs")
+def list_logs() -> Any:
+    return jsonify({"logs": _list_logs_in_root()})
+
+
 @app.get("/optimizations")
 def list_jobs() -> Any:
     return jsonify({"jobs": _manager.list_jobs()})
+
+
+@app.get("/experiments")
+def list_experiments() -> Any:
+    return jsonify({"experiments": _manager.list_experiments()})
+
+
+@app.get("/experiments/<experiment_id>")
+def get_experiment(experiment_id: str) -> Any:
+    try:
+        return jsonify(_manager.get_experiment(experiment_id))
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
+
+
+@app.get("/experiments/<experiment_id>/solutions")
+def get_experiment_solutions(experiment_id: str) -> Any:
+    scope = (request.args.get("scope") or "all").strip().lower()
+    if scope not in {"pareto", "all"}:
+        return jsonify({"error": "invalid_request", "message": "scope must be 'pareto' or 'all'"}), 400
+    try:
+        return jsonify(_manager.get_experiment_solutions(experiment_id=experiment_id, scope=scope))
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
 
 
 @app.post("/optimizations")

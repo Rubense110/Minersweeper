@@ -6,7 +6,21 @@ from datetime import datetime
 import math
 from typing import Any, Dict, List
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, create_engine, inspect, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -142,3 +156,91 @@ class JobStore:
                             arcs=self._sanitize_json(item.get("arcs", [])),
                         )
                     )
+
+    @staticmethod
+    def _serialize_experiment(experiment: Experiment) -> Dict[str, Any]:
+        return {
+            "experiment_id": experiment.experiment_id,
+            "experiment_name": experiment.experiment_name,
+            "start_at": experiment.start_at.isoformat() if experiment.start_at else None,
+            "end_at": experiment.end_at.isoformat() if experiment.end_at else None,
+            "max_evals": int(experiment.max_evals),
+            "pop_size": experiment.pop_size,
+            "miners": experiment.miners or [],
+            "preprocessing": experiment.preprocessing or [],
+            "log_path": experiment.log_path,
+            "metrics": experiment.metrics or [],
+            "workers": int(experiment.workers),
+        }
+
+    @staticmethod
+    def _serialize_solution(solution: Solution) -> Dict[str, Any]:
+        return {
+            "solution_id": int(solution.solution_id),
+            "experiment_id": solution.experiment_id,
+            "variables": solution.variables or [],
+            "objectives": solution.objectives or [],
+            "pipeline": solution.pipeline or {},
+            "runtime_ms": solution.runtime_ms,
+            "is_pareto": bool(solution.is_pareto),
+            "places": solution.places or [],
+            "transitions": solution.transitions or [],
+            "arcs": solution.arcs or [],
+        }
+
+    def list_experiments(self) -> List[Dict[str, Any]]:
+        with self._session_factory() as session:
+            experiments = session.execute(select(Experiment).order_by(Experiment.end_at.desc())).scalars().all()
+
+            rows: List[Dict[str, Any]] = []
+            for experiment in experiments:
+                all_count = session.execute(
+                    select(func.count(Solution.solution_id)).where(Solution.experiment_id == experiment.experiment_id)
+                ).scalar_one()
+                pareto_count = session.execute(
+                    select(func.count(Solution.solution_id)).where(
+                        Solution.experiment_id == experiment.experiment_id,
+                        Solution.is_pareto.is_(True),
+                    )
+                ).scalar_one()
+                payload = self._serialize_experiment(experiment)
+                payload["counts"] = {
+                    "all_solutions": int(all_count),
+                    "pareto_solutions": int(pareto_count),
+                }
+                rows.append(payload)
+            return rows
+
+    def get_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            experiment = session.get(Experiment, experiment_id)
+            if experiment is None:
+                raise KeyError(experiment_id)
+
+            all_count = session.execute(
+                select(func.count(Solution.solution_id)).where(Solution.experiment_id == experiment_id)
+            ).scalar_one()
+            pareto_count = session.execute(
+                select(func.count(Solution.solution_id)).where(
+                    Solution.experiment_id == experiment_id,
+                    Solution.is_pareto.is_(True),
+                )
+            ).scalar_one()
+            payload = self._serialize_experiment(experiment)
+            payload["counts"] = {
+                "all_solutions": int(all_count),
+                "pareto_solutions": int(pareto_count),
+            }
+            return payload
+
+    def get_experiment_solutions(self, experiment_id: str, scope: str = "all") -> List[Dict[str, Any]]:
+        with self._session_factory() as session:
+            experiment = session.get(Experiment, experiment_id)
+            if experiment is None:
+                raise KeyError(experiment_id)
+
+            stmt = select(Solution).where(Solution.experiment_id == experiment_id).order_by(Solution.solution_id.asc())
+            if scope == "pareto":
+                stmt = stmt.where(Solution.is_pareto.is_(True))
+            solutions = session.execute(stmt).scalars().all()
+            return [self._serialize_solution(item) for item in solutions]
