@@ -28,3 +28,9 @@ __pycache__/*
 logs/services.log
 pm_site/pm_app/logs/*
 /event_logs/*.xes
+
+# Frontend build/runtime artifacts
+/frontend-service/node_modules/
+/frontend-service/dist/
+/frontend-service/.vite/
+/frontend-service/.cache/
