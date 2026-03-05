@@ -1,65 +1,329 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getArtifacts, getEventsUrl, getOptimization, getSolutions } from '../api'
+import { getExperiment, getExperimentSolutions, getEventsUrl, getOptimization, renderPetriImage } from '../api'
+import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PnmlViewer from '../components/PnmlViewer'
+
+function toLocalDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString()
+}
+
+function toJsonSafe(raw) {
+  try {
+    return JSON.parse(raw)
+  } catch (_error) {
+    return null
+  }
+}
+
+function metricPairsFromObjectives(objectives, metricsOrder) {
+  if (!Array.isArray(objectives) || objectives.length === 0) return {}
+  const pairs = {}
+  objectives.forEach((objective, index) => {
+    const key = metricsOrder[index] || `objective_${index + 1}`
+    if (typeof objective === 'number' && Number.isFinite(objective)) {
+      pairs[key] = Number((-objective).toFixed(6))
+    } else {
+      pairs[key] = objective
+    }
+  })
+  return pairs
+}
+
+function mapDbSolution(item, index, metricsOrder) {
+  const solutionId = item.solution_id || index + 1
+  return {
+    id: `db-${solutionId}`,
+    label: `Solution #${solutionId}`,
+    pipeline: item.pipeline || {},
+    runtimeMs: item.runtime_ms ?? null,
+    metrics: metricPairsFromObjectives(item.objectives, metricsOrder),
+    objectives: Array.isArray(item.objectives) ? item.objectives : [],
+    variables: Array.isArray(item.variables) ? item.variables : [],
+    isPareto: Boolean(item.is_pareto),
+    petri: {
+      places: Array.isArray(item.places) ? item.places : [],
+      transitions: Array.isArray(item.transitions) ? item.transitions : [],
+      arcs: Array.isArray(item.arcs) ? item.arcs : [],
+    },
+  }
+}
+
+function hasAnyMetric(solution) {
+  return solution && solution.metrics && Object.keys(solution.metrics).length > 0
+}
+
+function formatMetricValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number(value.toFixed(6)).toString()
+  }
+  return String(value)
+}
+
+function orderedMetricEntries(metrics, preferredOrder) {
+  const entries = Object.entries(metrics || {})
+  if (entries.length === 0) return []
+
+  const rank = new Map((preferredOrder || []).map((metric, index) => [metric, index]))
+  return entries.sort(([a], [b]) => {
+    const rankA = rank.has(a) ? rank.get(a) : Number.MAX_SAFE_INTEGER
+    const rankB = rank.has(b) ? rank.get(b) : Number.MAX_SAFE_INTEGER
+    if (rankA !== rankB) return rankA - rankB
+    return a.localeCompare(b)
+  })
+}
+
+function formatPipelineParamValue(value) {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number' && Number.isFinite(value)) return Number(value.toFixed(6)).toString()
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+function PipelineSection({ title, node }) {
+  const variant = node?.variant || node?.key || node?.family || '-'
+  const params =
+    node && typeof node.parameters === 'object' && !Array.isArray(node.parameters)
+      ? Object.entries(node.parameters)
+      : []
+
+  return (
+    <article className="pipeline-card">
+      <p className="small muted">{title}</p>
+      <p>
+        <strong>Variant:</strong> {variant}
+      </p>
+      {params.length > 0 ? (
+        <ul className="pipeline-param-list">
+          {params.map(([key, value]) => (
+            <li key={key}>
+              <span>{key}</span>
+              <code>{formatPipelineParamValue(value)}</code>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="small muted">No parameters</p>
+      )}
+    </article>
+  )
+}
+
+function objectiveGroupingKey(objectives, precision = 8) {
+  if (!Array.isArray(objectives)) return '[]'
+  return objectives
+    .map((value) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value.toFixed(precision)
+      }
+      return String(value)
+    })
+    .join('|')
+}
+
+function runtimeSortValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value
+  }
+  return Number.MAX_SAFE_INTEGER
+}
+
+function sortSolutionsByRuntime(items) {
+  return [...items].sort((a, b) => {
+    const delta = runtimeSortValue(a.runtimeMs) - runtimeSortValue(b.runtimeMs)
+    if (delta !== 0) return delta
+    return String(a.id).localeCompare(String(b.id))
+  })
+}
+
+function buildSolutionGroups(items) {
+  const groupsByObjectives = new Map()
+
+  for (const solution of items) {
+    const objectivesKey = objectiveGroupingKey(solution.objectives)
+    const existing = groupsByObjectives.get(objectivesKey)
+    if (existing) {
+      existing.solutions.push(solution)
+      continue
+    }
+    groupsByObjectives.set(objectivesKey, {
+      id: objectivesKey,
+      objectives: Array.isArray(solution.objectives) ? [...solution.objectives] : [],
+      solutions: [solution],
+    })
+  }
+
+  const groups = [...groupsByObjectives.values()].map((group) => {
+    const sortedSolutions = sortSolutionsByRuntime(group.solutions)
+    const best = sortedSolutions[0] || null
+    const paretoCount = sortedSolutions.filter((solution) => solution.isPareto).length
+    const uniquePipelines = new Set(sortedSolutions.map((solution) => JSON.stringify(solution.pipeline || {}))).size
+
+    return {
+      id: group.id,
+      objectives: group.objectives,
+      solutions: sortedSolutions,
+      best,
+      size: sortedSolutions.length,
+      paretoCount,
+      uniquePipelines,
+      bestRuntimeMs: best ? runtimeSortValue(best.runtimeMs) : Number.MAX_SAFE_INTEGER,
+    }
+  })
+
+  groups.sort((a, b) => {
+    const runtimeDelta = a.bestRuntimeMs - b.bestRuntimeMs
+    if (runtimeDelta !== 0) return runtimeDelta
+    const sizeDelta = b.size - a.size
+    if (sizeDelta !== 0) return sizeDelta
+    return a.id.localeCompare(b.id)
+  })
+
+  return groups
+}
+
+function formatRuntime(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return `${value} ms`
+  }
+  return '-'
+}
+
+function formatObjectiveValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number(value.toFixed(8)).toString()
+  }
+  return String(value)
+}
+
+function hasRenderablePetri(petri) {
+  if (!petri || typeof petri !== 'object') return false
+  const places = Array.isArray(petri.places) ? petri.places : []
+  const transitions = Array.isArray(petri.transitions) ? petri.transitions : []
+  return places.length > 0 || transitions.length > 0
+}
 
 export default function ResultsPage() {
   const { jobId } = useParams()
   const [job, setJob] = useState(null)
   const [solutions, setSolutions] = useState([])
-  const [artifactsById, setArtifactsById] = useState({})
-  const [selectedEvalId, setSelectedEvalId] = useState('')
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [selectedSolutionId, setSelectedSolutionId] = useState('')
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState('')
+  const [solutionsListMaxHeight, setSolutionsListMaxHeight] = useState(null)
+  const [petriViewMode, setPetriViewMode] = useState('interactive')
+  const [petriImageUrl, setPetriImageUrl] = useState('')
+  const [petriImageLoading, setPetriImageLoading] = useState(false)
+  const [petriImageError, setPetriImageError] = useState('')
+  const solutionDetailRef = useRef(null)
+  const petriImageUrlRef = useRef('')
+
+  function replacePetriImageUrl(nextUrl) {
+    if (petriImageUrlRef.current) {
+      URL.revokeObjectURL(petriImageUrlRef.current)
+    }
+    petriImageUrlRef.current = nextUrl
+    setPetriImageUrl(nextUrl)
+  }
 
   useEffect(() => {
     if (!jobId) return undefined
 
     let active = true
     let stream = null
-    let finalLoaded = false
 
-    async function loadCompletedData() {
-      if (finalLoaded || !active) return
-      finalLoaded = true
-      const solutionPayload = await getSolutions(jobId, 'pareto')
-      if (!active) return
-      const list = solutionPayload.solutions || []
-      setSolutions(list)
+    async function loadDbData(experimentId, options = {}) {
+      const { allowEmpty = true } = options
+      const [experimentPayload, solutionsPayload] = await Promise.all([
+        getExperiment(experimentId),
+        getExperimentSolutions(experimentId, 'all'),
+      ])
+      if (!active) return 0
 
-      const artifactsPayload = await getArtifacts(jobId, 'pareto', true)
-      if (!active) return
-      const map = {}
-      for (const artifact of artifactsPayload.artifacts || []) {
-        map[artifact.evaluation_id] = artifact
+      const mapped = (solutionsPayload.solutions || []).map((item, index) =>
+        mapDbSolution(item, index, experimentPayload.metrics || [])
+      )
+
+      if (!allowEmpty && mapped.length === 0) {
+        return 0
       }
-      setArtifactsById(map)
 
-      const firstWithId = list.find((item) => item.evaluation_id)
-      if (firstWithId?.evaluation_id) {
-        setSelectedEvalId(firstWithId.evaluation_id)
-      }
+      setJob({
+        job_id: experimentPayload.experiment_id,
+        status: 'completed',
+        created_at: experimentPayload.start_at,
+        started_at: experimentPayload.start_at,
+        finished_at: experimentPayload.end_at,
+        request: {
+          execution_name: experimentPayload.experiment_name,
+          log_path: experimentPayload.log_path,
+          metrics: experimentPayload.metrics || [],
+          discover: {
+            max_evaluations: experimentPayload.max_evals,
+            population_size: experimentPayload.pop_size,
+            n_workers: experimentPayload.workers,
+          },
+        },
+      })
+      setProgress({
+        job_id: experimentPayload.experiment_id,
+        status: 'completed',
+        evaluations_done: experimentPayload.max_evals || 0,
+        max_evaluations: experimentPayload.max_evals || 0,
+        percentage: 100,
+      })
+      setSolutions(mapped)
+      return mapped.length
     }
 
-    function toJsonSafe(raw) {
+    async function loadDbDataWithRetry(experimentId, attempts = 8, delayMs = 1200) {
+      let lastError = null
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (!active) return
+        try {
+          const isLast = attempt === attempts - 1
+          const count = await loadDbData(experimentId, { allowEmpty: isLast })
+          if (count > 0 || isLast) return
+        } catch (error) {
+          lastError = error
+        }
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, delayMs)
+          })
+        }
+      }
+
+      if (lastError) throw lastError
+    }
+
+    async function loadHistoricalExperiment() {
       try {
-        return JSON.parse(raw)
-      } catch (_error) {
-        return null
+        await loadDbData(jobId, { allowEmpty: true })
+      } catch (loadError) {
+        if (!active) return
+        setError(loadError.message || 'Could not load historical experiment')
       }
     }
 
     async function bootstrap() {
       try {
+        setError('')
         const current = await getOptimization(jobId)
         if (!active) return
         setJob(current)
         setProgress(current.progress || null)
 
         if (current.status === 'completed') {
-          await loadCompletedData()
+          await loadDbDataWithRetry(jobId)
           return
         }
+
         if (current.status === 'failed') {
           setError(current?.error?.message || 'Optimization failed')
           return
@@ -72,6 +336,7 @@ export default function ResultsPage() {
           const payload = toJsonSafe(event.data)
           if (!payload) return
           setJob((previous) => ({ ...(previous || {}), status: payload.status }))
+
           if (payload.status === 'completed') {
             stream?.close()
             try {
@@ -79,10 +344,10 @@ export default function ResultsPage() {
               if (!active) return
               setJob(latest)
               setProgress(latest.progress || null)
-              await loadCompletedData()
+              await loadDbDataWithRetry(jobId)
             } catch (loadError) {
               if (!active) return
-              setError(loadError.message || 'Failed to load completed job')
+              setError(loadError.message || 'Could not load final results')
             }
           } else if (payload.status === 'failed') {
             stream?.close()
@@ -106,44 +371,173 @@ export default function ResultsPage() {
           setProgress(payload)
         })
 
-        stream.addEventListener('error', (event) => {
+        stream.addEventListener('error', () => {
           if (!active) return
-          const payload = toJsonSafe(event.data)
-          if (!payload?.message) return
-          setError(payload.message)
         })
       } catch (loadError) {
         if (!active) return
-        setError(loadError.message || 'Failed to load job status')
+        if (loadError?.status === 404) {
+          await loadHistoricalExperiment()
+          return
+        }
+        setError(loadError.message || 'Could not load experiment')
       }
     }
 
     bootstrap()
-
     return () => {
       active = false
       if (stream) stream.close()
     }
   }, [jobId])
 
-  const selectedSolution = useMemo(
-    () => solutions.find((solution) => solution.evaluation_id === selectedEvalId) || null,
-    [solutions, selectedEvalId]
+  const solutionGroups = useMemo(() => buildSolutionGroups(solutions), [solutions])
+
+  useEffect(() => {
+    setSelectedGroupId((previous) => {
+      if (previous && solutionGroups.some((group) => group.id === previous)) return previous
+      return solutionGroups[0]?.id || ''
+    })
+  }, [solutionGroups])
+
+  const selectedGroup = useMemo(
+    () => solutionGroups.find((group) => group.id === selectedGroupId) || null,
+    [solutionGroups, selectedGroupId]
   )
 
-  const selectedArtifact = selectedEvalId ? artifactsById[selectedEvalId] : null
+  useEffect(() => {
+    if (!selectedGroup) {
+      setSelectedSolutionId('')
+      return
+    }
+    setSelectedSolutionId((previous) => {
+      if (previous && selectedGroup.solutions.some((solution) => solution.id === previous)) {
+        return previous
+      }
+      return selectedGroup.solutions[0]?.id || ''
+    })
+  }, [selectedGroup])
+
+  const selectedSolution = useMemo(() => {
+    if (!selectedGroup) return null
+    return selectedGroup.solutions.find((item) => item.id === selectedSolutionId) || selectedGroup.solutions[0] || null
+  }, [selectedGroup, selectedSolutionId])
+
+  const preferredMetricOrder = useMemo(() => {
+    if (!Array.isArray(job?.request?.metrics)) return []
+    return job.request.metrics
+  }, [job])
+
+  useEffect(() => {
+    return () => {
+      if (petriImageUrlRef.current) {
+        URL.revokeObjectURL(petriImageUrlRef.current)
+        petriImageUrlRef.current = ''
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPetriImage() {
+      if (petriViewMode !== 'image') {
+        setPetriImageLoading(false)
+        setPetriImageError('')
+        return
+      }
+      if (!selectedSolution || !hasRenderablePetri(selectedSolution.petri)) {
+        replacePetriImageUrl('')
+        setPetriImageLoading(false)
+        setPetriImageError('No renderable Petri model for this solution.')
+        return
+      }
+
+      setPetriImageLoading(true)
+      setPetriImageError('')
+      try {
+        const blob = await renderPetriImage(
+          {
+            places: selectedSolution.petri.places || [],
+            transitions: selectedSolution.petri.transitions || [],
+            arcs: selectedSolution.petri.arcs || [],
+          },
+          'svg'
+        )
+        if (cancelled) return
+        const imageUrl = URL.createObjectURL(blob)
+        replacePetriImageUrl(imageUrl)
+      } catch (loadError) {
+        if (cancelled) return
+        replacePetriImageUrl('')
+        setPetriImageError(loadError.message || 'Could not generate PM4Py image.')
+      } finally {
+        if (!cancelled) setPetriImageLoading(false)
+      }
+    }
+
+    loadPetriImage()
+    return () => {
+      cancelled = true
+    }
+  }, [petriViewMode, selectedSolution])
+
+  useEffect(() => {
+    if (!solutionDetailRef.current) return undefined
+
+    let frameId = 0
+    const detailElement = solutionDetailRef.current
+
+    function syncListHeight() {
+      cancelAnimationFrame(frameId)
+      frameId = requestAnimationFrame(() => {
+        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches) {
+          setSolutionsListMaxHeight((previous) => (previous === null ? previous : null))
+          return
+        }
+        const nextHeight = Math.max(0, Math.round(detailElement.getBoundingClientRect().height))
+        const normalized = nextHeight > 0 ? nextHeight : null
+        setSolutionsListMaxHeight((previous) => (previous === normalized ? previous : normalized))
+      })
+    }
+
+    syncListHeight()
+
+    let observer = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        syncListHeight()
+      })
+      observer.observe(detailElement)
+    }
+
+    window.addEventListener('resize', syncListHeight)
+
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', syncListHeight)
+      if (observer) observer.disconnect()
+    }
+  }, [selectedGroupId, selectedSolutionId, solutionGroups.length, job?.status])
 
   return (
     <main className="page">
       <section className="card">
         <div className="header-row">
-          <h1>Optimization Results</h1>
-          <Link className="link-button" to="/">
-            New Run
-          </Link>
+          <h2>Results Breakdown</h2>
+          <div className="inline-actions">
+            <Link className="link-button" to="/run">
+              New Experiment
+            </Link>
+            <Link className="link-button secondary" to="/history">
+              History
+            </Link>
+          </div>
         </div>
 
-        <p className="muted">Job: <code>{jobId}</code></p>
+        <p className="small muted">
+          ID: <code>{jobId}</code>
+        </p>
 
         {job ? (
           <div className="status-box">
@@ -151,10 +545,20 @@ export default function ResultsPage() {
               <strong>Status:</strong> {job.status}
             </p>
             <p>
-              <strong>Execution:</strong> {job.request?.execution_name || '-'}
+              <strong>Experiment:</strong> {job.request?.execution_name || '-'}
             </p>
             <p>
-              <strong>Finished:</strong> {job.finished_at || '-'}
+              <strong>Log:</strong> {job.request?.log_path || '-'}
+            </p>
+            <p>
+              <strong>Start:</strong> {toLocalDate(job.started_at || job.created_at)} | <strong>End:</strong>{' '}
+              {toLocalDate(job.finished_at)}
+            </p>
+            <p>
+              <strong>Metrics:</strong>{' '}
+              {Array.isArray(job.request?.metrics) && job.request.metrics.length
+                ? job.request.metrics.join(', ')
+                : 'default'}
             </p>
             <p>
               <strong>Progress:</strong>{' '}
@@ -167,51 +571,164 @@ export default function ResultsPage() {
             ) : null}
           </div>
         ) : (
-          <p>Loading job status...</p>
+          <p>Loading experiment details...</p>
         )}
 
         {error ? <p className="error">{error}</p> : null}
 
-        {job?.status === 'running' || job?.status === 'queued' ? (
-          <p>Waiting for optimization updates (SSE)...</p>
-        ) : null}
+        {job?.status === 'running' || job?.status === 'queued' ? <p>Waiting for SSE updates...</p> : null}
 
         {job?.status === 'completed' ? (
           <>
-            <h2>Pareto Solutions ({solutions.length})</h2>
-            {solutions.length === 0 ? <p>No solutions returned.</p> : null}
+            <h3>Groups by objectives ({solutionGroups.length})</h3>
+            <p className="small muted">Total recorded solutions: {solutions.length}</p>
+            {solutions.length === 0 ? <p>No solutions recorded for this experiment.</p> : null}
 
             <div className="solutions-grid">
-              <aside className="solutions-list">
-                {solutions.map((solution, index) => {
-                  const evalId = solution.evaluation_id || `solution-${index}`
+              <aside
+                className="solutions-list"
+                style={solutionsListMaxHeight ? { maxHeight: `${solutionsListMaxHeight}px` } : undefined}
+              >
+                {solutionGroups.map((group, index) => {
+                  const metricEntries = orderedMetricEntries(group.best?.metrics || {}, preferredMetricOrder)
                   return (
                     <button
-                      className={evalId === selectedEvalId ? 'solution-item active' : 'solution-item'}
-                      key={evalId}
-                      onClick={() => setSelectedEvalId(solution.evaluation_id || '')}
+                      className={group.id === selectedGroupId ? 'solution-item active group-item' : 'solution-item group-item'}
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
                       type="button"
                     >
-                      <div><strong>{solution.evaluation_id || `No eval id #${index + 1}`}</strong></div>
-                      <div className="small muted">{solution.pipeline?.miner?.variant || '-'}</div>
-                      <div className="small">fitness: {solution.metrics?.fitness ?? '-'}</div>
-                      <div className="small">precision: {solution.metrics?.precision ?? '-'}</div>
+                      <div className="header-row">
+                        <strong>Group #{index + 1}</strong>
+                        {group.paretoCount > 0 ? <span className="pareto-tag">pareto: {group.paretoCount}</span> : null}
+                      </div>
+                      <div className="small muted">
+                        {group.size} solutions | {group.uniquePipelines} pipelines | best runtime:{' '}
+                        {formatRuntime(group.best?.runtimeMs)}
+                      </div>
+                      <div className="small muted">
+                        Objectives: [{group.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
+                      </div>
+                      {metricEntries.length > 0 ? (
+                        <div className="solution-metric-lines small">
+                          {metricEntries.map(([key, value]) => (
+                            <span className="solution-metric-chip" key={key}>
+                              {key}: {formatMetricValue(value)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </button>
                   )
                 })}
               </aside>
 
-              <section className="solution-detail">
-                {selectedSolution ? (
+              <section className="solution-detail" ref={solutionDetailRef}>
+                {selectedGroup && selectedSolution ? (
                   <>
-                    <h3>Selected Solution</h3>
-                    <pre className="json-box">{JSON.stringify(selectedSolution, null, 2)}</pre>
+                    <h3>Group details</h3>
+                    <p>
+                      <strong>Solutions in group:</strong> {selectedGroup.size} | <strong>Distinct pipelines:</strong>{' '}
+                      {selectedGroup.uniquePipelines} | <strong>Best runtime:</strong> {formatRuntime(selectedGroup.best?.runtimeMs)}
+                    </p>
+                    <p>
+                      <strong>Group objectives:</strong>{' '}
+                      [{selectedGroup.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
+                    </p>
 
-                    <h3>Discovered Model (PNML)</h3>
-                    <PnmlViewer pnml={selectedArtifact?.pnml || ''} />
+                    <ParetoFrontScatter
+                      metricOrder={preferredMetricOrder}
+                      selectedSolutionIds={selectedGroup.solutions.map((solution) => solution.id)}
+                      solutions={solutions}
+                    />
+
+                    <h4>Group solutions (sorted by runtime)</h4>
+                    <div className="group-member-list">
+                      {selectedGroup.solutions.map((solution) => (
+                        <button
+                          className={solution.id === selectedSolutionId ? 'group-member-item active' : 'group-member-item'}
+                          key={solution.id}
+                          onClick={() => setSelectedSolutionId(solution.id)}
+                          type="button"
+                        >
+                          <span>{solution.label}</span>
+                          <span className="small muted">{formatRuntime(solution.runtimeMs)}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <h3>Solution details</h3>
+                    <p>
+                      <strong>Runtime (ms):</strong> {selectedSolution.runtimeMs === null ? '-' : selectedSolution.runtimeMs}
+                    </p>
+
+                    <h4>Metrics</h4>
+                    {hasAnyMetric(selectedSolution) ? (
+                      <ul className="metric-list">
+                        {orderedMetricEntries(selectedSolution.metrics, preferredMetricOrder).map(([key, value]) => (
+                          <li key={key}>
+                            <strong>{key}:</strong> {formatMetricValue(value)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No metrics associated.</p>
+                    )}
+
+                    <h4>Pipeline</h4>
+                    <div className="pipeline-summary">
+                      <PipelineSection node={selectedSolution.pipeline?.preprocessing} title="Preprocessing" />
+                      <PipelineSection node={selectedSolution.pipeline?.miner} title="Miner" />
+                    </div>
+
+                    <h4>Petri model</h4>
+                    <div className="petri-view-toggle" role="group" aria-label="Petri model visualization mode">
+                      <button
+                        className={petriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
+                        onClick={() => setPetriViewMode('interactive')}
+                        type="button"
+                      >
+                        Interactive
+                      </button>
+                      <button
+                        className={petriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
+                        onClick={() => setPetriViewMode('image')}
+                        type="button"
+                      >
+                        PM4Py image
+                      </button>
+                    </div>
+
+                    {petriViewMode === 'interactive' ? (
+                      <PnmlViewer petri={selectedSolution.petri} />
+                    ) : (
+                      <div className="petri-image-panel">
+                        {petriImageLoading ? <p className="small muted">Generating model image...</p> : null}
+                        {petriImageError ? <p className="error">{petriImageError}</p> : null}
+                        {!petriImageLoading && !petriImageError && petriImageUrl ? (
+                          <img alt="Petri model rendered with PM4Py" className="petri-image" src={petriImageUrl} />
+                        ) : null}
+                      </div>
+                    )}
+
+                    <details className="technical-details">
+                      <summary>View technical data</summary>
+
+                      <h4>Pipeline (raw)</h4>
+                      <pre className="json-box">{JSON.stringify(selectedSolution.pipeline || {}, null, 2)}</pre>
+
+                      <h4>Objectives</h4>
+                      <pre className="json-box">{JSON.stringify(selectedSolution.objectives || [], null, 2)}</pre>
+
+                      <h4>Variables</h4>
+                      <pre className="json-box">{JSON.stringify(selectedSolution.variables || [], null, 2)}</pre>
+
+                      <h4>Petri model (raw)</h4>
+                      <pre className="json-box">{JSON.stringify(selectedSolution.petri || {}, null, 2)}</pre>
+                    </details>
                   </>
                 ) : (
-                  <p>Select a solution.</p>
+                  <p>Select a group to view details.</p>
                 )}
               </section>
             </div>

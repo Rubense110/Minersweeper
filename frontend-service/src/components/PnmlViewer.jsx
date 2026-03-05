@@ -6,53 +6,50 @@ function toArray(value) {
   return Array.isArray(value) ? value : [value]
 }
 
-function parsePnml(pnmlText) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(pnmlText, 'application/xml')
+function parseStoredPetri(petri) {
+  if (!petri || typeof petri !== 'object') return { nodes: [], edges: [] }
 
-  const nodes = []
-  const edges = []
+  const placeNodes = Array.isArray(petri.places)
+    ? petri.places.map((item, index) => {
+        const id = item?.id || `place-${index + 1}`
+        const label = item?.label || id
+        return { data: { id, label, kind: 'place' } }
+      })
+    : []
 
-  const placeEls = Array.from(doc.querySelectorAll('place'))
-  const transEls = Array.from(doc.querySelectorAll('transition'))
-  const arcEls = Array.from(doc.querySelectorAll('arc'))
+  const transitionNodes = Array.isArray(petri.transitions)
+    ? petri.transitions.map((item, index) => {
+        const id = item?.id || `transition-${index + 1}`
+        const label = item?.label || id
+        return { data: { id, label, kind: 'transition' } }
+      })
+    : []
 
-  placeEls.forEach((el) => {
-    const id = el.getAttribute('id') || `place-${Math.random()}`
-    const labelNode = el.querySelector('name > text')
-    const label = labelNode?.textContent?.trim() || id
-    nodes.push({ data: { id, label, kind: 'place' } })
-  })
+  const edges = Array.isArray(petri.arcs)
+    ? petri.arcs
+        .map((item, index) => {
+          const source = item?.source
+          const target = item?.target
+          if (!source || !target) return null
+          return {
+            data: {
+              id: item?.id || `arc-${index + 1}-${source}-${target}`,
+              source,
+              target,
+            },
+          }
+        })
+        .filter(Boolean)
+    : []
 
-  transEls.forEach((el) => {
-    const id = el.getAttribute('id') || `transition-${Math.random()}`
-    const labelNode = el.querySelector('name > text')
-    const label = labelNode?.textContent?.trim() || id
-    nodes.push({ data: { id, label, kind: 'transition' } })
-  })
-
-  arcEls.forEach((el, index) => {
-    const source = el.getAttribute('source')
-    const target = el.getAttribute('target')
-    if (!source || !target) return
-    edges.push({ data: { id: `e-${index}-${source}-${target}`, source, target } })
-  })
-
-  return { nodes, edges }
+  return { nodes: [...placeNodes, ...transitionNodes], edges }
 }
 
-export default function PnmlViewer({ pnml }) {
+export default function PnmlViewer({ petri = null }) {
   const containerRef = useRef(null)
   const cyRef = useRef(null)
 
-  const elements = useMemo(() => {
-    if (!pnml) return { nodes: [], edges: [] }
-    try {
-      return parsePnml(pnml)
-    } catch (_error) {
-      return { nodes: [], edges: [] }
-    }
-  }, [pnml])
+  const elements = useMemo(() => parseStoredPetri(petri), [petri])
 
   useEffect(() => {
     if (!containerRef.current) return undefined
@@ -114,6 +111,10 @@ export default function PnmlViewer({ pnml }) {
         directed: true,
         padding: 18,
         spacingFactor: 1.2,
+        // Rotate the top-to-bottom breadthfirst result into left-to-right.
+        transform(_node, position) {
+          return { x: position.y, y: position.x }
+        },
       },
     })
 
@@ -125,12 +126,12 @@ export default function PnmlViewer({ pnml }) {
     }
   }, [elements])
 
-  if (!pnml) {
-    return <div className="pnml-empty">No PNML available for this solution.</div>
+  if (!petri) {
+    return <div className="pnml-empty">No Petri model is available for this solution.</div>
   }
 
   if (!elements.nodes.length) {
-    return <div className="pnml-empty">Invalid or unsupported PNML content.</div>
+    return <div className="pnml-empty">Petri model is empty or not compatible.</div>
   }
 
   return <div className="pnml-canvas" ref={containerRef} />

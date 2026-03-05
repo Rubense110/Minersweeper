@@ -21,10 +21,21 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const msg = body?.message || body?.error || `HTTP ${response.status}`
-    throw new Error(msg)
+    const error = new Error(msg)
+    error.status = response.status
+    error.payload = body
+    throw error
   }
 
   return body
+}
+
+export async function listLogs() {
+  return request('/logs')
+}
+
+export async function listOptimizations() {
+  return request('/optimizations')
 }
 
 export async function createOptimization(payload) {
@@ -32,6 +43,18 @@ export async function createOptimization(payload) {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export async function listExperiments() {
+  return request('/experiments')
+}
+
+export async function getExperiment(experimentId) {
+  return request(`/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export async function getExperimentSolutions(experimentId, scope = 'all') {
+  return request(`/experiments/${encodeURIComponent(experimentId)}/solutions?scope=${encodeURIComponent(scope)}`)
 }
 
 export async function getOptimization(jobId) {
@@ -50,6 +73,33 @@ export async function getArtifacts(jobId, scope = 'pareto', includePnml = true) 
   return request(
     `/optimizations/${jobId}/artifacts?scope=${encodeURIComponent(scope)}&include_pnml=${includePnml ? 'true' : 'false'}`
   )
+}
+
+export async function renderPetriImage(payload, format = 'svg') {
+  const response = await fetch(`${API_BASE}/petri/render?format=${encodeURIComponent(format)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload || {}),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    let body = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch (_error) {
+      body = { raw: text }
+    }
+    const msg = body?.message || body?.error || `HTTP ${response.status}`
+    const error = new Error(msg)
+    error.status = response.status
+    error.payload = body
+    throw error
+  }
+
+  return response.blob()
 }
 
 export function getEventsUrl(jobId) {
