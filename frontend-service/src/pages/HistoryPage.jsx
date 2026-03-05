@@ -68,7 +68,7 @@ export default function HistoryPage() {
           setItems((fromLive.jobs || []).map(normalizeLiveJob))
         } catch (loadError) {
           if (!active) return
-          setError(loadError.message || 'No se pudo cargar el historial')
+          setError(loadError.message || 'Could not load history')
         }
       } finally {
         if (active) setLoading(false)
@@ -85,13 +85,13 @@ export default function HistoryPage() {
     <main className="page">
       <section className="card">
         <div className="header-row">
-          <h2>Historial de experimentos</h2>
-          <p className="small muted">Fuente: {source === 'db' ? 'BBDD' : 'jobs en memoria'}</p>
+          <h2>Experiment History</h2>
+          <p className="small muted">Source: {source === 'db' ? 'database' : 'in-memory jobs'}</p>
         </div>
 
-        {loading ? <p>Cargando historial...</p> : null}
+        {loading ? <p>Loading history...</p> : null}
         {error ? <p className="error">{error}</p> : null}
-        {!loading && !error && items.length === 0 ? <p>No hay experimentos guardados todavía.</p> : null}
+        {!loading && !error && items.length === 0 ? <p>No saved experiments yet.</p> : null}
 
         <div className="history-grid">
           {items.map((item) => (
@@ -104,21 +104,21 @@ export default function HistoryPage() {
               <p className="small muted">{item.id}</p>
               <p><strong>Log:</strong> {item.logPath}</p>
               <p>
-                <strong>Métricas:</strong> {item.metrics.length ? item.metrics.join(', ') : 'Default'}
+                <strong>Metrics:</strong> {item.metrics.length ? item.metrics.join(', ') : 'Default'}
               </p>
               <p>
-                <strong>Evaluaciones:</strong> {item.maxEvaluations} | <strong>Población:</strong> {item.populationSize} |{' '}
+                <strong>Evaluations:</strong> {item.maxEvaluations} | <strong>Population:</strong> {item.populationSize} |{' '}
                 <strong>Workers:</strong> {item.workers}
               </p>
               <p>
-                <strong>Soluciones:</strong> {item.counts.all_solutions ?? 0} (pareto: {item.counts.pareto_solutions ?? 0})
+                <strong>Solutions:</strong> {item.counts.all_solutions ?? 0} (pareto: {item.counts.pareto_solutions ?? 0})
               </p>
               <p className="small muted">
-                Inicio: {toLocalDate(item.createdAt)} | Fin: {toLocalDate(item.finishedAt)}
+                Start: {toLocalDate(item.createdAt)} | End: {toLocalDate(item.finishedAt)}
               </p>
 
               <Link className="link-button" to={`/results/${item.id}`}>
-                Ver desglose
+                View Results
               </Link>
             </article>
           ))}

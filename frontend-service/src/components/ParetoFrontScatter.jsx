@@ -88,18 +88,18 @@ export default function ParetoFrontScatter({ metricOrder = [], selectedSolutionI
 
   return (
     <details className="pareto-front-panel" open>
-      <summary>Frente de Pareto (perfil por objetivos)</summary>
+      <summary>Pareto Front (objective profile)</summary>
 
       {metricKeys.length === 0 ? (
-        <p className="small muted">No hay métricas suficientes para dibujar el frente.</p>
+        <p className="small muted">Not enough metrics to draw the front.</p>
       ) : (
         <>
           <div className="pareto-front-legend small muted">
-            Series mostradas: {series.length} (frente pareto) | resaltadas del grupo: {series.filter((item) => item.highlighted).length}
+            Series shown: {series.length} (pareto front) | highlighted from group: {series.filter((item) => item.highlighted).length}
           </div>
 
           {series.length === 0 ? (
-            <p className="small muted">No hay soluciones con todas las métricas disponibles.</p>
+            <p className="small muted">No solutions have all available metrics.</p>
           ) : (
             <svg
               aria-label="Pareto front profile plot"

@@ -8,15 +8,14 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand-block">
-          <p className="eyebrow">Minersweeper</p>
-          <h1>Optimization Frontend</h1>
+          <h1>MinerSweeper</h1>
         </div>
         <nav className="topnav" aria-label="Main navigation">
           <NavLink className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} to="/run">
-            Nuevo experimento
+            New Experiment
           </NavLink>
           <NavLink className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} to="/history">
-            Historial
+            History
           </NavLink>
         </nav>
       </header>

@@ -95,7 +95,7 @@ function PipelineSection({ title, node }) {
     <article className="pipeline-card">
       <p className="small muted">{title}</p>
       <p>
-        <strong>Variante:</strong> {variant}
+        <strong>Variant:</strong> {variant}
       </p>
       {params.length > 0 ? (
         <ul className="pipeline-param-list">
@@ -107,7 +107,7 @@ function PipelineSection({ title, node }) {
           ))}
         </ul>
       ) : (
-        <p className="small muted">Sin parámetros</p>
+        <p className="small muted">No parameters</p>
       )}
     </article>
   )
@@ -307,7 +307,7 @@ export default function ResultsPage() {
         await loadDbData(jobId, { allowEmpty: true })
       } catch (loadError) {
         if (!active) return
-        setError(loadError.message || 'No se pudo cargar el experimento histórico')
+        setError(loadError.message || 'Could not load historical experiment')
       }
     }
 
@@ -325,7 +325,7 @@ export default function ResultsPage() {
         }
 
         if (current.status === 'failed') {
-          setError(current?.error?.message || 'La optimización falló')
+          setError(current?.error?.message || 'Optimization failed')
           return
         }
 
@@ -347,7 +347,7 @@ export default function ResultsPage() {
               await loadDbDataWithRetry(jobId)
             } catch (loadError) {
               if (!active) return
-              setError(loadError.message || 'No se pudieron cargar los resultados finales')
+              setError(loadError.message || 'Could not load final results')
             }
           } else if (payload.status === 'failed') {
             stream?.close()
@@ -356,10 +356,10 @@ export default function ResultsPage() {
               if (!active) return
               setJob(latest)
               setProgress(latest.progress || null)
-              setError(latest?.error?.message || 'La optimización falló')
+              setError(latest?.error?.message || 'Optimization failed')
             } catch (loadError) {
               if (!active) return
-              setError(loadError.message || 'La optimización falló')
+              setError(loadError.message || 'Optimization failed')
             }
           }
         })
@@ -380,7 +380,7 @@ export default function ResultsPage() {
           await loadHistoricalExperiment()
           return
         }
-        setError(loadError.message || 'No se pudo cargar el experimento')
+        setError(loadError.message || 'Could not load experiment')
       }
     }
 
@@ -449,7 +449,7 @@ export default function ResultsPage() {
       if (!selectedSolution || !hasRenderablePetri(selectedSolution.petri)) {
         replacePetriImageUrl('')
         setPetriImageLoading(false)
-        setPetriImageError('No hay modelo Petri renderizable para esta solución.')
+        setPetriImageError('No renderable Petri model for this solution.')
         return
       }
 
@@ -470,7 +470,7 @@ export default function ResultsPage() {
       } catch (loadError) {
         if (cancelled) return
         replacePetriImageUrl('')
-        setPetriImageError(loadError.message || 'No se pudo generar la imagen con PM4Py.')
+        setPetriImageError(loadError.message || 'Could not generate PM4Py image.')
       } finally {
         if (!cancelled) setPetriImageLoading(false)
       }
@@ -524,13 +524,13 @@ export default function ResultsPage() {
     <main className="page">
       <section className="card">
         <div className="header-row">
-          <h2>Desglose de resultados</h2>
+          <h2>Results Breakdown</h2>
           <div className="inline-actions">
             <Link className="link-button" to="/run">
-              Nuevo experimento
+              New Experiment
             </Link>
             <Link className="link-button secondary" to="/history">
-              Historial
+              History
             </Link>
           </div>
         </div>
@@ -542,20 +542,20 @@ export default function ResultsPage() {
         {job ? (
           <div className="status-box">
             <p>
-              <strong>Estado:</strong> {job.status}
+              <strong>Status:</strong> {job.status}
             </p>
             <p>
-              <strong>Experimento:</strong> {job.request?.execution_name || '-'}
+              <strong>Experiment:</strong> {job.request?.execution_name || '-'}
             </p>
             <p>
               <strong>Log:</strong> {job.request?.log_path || '-'}
             </p>
             <p>
-              <strong>Inicio:</strong> {toLocalDate(job.started_at || job.created_at)} | <strong>Fin:</strong>{' '}
+              <strong>Start:</strong> {toLocalDate(job.started_at || job.created_at)} | <strong>End:</strong>{' '}
               {toLocalDate(job.finished_at)}
             </p>
             <p>
-              <strong>Métricas:</strong>{' '}
+              <strong>Metrics:</strong>{' '}
               {Array.isArray(job.request?.metrics) && job.request.metrics.length
                 ? job.request.metrics.join(', ')
                 : 'default'}
@@ -571,18 +571,18 @@ export default function ResultsPage() {
             ) : null}
           </div>
         ) : (
-          <p>Cargando detalle del experimento...</p>
+          <p>Loading experiment details...</p>
         )}
 
         {error ? <p className="error">{error}</p> : null}
 
-        {job?.status === 'running' || job?.status === 'queued' ? <p>Esperando actualizaciones SSE...</p> : null}
+        {job?.status === 'running' || job?.status === 'queued' ? <p>Waiting for SSE updates...</p> : null}
 
         {job?.status === 'completed' ? (
           <>
-            <h3>Grupos por objetivos ({solutionGroups.length})</h3>
-            <p className="small muted">Total de soluciones registradas: {solutions.length}</p>
-            {solutions.length === 0 ? <p>No hay soluciones registradas para este experimento.</p> : null}
+            <h3>Groups by objectives ({solutionGroups.length})</h3>
+            <p className="small muted">Total recorded solutions: {solutions.length}</p>
+            {solutions.length === 0 ? <p>No solutions recorded for this experiment.</p> : null}
 
             <div className="solutions-grid">
               <aside
@@ -599,15 +599,15 @@ export default function ResultsPage() {
                       type="button"
                     >
                       <div className="header-row">
-                        <strong>Grupo #{index + 1}</strong>
+                        <strong>Group #{index + 1}</strong>
                         {group.paretoCount > 0 ? <span className="pareto-tag">pareto: {group.paretoCount}</span> : null}
                       </div>
                       <div className="small muted">
-                        {group.size} soluciones | {group.uniquePipelines} pipelines | mejor runtime:{' '}
+                        {group.size} solutions | {group.uniquePipelines} pipelines | best runtime:{' '}
                         {formatRuntime(group.best?.runtimeMs)}
                       </div>
                       <div className="small muted">
-                        Objetivos: [{group.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
+                        Objectives: [{group.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
                       </div>
                       {metricEntries.length > 0 ? (
                         <div className="solution-metric-lines small">
@@ -626,13 +626,13 @@ export default function ResultsPage() {
               <section className="solution-detail" ref={solutionDetailRef}>
                 {selectedGroup && selectedSolution ? (
                   <>
-                    <h3>Detalle del grupo</h3>
+                    <h3>Group details</h3>
                     <p>
-                      <strong>Soluciones en el grupo:</strong> {selectedGroup.size} | <strong>Pipelines distintos:</strong>{' '}
-                      {selectedGroup.uniquePipelines} | <strong>Mejor runtime:</strong> {formatRuntime(selectedGroup.best?.runtimeMs)}
+                      <strong>Solutions in group:</strong> {selectedGroup.size} | <strong>Distinct pipelines:</strong>{' '}
+                      {selectedGroup.uniquePipelines} | <strong>Best runtime:</strong> {formatRuntime(selectedGroup.best?.runtimeMs)}
                     </p>
                     <p>
-                      <strong>Objetivos del grupo:</strong>{' '}
+                      <strong>Group objectives:</strong>{' '}
                       [{selectedGroup.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
                     </p>
 
@@ -642,7 +642,7 @@ export default function ResultsPage() {
                       solutions={solutions}
                     />
 
-                    <h4>Soluciones del grupo (ordenadas por runtime)</h4>
+                    <h4>Group solutions (sorted by runtime)</h4>
                     <div className="group-member-list">
                       {selectedGroup.solutions.map((solution) => (
                         <button
@@ -657,12 +657,12 @@ export default function ResultsPage() {
                       ))}
                     </div>
 
-                    <h3>Detalle individual</h3>
+                    <h3>Solution details</h3>
                     <p>
                       <strong>Runtime (ms):</strong> {selectedSolution.runtimeMs === null ? '-' : selectedSolution.runtimeMs}
                     </p>
 
-                    <h4>Métricas</h4>
+                    <h4>Metrics</h4>
                     {hasAnyMetric(selectedSolution) ? (
                       <ul className="metric-list">
                         {orderedMetricEntries(selectedSolution.metrics, preferredMetricOrder).map(([key, value]) => (
@@ -672,7 +672,7 @@ export default function ResultsPage() {
                         ))}
                       </ul>
                     ) : (
-                      <p>No hay métricas asociadas.</p>
+                      <p>No metrics associated.</p>
                     )}
 
                     <h4>Pipeline</h4>
@@ -681,21 +681,21 @@ export default function ResultsPage() {
                       <PipelineSection node={selectedSolution.pipeline?.miner} title="Miner" />
                     </div>
 
-                    <h4>Modelo Petri</h4>
-                    <div className="petri-view-toggle" role="group" aria-label="Modo de visualización del modelo Petri">
+                    <h4>Petri model</h4>
+                    <div className="petri-view-toggle" role="group" aria-label="Petri model visualization mode">
                       <button
                         className={petriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
                         onClick={() => setPetriViewMode('interactive')}
                         type="button"
                       >
-                        Interactivo
+                        Interactive
                       </button>
                       <button
                         className={petriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
                         onClick={() => setPetriViewMode('image')}
                         type="button"
                       >
-                        Imagen PM4Py
+                        PM4Py image
                       </button>
                     </div>
 
@@ -703,32 +703,32 @@ export default function ResultsPage() {
                       <PnmlViewer petri={selectedSolution.petri} />
                     ) : (
                       <div className="petri-image-panel">
-                        {petriImageLoading ? <p className="small muted">Generando imagen del modelo...</p> : null}
+                        {petriImageLoading ? <p className="small muted">Generating model image...</p> : null}
                         {petriImageError ? <p className="error">{petriImageError}</p> : null}
                         {!petriImageLoading && !petriImageError && petriImageUrl ? (
-                          <img alt="Modelo de Petri renderizado con PM4Py" className="petri-image" src={petriImageUrl} />
+                          <img alt="Petri model rendered with PM4Py" className="petri-image" src={petriImageUrl} />
                         ) : null}
                       </div>
                     )}
 
                     <details className="technical-details">
-                      <summary>Ver datos técnicos</summary>
+                      <summary>View technical data</summary>
 
                       <h4>Pipeline (raw)</h4>
                       <pre className="json-box">{JSON.stringify(selectedSolution.pipeline || {}, null, 2)}</pre>
 
-                      <h4>Objetivos</h4>
+                      <h4>Objectives</h4>
                       <pre className="json-box">{JSON.stringify(selectedSolution.objectives || [], null, 2)}</pre>
 
                       <h4>Variables</h4>
                       <pre className="json-box">{JSON.stringify(selectedSolution.variables || [], null, 2)}</pre>
 
-                      <h4>Modelo Petri (raw)</h4>
+                      <h4>Petri model (raw)</h4>
                       <pre className="json-box">{JSON.stringify(selectedSolution.petri || {}, null, 2)}</pre>
                     </details>
                   </>
                 ) : (
-                  <p>Selecciona un grupo para ver el detalle.</p>
+                  <p>Select a group to view details.</p>
                 )}
               </section>
             </div>

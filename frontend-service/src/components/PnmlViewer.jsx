@@ -127,11 +127,11 @@ export default function PnmlViewer({ petri = null }) {
   }, [elements])
 
   if (!petri) {
-    return <div className="pnml-empty">No hay modelo de Petri disponible para esta solución.</div>
+    return <div className="pnml-empty">No Petri model is available for this solution.</div>
   }
 
   if (!elements.nodes.length) {
-    return <div className="pnml-empty">Modelo de Petri vacío o no compatible.</div>
+    return <div className="pnml-empty">Petri model is empty or not compatible.</div>
   }
 
   return <div className="pnml-canvas" ref={containerRef} />

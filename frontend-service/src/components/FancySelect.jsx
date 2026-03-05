@@ -5,7 +5,7 @@ export default function FancySelect({
   disabled = false,
   onChange,
   options = [],
-  placeholder = 'Selecciona...',
+  placeholder = 'Select...',
   value,
 }) {
   const rootRef = useRef(null)
