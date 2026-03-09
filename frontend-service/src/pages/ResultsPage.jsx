@@ -236,6 +236,31 @@ export default function ResultsPage() {
 
     let active = true
     let stream = null
+    const autoRefreshKey = `results:auto-refresh:${jobId}`
+
+    function wasAutoRefreshed() {
+      try {
+        return window.sessionStorage.getItem(autoRefreshKey) === '1'
+      } catch (_error) {
+        return false
+      }
+    }
+
+    function markAutoRefreshed() {
+      try {
+        window.sessionStorage.setItem(autoRefreshKey, '1')
+      } catch (_error) {
+        // Ignore storage failures.
+      }
+    }
+
+    function clearAutoRefreshMark() {
+      try {
+        window.sessionStorage.removeItem(autoRefreshKey)
+      } catch (_error) {
+        // Ignore storage failures.
+      }
+    }
 
     async function loadDbData(experimentId, options = {}) {
       const { allowEmpty = true } = options
@@ -320,11 +345,13 @@ export default function ResultsPage() {
         setProgress(current.progress || null)
 
         if (current.status === 'completed') {
+          clearAutoRefreshMark()
           await loadDbDataWithRetry(jobId)
           return
         }
 
         if (current.status === 'failed') {
+          clearAutoRefreshMark()
           setError(current?.error?.message || 'Optimization failed')
           return
         }
@@ -338,12 +365,18 @@ export default function ResultsPage() {
           setJob((previous) => ({ ...(previous || {}), status: payload.status }))
 
           if (payload.status === 'completed') {
+            if (!wasAutoRefreshed()) {
+              markAutoRefreshed()
+              window.location.reload()
+              return
+            }
             stream?.close()
             try {
               const latest = await getOptimization(jobId)
               if (!active) return
               setJob(latest)
               setProgress(latest.progress || null)
+              clearAutoRefreshMark()
               await loadDbDataWithRetry(jobId)
             } catch (loadError) {
               if (!active) return
@@ -356,6 +389,7 @@ export default function ResultsPage() {
               if (!active) return
               setJob(latest)
               setProgress(latest.progress || null)
+              clearAutoRefreshMark()
               setError(latest?.error?.message || 'Optimization failed')
             } catch (loadError) {
               if (!active) return
