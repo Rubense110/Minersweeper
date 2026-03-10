@@ -48,6 +48,10 @@ public final class UnknownExtensionLogFilter {
         return originalErr;
     }
 
+    static boolean shouldSuppressPromNoiseLine(String line) {
+        return LineFilteringOutputStream.shouldSuppressLine(line, true);
+    }
+
     private static PrintStream buildFileSink(PrintStream fallbackErr) {
         if (!Boolean.parseBoolean(env("PROM_LOG_TO_FILE", "false"))) {
             return null;
@@ -147,6 +151,7 @@ public final class UnknownExtensionLogFilter {
 
     private static final class LineFilteringOutputStream extends OutputStream {
         private static final String PREFIX = "Unknown extension:";
+        private static final String TOOLBOX_PREFIX = "[Toolbox]";
         private static final String LIFE_CYCLE_REPAIR_MESSAGE = "life cycle repair not yet implemented";
         private static final String UNMATCHED_MESSAGE = "unmatched";
         private static final String EVAL_MARKER = "[EVAL]";
@@ -226,6 +231,9 @@ public final class UnknownExtensionLogFilter {
         private static final Pattern SIMPLE_MAP = Pattern.compile("^\\s*\\{[A-Za-z0-9_\\- ]+=\\d+(?:,\\s*[A-Za-z0-9_\\- ]+=\\d+)*\\}\\s*$");
         private static final Pattern STRUCTURAL_ROW = Pattern.compile("^[\\s\\d\\-\\.,\\[\\]]+$");
         private static final Pattern QUEUE_STATUS_ROW = Pattern.compile("^\\s*(?:Accepted|Completed|Queued)(?:\\s+(?:Accepted|Completed|Queued))*\\s*$");
+        private static final String LIFECYCLE_SEGMENT = "[A-Za-z][A-Za-z0-9]*(?:(?:\\s+-\\s+|\\s+)[A-Za-z0-9][A-Za-z0-9]*)*";
+        private static final Pattern LIFECYCLE_TRACE_ENTRY = Pattern.compile("^" + LIFECYCLE_SEGMENT + "\\+" + LIFECYCLE_SEGMENT + "$");
+        private static final Pattern SCORE_SUFFIX = Pattern.compile("^-?\\d+(?:\\.\\d+)?$");
         private static final Pattern ANSI_ESCAPE = Pattern.compile("\\u001B\\[[;\\d]*m");
         private final PrintStream delegate;
         private final StringBuilder lineBuffer = new StringBuilder();
@@ -268,11 +276,14 @@ public final class UnknownExtensionLogFilter {
             }
         }
 
-        private boolean shouldSuppress(String line) {
-            if (!SUPPRESS_PROM_NOISE) {
+        private static boolean shouldSuppressLine(String line, boolean suppressPromNoise) {
+            if (!suppressPromNoise) {
                 return false;
             }
             if (line.startsWith(PREFIX)) {
+                return true;
+            }
+            if (line.startsWith(TOOLBOX_PREFIX)) {
                 return true;
             }
             String normalized = line.trim().toLowerCase();
@@ -315,12 +326,19 @@ public final class UnknownExtensionLogFilter {
             if (QUEUE_STATUS_ROW.matcher(line).matches()) {
                 return true;
             }
+            if (isLifecycleTraceScoreRow(line)) {
+                return true;
+            }
             for (String prefix : HEURISTICS_PREFIXES) {
                 if (line.startsWith(prefix)) {
                     return true;
                 }
             }
             return false;
+        }
+
+        private boolean shouldSuppress(String line) {
+            return shouldSuppressLine(line, SUPPRESS_PROM_NOISE);
         }
 
         private static boolean isSplitMinerNoise(String line, String normalized) {
@@ -361,6 +379,32 @@ public final class UnknownExtensionLogFilter {
                 current = current.substring(close + 1).trim();
             }
             return current;
+        }
+
+        private static boolean isLifecycleTraceScoreRow(String line) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("[") || trimmed.indexOf(']') < 0) {
+                return false;
+            }
+            int closingBracket = trimmed.lastIndexOf(']');
+            if (closingBracket <= 0 || closingBracket == trimmed.length() - 1) {
+                return false;
+            }
+            String score = trimmed.substring(closingBracket + 1).trim();
+            if (!SCORE_SUFFIX.matcher(score).matches()) {
+                return false;
+            }
+            String rawTrace = trimmed.substring(1, closingBracket).trim();
+            if (rawTrace.isEmpty()) {
+                return false;
+            }
+            String[] entries = rawTrace.split("\\s*,\\s*");
+            for (String entry : entries) {
+                if (!LIFECYCLE_TRACE_ENTRY.matcher(entry).matches()) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }
