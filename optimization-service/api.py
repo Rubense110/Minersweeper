@@ -502,6 +502,14 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
     return payload
 
 
+def _count_failed_solutions(all_solutions: List[Dict[str, Any]], observed_error_count: int = 0) -> int:
+    serialized_failures = 0
+    for item in all_solutions:
+        if isinstance(item, dict) and item.get("evaluation_error"):
+            serialized_failures += 1
+    return max(serialized_failures, max(0, _to_int(observed_error_count, 0)))
+
+
 class OptimizationJobManager:
     def __init__(self, default_service_url: str, db_url: str, java_service_timeout_seconds: int):
         self.default_service_url = default_service_url
@@ -641,7 +649,10 @@ class OptimizationJobManager:
                 job["status"] = "completed"
 
             all_solutions = result.get("all_solutions", [])
-            failed_solutions = sum(1 for item in all_solutions if item.get("evaluation_error"))
+            failed_solutions = _count_failed_solutions(
+                all_solutions,
+                result.get("counts", {}).get("failed_solutions", 0),
+            )
             total_solutions = len(all_solutions)
             LOGGER.info(
                 "job completed job_id=%s execution=%s total_solutions=%s pareto_solutions=%s failed_solutions=%s",
@@ -789,6 +800,7 @@ class OptimizationJobManager:
             "counts": {
                 "all_solutions": len(all_solutions),
                 "pareto_solutions": len(pareto_solutions),
+                "failed_solutions": _count_failed_solutions(all_solutions, progress_state["error_count"]),
             },
             "pareto_evaluation_ids": list(pareto_ids),
             "all_solutions": all_solutions,

@@ -152,6 +152,27 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("HTTPError: 500 Server Error", payload["evaluation_error"])
         self.assertEqual(321, payload["runtime_ms"])
 
+    def test_count_failed_solutions_uses_observed_error_count(self):
+        all_solutions = [
+            {"evaluation_id": "ok-1"},
+            {"evaluation_id": "ok-2"},
+        ]
+
+        failed = api._count_failed_solutions(all_solutions, observed_error_count=3)
+
+        self.assertEqual(3, failed)
+
+    def test_count_failed_solutions_uses_serialized_errors_when_higher(self):
+        all_solutions = [
+            {"evaluation_id": "ok-1"},
+            {"evaluation_id": "bad-1", "evaluation_error": "HTTP 500"},
+            {"evaluation_id": "bad-2", "evaluation_error": "timeout"},
+        ]
+
+        failed = api._count_failed_solutions(all_solutions, observed_error_count=1)
+
+        self.assertEqual(2, failed)
+
     def test_get_solutions_invalid_scope(self):
         response = self.client.get("/optimizations/job-1/solutions?scope=bad")
         self.assertEqual(400, response.status_code)
