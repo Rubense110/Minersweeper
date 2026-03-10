@@ -26,6 +26,7 @@ __pycache__/*
 !/frontend-service/package.json
 /optimization-service/reports/*
 logs/services.log
+logs/services copy.log
 pm_site/pm_app/logs/*
 /event_logs/*.xes
 
