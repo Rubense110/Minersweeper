@@ -21,6 +21,8 @@ __pycache__/*
 /java-service/target/dependency/
 /java-service/lib/*
 !/java-service/lib/.gitkeep
+/m2/
+/.m2/
 /m2-local/
 /.m2-local/
 !/frontend-service/package.json

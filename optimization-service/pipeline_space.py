@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from parameters.miners import MINER_CATALOG
 from parameters.miners.hybrid_ilp import get_active_params_for_lp_filter
 from parameters.preprocessing import PREPROCESSING_CATALOG
+from preprocessing_constraints import adjusted_bounds
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,9 @@ class DecisionVariable:
 class PipelineSearchSpace:
     """Builds a flat float search space and decodes it into pipeline configs."""
 
-    def __init__(self, excluded_miners: Optional[Sequence[str]] = None):
+    def __init__(self, excluded_miners: Optional[Sequence[str]] = None, log_path: Optional[str] = None):
         excluded = set(excluded_miners or [])
+        self.log_path = log_path
 
         self.preprocessing_keys = list(PREPROCESSING_CATALOG.keys())
         self.miner_keys = [key for key in MINER_CATALOG.keys() if key not in excluded]
@@ -97,7 +99,8 @@ class PipelineSearchSpace:
             for param_name, param_spec in prep_spec.parameters.items():
                 if not param_spec.optimize:
                     continue
-                min_val, max_val = self._bounds_for_param(param_spec.ptype, param_spec.bounds, param_spec.choices)
+                bounds = adjusted_bounds(prep_key, param_name, param_spec.bounds, self.log_path)
+                min_val, max_val = self._bounds_for_param(param_spec.ptype, bounds, param_spec.choices)
                 self._add_variable(
                     key=f"preprocessing::{prep_key}::param::{param_name}",
                     ptype=param_spec.ptype,

@@ -11,6 +11,7 @@ from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 
 from pipeline_space import PipelineSearchSpace
+from preprocessing_constraints import repair_pipeline_preprocessing
 
 
 class PipelineOptimizationProblem(FloatProblem):
@@ -78,7 +79,10 @@ class PipelineOptimizationProblem(FloatProblem):
             )
             return solution
 
-        decoded_pipeline = self.search_space.decode(solution.variables)
+        decoded_pipeline = repair_pipeline_preprocessing(
+            self.log_path,
+            self.search_space.decode(solution.variables),
+        )
         eval_started_ns = time.perf_counter_ns()
         try:
             evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)

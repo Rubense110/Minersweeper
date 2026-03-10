@@ -11,7 +11,7 @@ PROJECTION_FILTER_PARAMS: Dict[str, ParamSpec] = {
     "keep_threshold_p": ParamSpec(
         name="keep_threshold_p",
         ptype="int",
-        bounds=(0, 100),
+        bounds=(1, 100),
         default=50,
         prom_field="keepThresholdP",
     ),
@@ -31,5 +31,5 @@ PROJECTION_FILTER_SPEC = PreprocessingSpec(
     method="Projection Log Filter",
     parameters=PROJECTION_FILTER_PARAMS,
     variants=PROJECTION_FILTER_VARIANTS,
-    notes="Projects traces to retained activity subsets by threshold.",
+    notes="Filterd event projection with Frequency + Filter in semantics; threshold 0 is invalid for optimization.",
 )

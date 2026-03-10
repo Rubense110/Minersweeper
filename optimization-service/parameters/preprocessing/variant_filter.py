@@ -11,7 +11,7 @@ VARIANT_FILTER_PARAMS: Dict[str, ParamSpec] = {
     "keep_threshold_vf": ParamSpec(
         name="keep_threshold_vf",
         ptype="int",
-        bounds=(0, 100),
+        bounds=(1, 100),
         default=50,
         prom_field="keepThresholdVF",
     ),
@@ -31,5 +31,5 @@ VARIANT_FILTER_SPEC = PreprocessingSpec(
     method="Variant Log Filter",
     parameters=VARIANT_FILTER_PARAMS,
     variants=VARIANT_FILTER_VARIANTS,
-    notes="Keeps a percentage/threshold of frequent variants.",
+    notes="LogFiltering variant coverage percentage; effective minimum is log-dependent and repaired before evaluation.",
 )

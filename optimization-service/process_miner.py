@@ -56,7 +56,7 @@ class OptimizedProcessMiner:
         if not url:
             raise ValueError("service_url is required to evaluate candidate pipelines")
 
-        self.search_space = PipelineSearchSpace(excluded_miners=self.excluded_miners)
+        self.search_space = PipelineSearchSpace(excluded_miners=self.excluded_miners, log_path=self.log_path)
         self.service_client = ProMServiceClient(
             base_url=url,
             experiment_id=self.execution_name,
