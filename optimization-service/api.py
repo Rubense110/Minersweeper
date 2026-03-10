@@ -20,6 +20,7 @@ from xml.etree import ElementTree as ET
 import psutil
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
+from werkzeug.serving import WSGIRequestHandler
 
 from job_store import JobStore
 from java_service_client import ProMServiceClient
@@ -174,6 +175,17 @@ def _configure_logging() -> logging.Logger:
 
 LOGGER = _configure_logging()
 _PM4PY_IMPORT_LOCK = threading.Lock()
+_LEGACY_UI_API_PATHS = {"/ui/api/stats", "/ui/api/cluster", "/ui/api/query"}
+
+
+class _QuietRequestHandler(WSGIRequestHandler):
+    """Suppress noisy host-side probes that do not belong to this API."""
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        path = (self.path or "").split("?", 1)[0]
+        if path in _LEGACY_UI_API_PATHS:
+            return
+        super().log_request(code=code, size=size)
 
 
 def _utc_now_iso() -> str:
@@ -1105,6 +1117,24 @@ def health() -> Any:
     return jsonify({"status": "ok"})
 
 
+@app.get("/ui/api/stats")
+def legacy_ui_stats() -> Any:
+    # Compatibility endpoint for stale external dashboards polling localhost:8080.
+    return jsonify({"status": "ok", "stats": {}})
+
+
+@app.get("/ui/api/cluster")
+def legacy_ui_cluster() -> Any:
+    # Compatibility endpoint for stale external dashboards polling localhost:8080.
+    return jsonify({"status": "ok", "cluster": {}})
+
+
+@app.get("/ui/api/query")
+def legacy_ui_query() -> Any:
+    # Compatibility endpoint for stale external dashboards polling localhost:8080.
+    return jsonify({"status": "ok", "result": []})
+
+
 @app.get("/logs")
 def list_logs() -> Any:
     return jsonify({"logs": _list_logs_in_root()})
@@ -1260,7 +1290,7 @@ def get_artifacts(job_id: str) -> Any:
 def main() -> None:
     host = os.getenv("OPTIMIZATION_HOST", "0.0.0.0")
     port = int(os.getenv("OPTIMIZATION_PORT", "8080"))
-    app.run(host=host, port=port, debug=False, threaded=True)
+    app.run(host=host, port=port, debug=False, threaded=True, request_handler=_QuietRequestHandler)
 
 
 if __name__ == "__main__":

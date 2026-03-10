@@ -90,6 +90,21 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.get_json())
 
+    def test_legacy_ui_stats(self):
+        response = self.client.get("/ui/api/stats")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("ok", response.get_json()["status"])
+
+    def test_legacy_ui_cluster(self):
+        response = self.client.get("/ui/api/cluster")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("ok", response.get_json()["status"])
+
+    def test_legacy_ui_query(self):
+        response = self.client.get("/ui/api/query")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("ok", response.get_json()["status"])
+
     def test_list_jobs(self):
         response = self.client.get("/optimizations")
         self.assertEqual(200, response.status_code)
