@@ -30,6 +30,8 @@ public class RequestValidatorTest {
         RequestValidator.validatePipelineRequest(request);
 
         assertNotNull(request.pipeline.preprocessing.parameters);
+        assertNotNull(request.pipeline.preprocessings);
+        assertTrue(!request.pipeline.preprocessings.isEmpty());
         assertNotNull(request.pipeline.miner.parameters);
         assertNotNull(request.excluded_miners);
     }
@@ -67,6 +69,48 @@ public class RequestValidatorTest {
             fail("Expected BadRequestException for alias metric name");
         } catch (BadRequestException expected) {
             assertTrue(expected.getMessage().contains("unsupported metric"));
+        }
+    }
+
+    @Test
+    public void pipelineRequestAcceptsPreprocessingChain() {
+        PipelineRequest request = buildValidPipelineRequest("fitness");
+        request.pipeline.preprocessing = null;
+
+        PipelineRequest.PreprocessingConfig first = new PipelineRequest.PreprocessingConfig();
+        first.key = "variant_filter";
+        first.method = "Variant Log Filter";
+        first.variant = "Variant Log Filter";
+        first.parameters = null;
+
+        PipelineRequest.PreprocessingConfig second = new PipelineRequest.PreprocessingConfig();
+        second.key = "projection_filter";
+        second.method = "Projection Log Filter";
+        second.variant = "Projection Log Filter";
+        second.parameters = null;
+
+        request.pipeline.preprocessings = Arrays.asList(first, second);
+
+        RequestValidator.validatePipelineRequest(request);
+
+        assertNotNull(request.pipeline.preprocessing);
+        assertNotNull(request.pipeline.preprocessings);
+        assertTrue(request.pipeline.preprocessings.size() == 2);
+        assertTrue("variant_filter".equals(request.pipeline.preprocessing.key));
+        assertNotNull(request.pipeline.preprocessings.get(0).parameters);
+        assertNotNull(request.pipeline.preprocessings.get(1).parameters);
+    }
+
+    @Test
+    public void pipelineRequestRejectsUnsupportedPreprocessingKey() {
+        PipelineRequest request = buildValidPipelineRequest("fitness");
+        request.pipeline.preprocessing.key = "unknown_filter";
+
+        try {
+            RequestValidator.validatePipelineRequest(request);
+            fail("Expected BadRequestException for unsupported preprocessing");
+        } catch (BadRequestException expected) {
+            assertTrue(expected.getMessage().contains("unsupported preprocessing key"));
         }
     }
 

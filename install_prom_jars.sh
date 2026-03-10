@@ -56,6 +56,9 @@ install "$PROM_HOME/packages/prom-models-6.10.40/ProM-Models.jar" prom ProM-Mode
 install "$PROM_HOME/packages/prom-plugins-6.9.70/ProM-Plugins.jar" prom ProM-Plugins 6.9.70
 install "$PROM_HOME/packages/log-6.12.2/Log.jar" prom Log 6.12.2
 install "$PROM_HOME/packages/logabstractions-6.9.72/LogAbstractions.jar" prom LogAbstractions 6.9.72
+install "$PROM_HOME/packages/filterd-6.10.104/Filterd.jar" prom Filterd 6.10.104
+install "$PROM_HOME/packages/causalactivitymatrix-6.9.59/CausalActivityMatrix.jar" prom CausalActivityMatrix 6.9.59
+install "$PROM_HOME/packages/causalactivitymatrixminer-6.9.62/CausalActivityMatrixMiner.jar" prom CausalActivityMatrixMiner 6.9.62
 install "$PROM_HOME/packages/petrinets-6.10.158/PetriNets.jar" prom PetriNets 6.10.158
 install "$PROM_HOME/packages/log-6.12.2/lib/OpenXES-20211004.jar" org.deckfour openxes 20211004
 install "$PROM_HOME/packages/widgets-6.11.245/Widgets.jar" prom Widgets 6.11.245

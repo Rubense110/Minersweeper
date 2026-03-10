@@ -4,9 +4,11 @@ import com.minersweeper.javaservice.api.dto.ArtifactBulkRequest;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMetricCatalog;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMode;
+import com.minersweeper.javaservice.evaluation.preprocessing.PreprocessingPipeline;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 
 public final class RequestValidator {
     private RequestValidator() {}
@@ -24,14 +26,8 @@ public final class RequestValidator {
         if (payload.pipeline == null) {
             throw new BadRequestException("pipeline is required");
         }
-        if (payload.pipeline.preprocessing == null) {
-            throw new BadRequestException("pipeline.preprocessing is required");
-        }
         if (payload.pipeline.miner == null) {
             throw new BadRequestException("pipeline.miner is required");
-        }
-        if (isBlank(payload.pipeline.preprocessing.key)) {
-            throw new BadRequestException("pipeline.preprocessing.key is required");
         }
         if (isBlank(payload.pipeline.miner.key)) {
             throw new BadRequestException("pipeline.miner.key is required");
@@ -39,9 +35,41 @@ public final class RequestValidator {
         if (payload.metrics == null || payload.metrics.isEmpty()) {
             throw new BadRequestException("metrics must contain at least one metric");
         }
-        if (payload.pipeline.preprocessing.parameters == null) {
-            payload.pipeline.preprocessing.parameters = new HashMap<String, Object>();
+
+        List<PipelineRequest.PreprocessingConfig> preprocessings = new ArrayList<PipelineRequest.PreprocessingConfig>();
+        if (payload.pipeline.preprocessings != null && !payload.pipeline.preprocessings.isEmpty()) {
+            preprocessings.addAll(payload.pipeline.preprocessings);
+        } else if (payload.pipeline.preprocessing != null) {
+            preprocessings.add(payload.pipeline.preprocessing);
         }
+        if (preprocessings.isEmpty()) {
+            throw new BadRequestException("pipeline.preprocessing or pipeline.preprocessings is required");
+        }
+        for (int i = 0; i < preprocessings.size(); i++) {
+            PipelineRequest.PreprocessingConfig preprocessing = preprocessings.get(i);
+            if (preprocessing == null) {
+                throw new BadRequestException("pipeline.preprocessings contains null entry at index " + i);
+            }
+            if (isBlank(preprocessing.key)) {
+                throw new BadRequestException("pipeline.preprocessings[" + i + "].key is required");
+            }
+            preprocessing.key = preprocessing.key.trim().toLowerCase(Locale.ROOT);
+            if (!PreprocessingPipeline.supportedKeys().contains(preprocessing.key)) {
+                throw new BadRequestException("unsupported preprocessing key: " + preprocessing.key);
+            }
+            if (preprocessing.parameters == null) {
+                preprocessing.parameters = new HashMap<String, Object>();
+            }
+            if (preprocessing.method == null) {
+                preprocessing.method = "";
+            }
+            if (preprocessing.variant == null) {
+                preprocessing.variant = "";
+            }
+        }
+        payload.pipeline.preprocessings = preprocessings;
+        payload.pipeline.preprocessing = preprocessings.get(0);
+
         if (payload.pipeline.miner.parameters == null) {
             payload.pipeline.miner.parameters = new HashMap<String, Object>();
         }

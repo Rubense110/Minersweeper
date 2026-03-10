@@ -77,6 +77,21 @@
     </dependency>
     <dependency>
       <groupId>prom</groupId>
+      <artifactId>Filterd</artifactId>
+      <version>6.10.104</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>CausalActivityMatrix</artifactId>
+      <version>6.9.59</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
+      <artifactId>CausalActivityMatrixMiner</artifactId>
+      <version>6.9.62</version>
+    </dependency>
+    <dependency>
+      <groupId>prom</groupId>
       <artifactId>PetriNets</artifactId>
       <version>6.10.158</version>
     </dependency>

@@ -18,6 +18,7 @@ import com.minersweeper.javaservice.evaluation.discovery.miners.SplitMinerDiscov
 import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
+import com.minersweeper.javaservice.evaluation.preprocessing.PreprocessingPipeline;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
 import java.util.ArrayList;
 import java.nio.file.Path;
@@ -35,6 +36,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     private final ArtifactStore artifactStore;
     private final LogLoader logLoader;
     private final Map<String, MinerDiscoverer> minersByKey;
+    private final PreprocessingPipeline preprocessingPipeline = new PreprocessingPipeline();
 
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
     private final ConformanceMetricsCalculator conformanceMetricsCalculator = new ConformanceMetricsCalculator();
@@ -70,8 +72,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             PluginContext context = createContext();
             timing.markFromStart("context_create_ms", contextStartNs);
 
+            long preprocessStartNs = TimingTrace.nowNs();
+            XLog processedLog = preprocessingPipeline.apply(context, log, request);
+            timing.markFromStart("preprocess_ms", preprocessStartNs);
+
             long discoverStartNs = TimingTrace.nowNs();
-            DiscoveryArtifact discovered = discoverModel(context, log, request);
+            DiscoveryArtifact discovered = discoverModel(context, processedLog, request);
             timing.markFromStart("discover_ms", discoverStartNs);
 
             long metricsStartNs = TimingTrace.nowNs();
@@ -190,16 +196,34 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             return "";
         }
         StringBuilder out = new StringBuilder(192);
-        appendPreprocessingSummary(out, request.pipeline.preprocessing);
+        appendPreprocessingSummaries(out, request.pipeline);
         appendMinerSummary(out, request.pipeline.miner);
         return out.toString();
     }
 
-    private static void appendPreprocessingSummary(StringBuilder out, PipelineRequest.PreprocessingConfig preprocessing) {
+    private static void appendPreprocessingSummaries(StringBuilder out, PipelineRequest.PipelineConfig pipeline) {
+        if (pipeline == null) {
+            return;
+        }
+        List<PipelineRequest.PreprocessingConfig> preprocessings = pipeline.preprocessings;
+        if (preprocessings == null || preprocessings.isEmpty()) {
+            appendPreprocessingSummary(out, pipeline.preprocessing, 0);
+            return;
+        }
+        for (int i = 0; i < preprocessings.size(); i++) {
+            appendPreprocessingSummary(out, preprocessings.get(i), i);
+        }
+    }
+
+    private static void appendPreprocessingSummary(
+        StringBuilder out,
+        PipelineRequest.PreprocessingConfig preprocessing,
+        int index
+    ) {
         if (preprocessing == null) {
             return;
         }
-        appendSectionStart(out, "pre");
+        appendSectionStart(out, "pre" + index);
         appendNamedValue(out, "key", preprocessing.key);
         appendNamedValue(out, "method", preprocessing.method);
         appendNamedValue(out, "variant", preprocessing.variant);

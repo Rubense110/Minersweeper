@@ -146,6 +146,95 @@ Ejemplo de request:
 }
 ```
 
+### Preprocesado de log (pipeline)
+
+`POST /pipeline` soporta dos formatos de entrada para preprocesado:
+
+- `pipeline.preprocessing` (legacy, un solo paso)
+- `pipeline.preprocessings` (nuevo, lista ordenada de pasos)
+
+Reglas del contrato:
+
+- Si llega `preprocessings`, se aplica en orden (`[0] -> [1] -> ...`) sobre el log actual.
+- Si llega solo `preprocessing`, se normaliza internamente a `preprocessings` de tamaño 1.
+- Se mantiene `pipeline.preprocessing` en metadata como alias del primer paso para compatibilidad.
+- Claves soportadas (`key`):
+  - `projection_filter`
+  - `variant_filter`
+  - `repair_log_filter`
+  - `matrix_filter`
+
+Ejemplo con cadena de preprocesados:
+
+```json
+{
+  "experiment_id": "run_chain_001",
+  "log_path": "/data/logs/BPI_Challenge_2013_open_problems.xes",
+  "conformance_mode": "alignment",
+  "pipeline": {
+    "preprocessings": [
+      {
+        "key": "projection_filter",
+        "variant": "Projection Log Filter",
+        "parameters": { "keep_threshold_p": 60 }
+      },
+      {
+        "key": "variant_filter",
+        "variant": "Variant Log Filter",
+        "parameters": { "keep_threshold_vf": 50 }
+      },
+      {
+        "key": "matrix_filter",
+        "variant": "Conditional Probabilities (MF)",
+        "parameters": {
+          "subsequence_length_mf": 2,
+          "probability_of_removal_mf": 0.15
+        }
+      }
+    ],
+    "miner": {
+      "key": "inductive",
+      "family": "inductive",
+      "variant": "Inductive Miner (IM)",
+      "parameters": { "is_debug": false, "use_multithreading": true }
+    }
+  },
+  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
+}
+```
+
+Implementacion actual por filtro:
+
+- `projection_filter`:
+  - `FilterdEventRateFilter.filter(...)`
+  - `Toolbox.computeDesiredEventsFromThreshold(...)`
+  - Parámetro soportado:
+    - `keep_threshold_p` (`0..100`)
+- `variant_filter`:
+  - `FilterdTraceFrequencyFilter.filter(...)`
+  - Parámetro soportado:
+    - `keep_threshold_vf` (`0..100`)
+- `matrix_filter`:
+  - Descubrimiento de matriz causal: `DiscoverFromEventLogAlgorithm.apply(...)`
+  - Filtrado sobre matriz: `FilterLogUsingMatrixAlgorithm.apply(...)`
+  - Parámetros soportados:
+    - `subsequence_length_mf` (`1..3`)
+    - `probability_of_removal_mf` (`0..1`)
+- `repair_log_filter`:
+  - Implementación propia basada en ventanas (determinística) sobre el log XES.
+  - Parámetros soportados:
+    - `subsequence_length_rl` (`1..5`)
+    - `probability_of_removal_rl` (`0..1`)
+  - Nota:
+    - En el bundle `prom-lite-1.4-all-platforms` usado por el proyecto no están las clases de `LogFiltering`
+      (`VariantCounterPlugin`, `RepairBasedOnWindows`, `FilterBasedOnRelationMatrixK`), por lo que se usa esta implementación equivalente disponible en el classpath actual.
+
+Notas operativas:
+
+- El tiempo de preprocesado queda trazado en logs como `preprocess_ms`.
+- El fingerprint incluye toda la cadena de preprocesados en orden para evitar colisiones.
+- El descubrimiento del modelo se ejecuta con log preprocesado, pero las métricas de conformance se calculan sobre el log original.
+
 #### Implementacion tecnica por modo
 
 `alignment` (default):

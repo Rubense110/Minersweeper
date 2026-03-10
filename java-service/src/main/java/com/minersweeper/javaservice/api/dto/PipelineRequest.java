@@ -13,6 +13,7 @@ public class PipelineRequest {
 
     public static class PipelineConfig {
         public PreprocessingConfig preprocessing;
+        public List<PreprocessingConfig> preprocessings;
         public MinerConfig miner;
     }
 
