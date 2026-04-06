@@ -63,6 +63,13 @@ export async function getExperimentSolutions(experimentId, scope = 'all') {
   return request(`/experiments/${encodeURIComponent(experimentId)}/solutions?scope=${encodeURIComponent(scope)}`)
 }
 
+export async function selectExperimentModel(experimentId, payload) {
+  return request(`/experiments/${encodeURIComponent(experimentId)}/select-model`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  })
+}
+
 export async function getOptimization(jobId) {
   return request(`/optimizations/${jobId}`)
 }
