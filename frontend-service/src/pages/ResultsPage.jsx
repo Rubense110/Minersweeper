@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   cancelOptimization,
+  downloadExperimentData,
   getExperiment,
   getExperimentSolutions,
   getEventsUrl,
@@ -240,6 +241,7 @@ export default function ResultsPage() {
   const [petriImageLoading, setPetriImageLoading] = useState(false)
   const [petriImageError, setPetriImageError] = useState('')
   const [cancelPending, setCancelPending] = useState(false)
+  const [downloadPending, setDownloadPending] = useState(false)
   const [modelWeights, setModelWeights] = useState({})
   const [modelSelectionPending, setModelSelectionPending] = useState(false)
   const [modelSelectionError, setModelSelectionError] = useState('')
@@ -507,6 +509,27 @@ export default function ResultsPage() {
     }
   }
 
+  async function handleDownloadData() {
+    if (!jobId || job?.status !== 'completed' || downloadPending) return
+    setError('')
+    setDownloadPending(true)
+    try {
+      const { blob, filename } = await downloadExperimentData(jobId)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (downloadError) {
+      setError(downloadError.message || 'Could not download experiment data')
+    } finally {
+      setDownloadPending(false)
+    }
+  }
+
   const solutionGroups = useMemo(() => buildSolutionGroups(solutions), [solutions])
 
   useEffect(() => {
@@ -762,6 +785,11 @@ export default function ResultsPage() {
             <Link className="link-button secondary" to="/history">
               History
             </Link>
+            {job?.status === 'completed' ? (
+              <button className="link-button secondary" disabled={downloadPending} onClick={handleDownloadData} type="button">
+                {downloadPending ? 'Preparing...' : 'Download Data'}
+              </button>
+            ) : null}
             {isCancelableStatus(job?.status) ? (
               <button className="link-button danger" disabled={cancelPending} onClick={handleCancel} type="button">
                 {cancelPending ? 'Cancelling...' : 'Cancel'}

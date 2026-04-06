@@ -70,6 +70,32 @@ export async function selectExperimentModel(experimentId, payload) {
   })
 }
 
+export async function downloadExperimentData(experimentId) {
+  const response = await fetch(`${API_BASE}/experiments/${encodeURIComponent(experimentId)}/download`)
+
+  if (!response.ok) {
+    const text = await response.text()
+    let body = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch (_error) {
+      body = { raw: text }
+    }
+    const msg = body?.message || body?.error || `HTTP ${response.status}`
+    const error = new Error(msg)
+    error.status = response.status
+    error.payload = body
+    throw error
+  }
+
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="([^"]+)"/)
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] || `experiment_${experimentId}.zip`,
+  }
+}
+
 export async function getOptimization(jobId) {
   return request(`/optimizations/${jobId}`)
 }
