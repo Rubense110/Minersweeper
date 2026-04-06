@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listExperiments, listOptimizations } from '../api'
+import { cancelOptimization, listExperiments, listOptimizations } from '../api'
+
+function isCancelableStatus(status) {
+  return status === 'queued' || status === 'running'
+}
 
 function toLocalDate(value) {
   if (!value) return '-'
@@ -48,6 +52,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [source, setSource] = useState('db')
   const [error, setError] = useState('')
+  const [cancellingId, setCancellingId] = useState('')
 
   useEffect(() => {
     let active = true
@@ -80,6 +85,28 @@ export default function HistoryPage() {
       active = false
     }
   }, [])
+
+  async function handleCancel(jobId) {
+    setError('')
+    setCancellingId(jobId)
+    try {
+      const payload = await cancelOptimization(jobId)
+      setItems((previous) =>
+        previous.map((item) =>
+          item.id === jobId
+            ? {
+                ...item,
+                status: payload.status || 'cancelling',
+              }
+            : item
+        )
+      )
+    } catch (cancelError) {
+      setError(cancelError.message || 'Could not cancel experiment')
+    } finally {
+      setCancellingId('')
+    }
+  }
 
   return (
     <main className="page">
@@ -117,9 +144,21 @@ export default function HistoryPage() {
                 Start: {toLocalDate(item.createdAt)} | End: {toLocalDate(item.finishedAt)}
               </p>
 
-              <Link className="link-button" to={`/results/${item.id}`}>
-                View Results
-              </Link>
+              <div className="inline-actions">
+                <Link className="link-button" to={`/results/${item.id}`}>
+                  View Results
+                </Link>
+                {source === 'jobs' && isCancelableStatus(item.status) ? (
+                  <button
+                    className="link-button danger"
+                    disabled={cancellingId === item.id}
+                    onClick={() => handleCancel(item.id)}
+                    type="button"
+                  >
+                    {cancellingId === item.id ? 'Cancelling...' : 'Cancel'}
+                  </button>
+                ) : null}
+              </div>
             </article>
           ))}
         </div>

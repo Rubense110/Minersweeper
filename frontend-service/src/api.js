@@ -45,6 +45,12 @@ export async function createOptimization(payload) {
   })
 }
 
+export async function cancelOptimization(jobId) {
+  return request(`/optimizations/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  })
+}
+
 export async function listExperiments() {
   return request('/experiments')
 }

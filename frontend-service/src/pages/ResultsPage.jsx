@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getExperiment, getExperimentSolutions, getEventsUrl, getOptimization, renderPetriImage } from '../api'
+import {
+  cancelOptimization,
+  getExperiment,
+  getExperimentSolutions,
+  getEventsUrl,
+  getOptimization,
+  renderPetriImage,
+} from '../api'
 import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PnmlViewer from '../components/PnmlViewer'
+
+function isCancelableStatus(status) {
+  return status === 'queued' || status === 'running'
+}
 
 function toLocalDate(value) {
   if (!value) return '-'
@@ -220,6 +231,7 @@ export default function ResultsPage() {
   const [petriImageUrl, setPetriImageUrl] = useState('')
   const [petriImageLoading, setPetriImageLoading] = useState(false)
   const [petriImageError, setPetriImageError] = useState('')
+  const [cancelPending, setCancelPending] = useState(false)
   const solutionDetailRef = useRef(null)
   const petriImageUrlRef = useRef('')
 
@@ -345,14 +357,22 @@ export default function ResultsPage() {
         setProgress(current.progress || null)
 
         if (current.status === 'completed') {
+          setCancelPending(false)
           clearAutoRefreshMark()
           await loadDbDataWithRetry(jobId)
           return
         }
 
         if (current.status === 'failed') {
+          setCancelPending(false)
           clearAutoRefreshMark()
           setError(current?.error?.message || 'Optimization failed')
+          return
+        }
+
+        if (current.status === 'cancelled') {
+          setCancelPending(false)
+          clearAutoRefreshMark()
           return
         }
 
@@ -365,6 +385,7 @@ export default function ResultsPage() {
           setJob((previous) => ({ ...(previous || {}), status: payload.status }))
 
           if (payload.status === 'completed') {
+            setCancelPending(false)
             if (!wasAutoRefreshed()) {
               markAutoRefreshed()
               window.location.reload()
@@ -383,6 +404,7 @@ export default function ResultsPage() {
               setError(loadError.message || 'Could not load final results')
             }
           } else if (payload.status === 'failed') {
+            setCancelPending(false)
             stream?.close()
             try {
               const latest = await getOptimization(jobId)
@@ -394,6 +416,20 @@ export default function ResultsPage() {
             } catch (loadError) {
               if (!active) return
               setError(loadError.message || 'Optimization failed')
+            }
+          } else if (payload.status === 'cancelled') {
+            stream?.close()
+            try {
+              const latest = await getOptimization(jobId)
+              if (!active) return
+              setJob(latest)
+              setProgress(latest.progress || null)
+              clearAutoRefreshMark()
+            } catch (loadError) {
+              if (!active) return
+              setError(loadError.message || 'Optimization cancelled')
+            } finally {
+              if (active) setCancelPending(false)
             }
           }
         })
@@ -424,6 +460,27 @@ export default function ResultsPage() {
       if (stream) stream.close()
     }
   }, [jobId])
+
+  async function handleCancel() {
+    if (!jobId || !isCancelableStatus(job?.status) || cancelPending) return
+    setError('')
+    setCancelPending(true)
+    try {
+      const payload = await cancelOptimization(jobId)
+      setJob((previous) => ({ ...(previous || {}), status: payload.status || 'cancelling' }))
+      setProgress((previous) =>
+        previous
+          ? {
+              ...previous,
+              status: payload.status || 'cancelling',
+            }
+          : previous
+      )
+    } catch (cancelError) {
+      setError(cancelError.message || 'Could not cancel experiment')
+      setCancelPending(false)
+    }
+  }
 
   const solutionGroups = useMemo(() => buildSolutionGroups(solutions), [solutions])
 
@@ -566,6 +623,11 @@ export default function ResultsPage() {
             <Link className="link-button secondary" to="/history">
               History
             </Link>
+            {isCancelableStatus(job?.status) ? (
+              <button className="link-button danger" disabled={cancelPending} onClick={handleCancel} type="button">
+                {cancelPending ? 'Cancelling...' : 'Cancel'}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -611,6 +673,8 @@ export default function ResultsPage() {
         {error ? <p className="error">{error}</p> : null}
 
         {job?.status === 'running' || job?.status === 'queued' ? <p>Waiting for SSE updates...</p> : null}
+        {job?.status === 'cancelling' ? <p>Cancelling experiment...</p> : null}
+        {job?.status === 'cancelled' ? <p>Experiment cancelled. No results were kept.</p> : null}
 
         {job?.status === 'completed' ? (
           <>

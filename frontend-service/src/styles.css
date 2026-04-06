@@ -292,6 +292,14 @@ button:disabled {
   transform: none;
 }
 
+.link-button.danger {
+  background: #a63c22;
+}
+
+.link-button.danger:hover {
+  background: #852e18;
+}
+
 .link-button.secondary {
   background: #eef1eb;
   border-color: #cdd4c8;
@@ -445,6 +453,16 @@ button:disabled {
 .status-failed {
   background: #ffe5e2;
   color: #8c1a06;
+}
+
+.status-cancelling {
+  background: #fce7cd;
+  color: #8b4e07;
+}
+
+.status-cancelled {
+  background: #ece3dc;
+  color: #5f4638;
 }
 
 .status-unknown {
