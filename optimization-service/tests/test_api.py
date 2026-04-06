@@ -16,6 +16,7 @@ class FakeManager:
         self.last_submit_payload = None
         self.listeners = []
         self.cancelled_job_id = None
+        self.last_model_selection = None
 
     def list_jobs(self):
         return [{"job_id": "j1", "status": "completed"}]
@@ -83,6 +84,29 @@ class FakeManager:
             raise RuntimeError("job 'done' cannot be cancelled from state 'completed'")
         self.cancelled_job_id = job_id
         return {"job_id": job_id, "status": "cancelling"}
+
+    def select_experiment_model(self, experiment_id, weights, scope):
+        if experiment_id == "missing":
+            raise KeyError(experiment_id)
+        if experiment_id == "empty":
+            raise api.ModelSelectionUnavailable("experiment has no valid solutions for weighted model selection")
+        self.last_model_selection = {
+            "experiment_id": experiment_id,
+            "weights": weights,
+            "scope": scope,
+        }
+        return {
+            "experiment_id": experiment_id,
+            "scope": scope,
+            "selection_method": "weighted_sum",
+            "metrics": ["fitness", "precision"],
+            "slider_weights": {"fitness": 80, "precision": 20},
+            "normalized_weights": {"fitness": 0.8, "precision": 0.2},
+            "candidate_count": 2,
+            "selected_solution_id": 7,
+            "selected_solution": {"solution_id": 7, "objectives": [-0.91, -0.55], "is_pareto": True},
+            "scalarized_objective": -0.838,
+        }
 
 
 class OptimizationApiTest(unittest.TestCase):
@@ -207,6 +231,55 @@ class OptimizationApiTest(unittest.TestCase):
 
     def test_get_solutions_invalid_state(self):
         response = self.client.get("/optimizations/pending/solutions")
+        self.assertEqual(409, response.status_code)
+        self.assertEqual("invalid_state", response.get_json()["error"])
+
+    def test_select_experiment_model(self):
+        response = self.client.post(
+            "/experiments/exp-1/select-model",
+            json={"scope": "pareto", "weights": {"fitness": 80, "precision": 20}},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual("exp-1", body["experiment_id"])
+        self.assertEqual(7, body["selected_solution_id"])
+        self.assertEqual(
+            {
+                "experiment_id": "exp-1",
+                "weights": {"fitness": 80, "precision": 20},
+                "scope": "pareto",
+            },
+            api._manager.last_model_selection,
+        )
+
+    def test_select_experiment_model_rejects_invalid_scope(self):
+        response = self.client.post("/experiments/exp-1/select-model", json={"scope": "bad", "weights": {}})
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid_request", response.get_json()["error"])
+
+    def test_select_experiment_model_rejects_invalid_weights(self):
+        response = self.client.post("/experiments/exp-1/select-model", json={"weights": ["bad"]})
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid_request", response.get_json()["error"])
+
+    def test_select_experiment_model_rejects_invalid_weights_even_when_empty(self):
+        response = self.client.post("/experiments/exp-1/select-model", json={"weights": []})
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid_request", response.get_json()["error"])
+
+    def test_select_experiment_model_not_found(self):
+        response = self.client.post("/experiments/missing/select-model", json={"weights": {}})
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_select_experiment_model_invalid_state(self):
+        response = self.client.post("/experiments/empty/select-model", json={"weights": {}})
+
         self.assertEqual(409, response.status_code)
         self.assertEqual("invalid_state", response.get_json()["error"])
 

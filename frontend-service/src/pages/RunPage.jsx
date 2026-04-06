@@ -58,7 +58,7 @@ export default function RunPage() {
   const [executionName, setExecutionName] = useState(`run_${Date.now()}`)
   const [logPath, setLogPath] = useState('')
   const [availableLogs, setAvailableLogs] = useState([])
-  const [maxEvaluations, setMaxEvaluations] = useState(50)
+  const [maxEvaluations, setMaxEvaluations] = useState(100)
   const [populationSize, setPopulationSize] = useState(20)
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
   const [conformanceMode, setConformanceMode] = useState('alignment')

@@ -25,6 +25,7 @@ from werkzeug.serving import WSGIRequestHandler
 from execution_control import ExecutionControl, JobCancelled
 from job_store import JobStore
 from java_service_client import ProMServiceClient
+from model_selection import ModelSelectionUnavailable, select_weighted_model
 
 
 class ServiceLineFormatter(logging.Formatter):
@@ -1081,6 +1082,16 @@ class OptimizationJobManager:
             "solutions": solutions,
         }
 
+    def select_experiment_model(
+        self,
+        experiment_id: str,
+        weights: Dict[str, Any] | None,
+        scope: str,
+    ) -> Dict[str, Any]:
+        experiment = self.job_store.get_experiment(experiment_id)
+        solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
+        return select_weighted_model(experiment=experiment, solutions=solutions, raw_weights=weights, scope=scope)
+
     def get_solutions(self, job_id: str, scope: str) -> Dict[str, Any]:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -1351,6 +1362,27 @@ def get_experiment_solutions(experiment_id: str) -> Any:
         return jsonify(_manager.get_experiment_solutions(experiment_id=experiment_id, scope=scope))
     except KeyError:
         return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
+
+
+@app.post("/experiments/<experiment_id>/select-model")
+def select_experiment_model(experiment_id: str) -> Any:
+    payload = request.get_json(silent=True) or {}
+    scope = str(payload.get("scope") or "pareto").strip().lower()
+    if scope not in {"pareto", "all"}:
+        return jsonify({"error": "invalid_request", "message": "scope must be 'pareto' or 'all'"}), 400
+
+    weights = payload.get("weights")
+    if weights is None:
+        weights = {}
+    if not isinstance(weights, dict):
+        return jsonify({"error": "invalid_request", "message": "weights must be an object"}), 400
+
+    try:
+        return jsonify(_manager.select_experiment_model(experiment_id=experiment_id, weights=weights, scope=scope))
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
+    except ModelSelectionUnavailable as exc:
+        return jsonify({"error": "invalid_state", "message": str(exc)}), 409
 
 
 @app.post("/optimizations")

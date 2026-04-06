@@ -7,6 +7,7 @@ import {
   getEventsUrl,
   getOptimization,
   renderPetriImage,
+  selectExperimentModel,
 } from '../api'
 import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PnmlViewer from '../components/PnmlViewer'
@@ -48,6 +49,7 @@ function mapDbSolution(item, index, metricsOrder) {
   const solutionId = item.solution_id || index + 1
   return {
     id: `db-${solutionId}`,
+    solutionId,
     label: `Solution #${solutionId}`,
     pipeline: item.pipeline || {},
     runtimeMs: item.runtime_ms ?? null,
@@ -211,6 +213,12 @@ function formatObjectiveValue(value) {
   return String(value)
 }
 
+function clampSliderValue(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 50
+  return Math.min(100, Math.max(0, Math.round(parsed)))
+}
+
 function hasRenderablePetri(petri) {
   if (!petri || typeof petri !== 'object') return false
   const places = Array.isArray(petri.places) ? petri.places : []
@@ -232,8 +240,17 @@ export default function ResultsPage() {
   const [petriImageLoading, setPetriImageLoading] = useState(false)
   const [petriImageError, setPetriImageError] = useState('')
   const [cancelPending, setCancelPending] = useState(false)
+  const [modelWeights, setModelWeights] = useState({})
+  const [modelSelectionPending, setModelSelectionPending] = useState(false)
+  const [modelSelectionError, setModelSelectionError] = useState('')
+  const [modelSelectionResult, setModelSelectionResult] = useState(null)
+  const [modelPetriViewMode, setModelPetriViewMode] = useState('interactive')
+  const [modelPetriImageUrl, setModelPetriImageUrl] = useState('')
+  const [modelPetriImageLoading, setModelPetriImageLoading] = useState(false)
+  const [modelPetriImageError, setModelPetriImageError] = useState('')
   const solutionDetailRef = useRef(null)
   const petriImageUrlRef = useRef('')
+  const modelPetriImageUrlRef = useRef('')
 
   function replacePetriImageUrl(nextUrl) {
     if (petriImageUrlRef.current) {
@@ -241,6 +258,14 @@ export default function ResultsPage() {
     }
     petriImageUrlRef.current = nextUrl
     setPetriImageUrl(nextUrl)
+  }
+
+  function replaceModelPetriImageUrl(nextUrl) {
+    if (modelPetriImageUrlRef.current) {
+      URL.revokeObjectURL(modelPetriImageUrlRef.current)
+    }
+    modelPetriImageUrlRef.current = nextUrl
+    setModelPetriImageUrl(nextUrl)
   }
 
   useEffect(() => {
@@ -519,11 +544,80 @@ export default function ResultsPage() {
     return job.request.metrics
   }, [job])
 
+  const weightedSelectedSolution = useMemo(() => {
+    if (!modelSelectionResult?.selected_solution_id) return null
+    return solutions.find((solution) => solution.solutionId === modelSelectionResult.selected_solution_id) || null
+  }, [modelSelectionResult, solutions])
+
+  useEffect(() => {
+    setModelWeights((previous) => {
+      const next = {}
+      preferredMetricOrder.forEach((metric) => {
+        next[metric] = clampSliderValue(previous[metric])
+      })
+      return next
+    })
+  }, [preferredMetricOrder])
+
+  function handleWeightChange(metric, value) {
+    setModelSelectionError('')
+    setModelSelectionResult(null)
+    replaceModelPetriImageUrl('')
+    setModelPetriImageError('')
+    setModelPetriImageLoading(false)
+    setModelWeights((previous) => ({
+      ...previous,
+      [metric]: clampSliderValue(value),
+    }))
+  }
+
+  function handleResetWeights() {
+    setModelSelectionError('')
+    setModelSelectionResult(null)
+    replaceModelPetriImageUrl('')
+    setModelPetriImageError('')
+    setModelPetriImageLoading(false)
+    setModelWeights(
+      preferredMetricOrder.reduce((acc, metric) => {
+        acc[metric] = 50
+        return acc
+      }, {})
+    )
+  }
+
+  async function handleSelectModel() {
+    if (!jobId || preferredMetricOrder.length === 0 || modelSelectionPending) return
+
+    setModelSelectionError('')
+    setModelSelectionPending(true)
+    try {
+      const payload = await selectExperimentModel(jobId, {
+        scope: 'pareto',
+        weights: modelWeights,
+      })
+      setModelSelectionResult(payload)
+
+      const selected = solutions.find((solution) => solution.solutionId === payload.selected_solution_id)
+      if (selected) {
+        setSelectedGroupId(objectiveGroupingKey(selected.objectives))
+        setSelectedSolutionId(selected.id)
+      }
+    } catch (selectionError) {
+      setModelSelectionError(selectionError.message || 'Could not select model')
+    } finally {
+      setModelSelectionPending(false)
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (petriImageUrlRef.current) {
         URL.revokeObjectURL(petriImageUrlRef.current)
         petriImageUrlRef.current = ''
+      }
+      if (modelPetriImageUrlRef.current) {
+        URL.revokeObjectURL(modelPetriImageUrlRef.current)
+        modelPetriImageUrlRef.current = ''
       }
     }
   }, [])
@@ -572,6 +666,51 @@ export default function ResultsPage() {
       cancelled = true
     }
   }, [petriViewMode, selectedSolution])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSelectedModelPetriImage() {
+      if (modelPetriViewMode !== 'image') {
+        setModelPetriImageLoading(false)
+        setModelPetriImageError('')
+        return
+      }
+      if (!weightedSelectedSolution || !hasRenderablePetri(weightedSelectedSolution.petri)) {
+        replaceModelPetriImageUrl('')
+        setModelPetriImageLoading(false)
+        setModelPetriImageError('No renderable Petri model for the selected model.')
+        return
+      }
+
+      setModelPetriImageLoading(true)
+      setModelPetriImageError('')
+      try {
+        const blob = await renderPetriImage(
+          {
+            places: weightedSelectedSolution.petri.places || [],
+            transitions: weightedSelectedSolution.petri.transitions || [],
+            arcs: weightedSelectedSolution.petri.arcs || [],
+          },
+          'svg'
+        )
+        if (cancelled) return
+        const imageUrl = URL.createObjectURL(blob)
+        replaceModelPetriImageUrl(imageUrl)
+      } catch (loadError) {
+        if (cancelled) return
+        replaceModelPetriImageUrl('')
+        setModelPetriImageError(loadError.message || 'Could not generate PM4Py image.')
+      } finally {
+        if (!cancelled) setModelPetriImageLoading(false)
+      }
+    }
+
+    loadSelectedModelPetriImage()
+    return () => {
+      cancelled = true
+    }
+  }, [modelPetriViewMode, weightedSelectedSolution])
 
   useEffect(() => {
     if (!solutionDetailRef.current) return undefined
@@ -678,6 +817,117 @@ export default function ResultsPage() {
 
         {job?.status === 'completed' ? (
           <>
+            <section className="weighted-selection-card">
+              <div className="header-row">
+                <div>
+                  <h3>Weighted Model Selection</h3>
+                  <p className="small muted">
+                    Adjust the priorities using the sliders. We will return the Pareto-front model that best matches your
+                    preferences.
+                  </p>
+                </div>
+                {modelSelectionResult?.selected_solution_id ? (
+                  <span className="status-pill status-completed">
+                    Selected: Solution #{modelSelectionResult.selected_solution_id}
+                  </span>
+                ) : null}
+              </div>
+
+              {preferredMetricOrder.length > 0 ? (
+                <>
+                  <div className="weight-slider-grid">
+                    {preferredMetricOrder.map((metric) => (
+                      <label className="weight-slider-card" key={metric}>
+                        <div className="weight-slider-header">
+                          <span>{metric}</span>
+                          <span className="weight-slider-value">{modelWeights[metric] ?? 50}</span>
+                        </div>
+                        <input
+                          max="100"
+                          min="0"
+                          onChange={(event) => handleWeightChange(metric, event.target.value)}
+                          step="1"
+                          type="range"
+                          value={modelWeights[metric] ?? 50}
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="inline-actions">
+                    <button disabled={modelSelectionPending} onClick={handleSelectModel} type="button">
+                      {modelSelectionPending ? 'Submitting...' : 'Submit'}
+                    </button>
+                    <button className="link-button secondary" onClick={handleResetWeights} type="button">
+                      Reset Weights
+                    </button>
+                  </div>
+
+                  {modelSelectionError ? <p className="error">{modelSelectionError}</p> : null}
+                  {modelSelectionResult ? (
+                    <div className="selection-summary small muted">
+                      <p>
+                        <strong>Scope:</strong> Pareto front | <strong>Candidates considered:</strong>{' '}
+                        {modelSelectionResult.candidate_count ?? 0} | <strong>Scalarized objective:</strong>{' '}
+                        {formatObjectiveValue(modelSelectionResult.scalarized_objective)}
+                      </p>
+                      <p>
+                        <strong>Normalized weights:</strong>{' '}
+                        {preferredMetricOrder
+                          .map((metric) => {
+                            const value = modelSelectionResult.normalized_weights?.[metric]
+                            return `${metric}: ${formatMetricValue(value ?? 0)}`
+                          })
+                          .join(' | ')}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {weightedSelectedSolution ? (
+                    <div className="weighted-selection-preview">
+                      <div className="header-row">
+                        <div>
+                          <h4>Selected Model Preview</h4>
+                          <p className="small muted">{weightedSelectedSolution.label}</p>
+                        </div>
+                      </div>
+
+                      <div className="petri-view-toggle" role="group" aria-label="Selected model visualization mode">
+                        <button
+                          className={modelPetriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
+                          onClick={() => setModelPetriViewMode('interactive')}
+                          type="button"
+                        >
+                          Interactive
+                        </button>
+                        <button
+                          className={modelPetriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
+                          onClick={() => setModelPetriViewMode('image')}
+                          type="button"
+                        >
+                          PM4Py image
+                        </button>
+                      </div>
+
+                      {modelPetriViewMode === 'interactive' ? (
+                        <PnmlViewer petri={weightedSelectedSolution.petri} />
+                      ) : (
+                        <div className="petri-image-panel">
+                          {modelPetriImageLoading ? <p className="small muted">Generating model image...</p> : null}
+                          {modelPetriImageError ? <p className="error">{modelPetriImageError}</p> : null}
+                          {!modelPetriImageLoading && !modelPetriImageError && modelPetriImageUrl ? (
+                            <img alt="Selected model rendered with PM4Py" className="petri-image" src={modelPetriImageUrl} />
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="small muted">No metrics were recorded for this experiment, so weighting is unavailable.</p>
+              )}
+            </section>
+
             <h3>Groups by objectives ({solutionGroups.length})</h3>
             <p className="small muted">Total recorded solutions: {solutions.length}</p>
             {solutions.length === 0 ? <p>No solutions recorded for this experiment.</p> : null}
