@@ -20,6 +20,8 @@ import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
 import com.minersweeper.javaservice.evaluation.preprocessing.PreprocessingPipeline;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
+import java.io.InterruptedIOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.ArrayList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,6 +29,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import org.deckfour.xes.model.XLog;
 import org.processmining.contexts.cli.CLIContext;
 import org.processmining.contexts.cli.CLIPluginContext;
@@ -36,15 +39,25 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     private final ArtifactStore artifactStore;
     private final LogLoader logLoader;
     private final Map<String, MinerDiscoverer> minersByKey;
+    private final ExperimentExecutionRegistry executionRegistry;
     private final PreprocessingPipeline preprocessingPipeline = new PreprocessingPipeline();
 
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
     private final ConformanceMetricsCalculator conformanceMetricsCalculator = new ConformanceMetricsCalculator();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
+        this(artifactStore, logsRoot, new ExperimentExecutionRegistry());
+    }
+
+    public PromPipelineEvaluator(
+        ArtifactStore artifactStore,
+        Path logsRoot,
+        ExperimentExecutionRegistry executionRegistry
+    ) {
         this.artifactStore = artifactStore;
         Path effectiveLogsRoot = logsRoot == null ? Paths.get(".") : logsRoot;
         this.logLoader = new LogLoader(effectiveLogsRoot);
+        this.executionRegistry = executionRegistry == null ? new ExperimentExecutionRegistry() : executionRegistry;
         this.minersByKey = createMiners();
     }
 
@@ -61,12 +74,14 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
             timing.putField("conformance_mode", conformanceMode.key());
 
-        try {
+        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId)) {
+            executionRegistry.throwIfCancellationRequested(experimentId);
             long logLoadStartNs = TimingTrace.nowNs();
             LogLoader.LogAccess logAccess = logLoader.loadForExperiment(request.experiment_id, request.log_path);
             XLog log = logAccess.log();
             timing.putField("log_cache", logAccess.cacheHit() ? "hit" : "miss");
             timing.markFromStart("log_load_ms", logLoadStartNs);
+            executionRegistry.throwIfCancellationRequested(experimentId);
 
             long contextStartNs = TimingTrace.nowNs();
             PluginContext context = createContext();
@@ -75,10 +90,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             long preprocessStartNs = TimingTrace.nowNs();
             XLog processedLog = preprocessingPipeline.apply(context, log, request);
             timing.markFromStart("preprocess_ms", preprocessStartNs);
+            executionRegistry.throwIfCancellationRequested(experimentId);
 
             long discoverStartNs = TimingTrace.nowNs();
             DiscoveryArtifact discovered = discoverModel(context, processedLog, request);
             timing.markFromStart("discover_ms", discoverStartNs);
+            executionRegistry.throwIfCancellationRequested(experimentId);
 
             long metricsStartNs = TimingTrace.nowNs();
             Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
@@ -89,9 +106,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 discovered.getFinalMarking(),
                 request.metrics,
                 conformanceMode,
-                timing
+                timing,
+                executionRegistry,
+                experimentId
             );
             timing.markFromStart("metrics_ms", metricsStartNs);
+            executionRegistry.throwIfCancellationRequested(experimentId);
 
             Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
             for (String metricName : request.metrics) {
@@ -107,13 +127,15 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("fingerprint_ms", fingerprintStartNs);
 
             long artifactStoreStartNs = TimingTrace.nowNs();
+            executionRegistry.throwIfCancellationRequested(experimentId);
             EvaluationResult result = artifactStore.store(request, selectedMetrics, discovered.getPnml(), fingerprint);
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
             return result;
         } catch (Exception error) {
+            Exception effectiveError = normalizeCancellationFailure(experimentId, error);
             failed = true;
-            failureType = error.getClass().getSimpleName();
-            throw error;
+            failureType = effectiveError.getClass().getSimpleName();
+            throw effectiveError;
         } finally {
             long totalMs = TimingTrace.elapsedMs(evaluationStartNs);
             timing.logSummary(
@@ -128,8 +150,49 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     @Override
-    public void cleanupExperiment(String experimentId) {
+    public void cancelExperiment(String experimentId) {
+        executionRegistry.requestCancel(experimentId);
+    }
+
+    @Override
+    public void cleanupExperiment(String experimentId) throws Exception {
+        executionRegistry.cleanupExperiment(experimentId);
         logLoader.evictExperiment(experimentId);
+    }
+
+    private Exception normalizeCancellationFailure(String experimentId, Exception error) {
+        if (error instanceof ExperimentCancelledException) {
+            clearInterruptedStatus();
+            return error;
+        }
+        if (!executionRegistry.isCancellationRequested(experimentId)) {
+            return error;
+        }
+        if (!Thread.currentThread().isInterrupted() && !isInterruptedFailure(error)) {
+            return error;
+        }
+        clearInterruptedStatus();
+        return new ExperimentCancelledException("experiment '" + experimentId + "' cancelled");
+    }
+
+    private static boolean isInterruptedFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (
+                current instanceof InterruptedException
+                || current instanceof InterruptedIOException
+                || current instanceof ClosedByInterruptException
+                || current instanceof CancellationException
+            ) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static void clearInterruptedStatus() {
+        Thread.interrupted();
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {
@@ -153,7 +216,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         DiscoveryArtifactFactory artifactFactory = new DiscoveryArtifactFactory(new PmnlExporter());
         Map<String, MinerDiscoverer> discoverers = new LinkedHashMap<String, MinerDiscoverer>();
         register(discoverers, new AlphaMinerDiscoverer(artifactFactory));
-        register(discoverers, new InductiveMinerDiscoverer(artifactFactory));
+        register(discoverers, new InductiveMinerDiscoverer(artifactFactory, executionRegistry));
         register(discoverers, new HeuristicsMinerDiscoverer(artifactFactory));
         register(discoverers, new SplitMinerDiscoverer(artifactFactory));
         register(discoverers, new IlpMinerDiscoverer(artifactFactory));

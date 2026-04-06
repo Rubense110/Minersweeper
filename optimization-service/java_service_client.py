@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 
+from execution_control import JobCancelled
+
 
 LOGGER = logging.getLogger("optimization_service.jobs")
 
@@ -23,6 +25,7 @@ class ProMServiceClient:
         excluded_miners: Optional[Sequence[str]] = None,
         artifacts_bulk_endpoint: str = "/artifacts/bulk",
         cleanup_endpoint_template: str = "/experiments/{experiment_id}/cleanup",
+        cancel_endpoint_template: str = "/experiments/{experiment_id}/cancel",
     ):
         self.base_url = base_url.rstrip("/")
         self.endpoint = endpoint
@@ -32,6 +35,7 @@ class ProMServiceClient:
         self.excluded_miners = tuple(excluded_miners or ())
         self.artifacts_bulk_endpoint = artifacts_bulk_endpoint
         self.cleanup_endpoint_template = cleanup_endpoint_template
+        self.cancel_endpoint_template = cancel_endpoint_template
 
     @staticmethod
     def _to_service_metric(metric_name: str) -> str:
@@ -132,6 +136,16 @@ class ProMServiceClient:
         self._raise_for_status_with_details(response)
         return response.json()
 
+    def cancel_experiment(self, experiment_id: Optional[str] = None) -> Dict[str, Any]:
+        resolved_experiment_id = self._resolve_experiment_id(experiment_id)
+        endpoint = self.cancel_endpoint_template.format(experiment_id=resolved_experiment_id)
+        response = requests.post(
+            f"{self.base_url}{endpoint}",
+            timeout=self.timeout_seconds,
+        )
+        self._raise_for_status_with_details(response)
+        return response.json()
+
     @staticmethod
     def _raise_for_status_with_details(response: requests.Response) -> None:
         try:
@@ -144,10 +158,14 @@ class ProMServiceClient:
                 if isinstance(payload, dict):
                     code = payload.get("error")
                     message = payload.get("message")
+                    if response.status_code == 409 and code == "experiment_cancelled":
+                        raise JobCancelled(message or "job cancelled")
                     if code or message:
                         details = f"{code}: {message}".strip()
                 elif payload is not None:
                     details = str(payload)
+            except JobCancelled:
+                raise
             except Exception:
                 text = (response.text or "").strip()
                 if text:

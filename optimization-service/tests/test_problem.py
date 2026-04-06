@@ -10,6 +10,7 @@ if PROJECT_ROOT not in sys.path:
 
 from pipeline_space import PipelineSearchSpace
 from problem import PipelineOptimizationProblem
+from execution_control import JobCancelled
 
 
 class PipelineOptimizationProblemTest(unittest.TestCase):
@@ -168,6 +169,22 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(evaluated.objectives[0], -0.5)
         self.assertEqual(evaluated.objectives[1], -0.0)
         self.assertIn("evaluation_error", evaluated.attributes)
+
+    def test_job_cancelled_is_propagated(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+
+        def evaluator(_log, _pipeline, _metrics):
+            raise JobCancelled("job cancelled")
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes",
+            metrics_list=["fitness", "precision", "simplicity", "generalisation"],
+            search_space=space,
+            evaluator=evaluator,
+        )
+
+        with self.assertRaises(JobCancelled):
+            problem.evaluate(problem.create_solution())
 
 
 if __name__ == "__main__":
