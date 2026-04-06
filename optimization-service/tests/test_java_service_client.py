@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from java_service_client import ProMServiceClient
+from execution_control import JobCancelled
 
 
 class ProMServiceClientTest(unittest.TestCase):
@@ -172,6 +173,36 @@ class ProMServiceClientTest(unittest.TestCase):
         client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
         result = client.cleanup_experiment()
         self.assertEqual(result["experiment_id"], "exp-1")
+
+    @patch("java_service_client.requests.post")
+    def test_cancel_experiment_returns_json(self, mock_post):
+        response = Mock()
+        response.json.return_value = {"experiment_id": "exp-1", "cancel_requested": True}
+        response.raise_for_status.return_value = None
+        mock_post.return_value = response
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        result = client.cancel_experiment()
+        self.assertEqual(result["experiment_id"], "exp-1")
+
+    @patch("java_service_client.requests.post")
+    def test_cancelled_experiment_raises_job_cancelled(self, mock_post):
+        response = Mock()
+        response.status_code = 409
+        response.raise_for_status.side_effect = requests.HTTPError("409 Client Error")
+        response.json.return_value = {
+            "error": "experiment_cancelled",
+            "message": "experiment 'exp-1' cancelled",
+        }
+        mock_post.return_value = response
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        with self.assertRaises(JobCancelled):
+            client.evaluate_pipeline(
+                log_path="dummy.xes",
+                pipeline={"miner": {}, "preprocessing": {}},
+                metrics=["fitness"],
+            )
 
     def test_missing_experiment_id_raises(self):
         client = ProMServiceClient(base_url="http://service")

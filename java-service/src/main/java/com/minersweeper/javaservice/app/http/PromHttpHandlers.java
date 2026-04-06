@@ -11,6 +11,7 @@ import com.minersweeper.javaservice.api.dto.ExperimentFingerprintsResponse;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.api.dto.PipelineResponse;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
+import com.minersweeper.javaservice.evaluation.ExperimentCancelledException;
 import com.minersweeper.javaservice.evaluation.PipelineEvaluator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -55,6 +56,9 @@ public final class PromHttpHandlers {
                 evaluation.metrics
             );
             return HttpResponses.respondJson(res, 200, response, mapper);
+        } catch (ExperimentCancelledException e) {
+            clearInterruptedStatus();
+            return HttpResponses.respondError(res, 409, "experiment_cancelled", HttpResponses.buildErrorMessage(e));
         } catch (IllegalArgumentException e) {
             ServerErrorLogger.log("invalid_request", e, verboseExceptions);
             return HttpResponses.respondError(res, 400, "invalid_request", HttpResponses.buildErrorMessage(e));
@@ -88,6 +92,26 @@ public final class PromHttpHandlers {
         }
     }
 
+    public Object handleCancel(spark.Request req, spark.Response res) throws Exception {
+        String experimentId = req.params(":experimentId");
+        try {
+            RequestValidator.validateExperimentIdPath(experimentId);
+        } catch (BadRequestException e) {
+            return HttpResponses.respondError(res, 400, "invalid_request", e.getMessage());
+        }
+
+        try {
+            pipelineEvaluator.cancelExperiment(experimentId);
+            Map<String, Object> response = new LinkedHashMap<String, Object>();
+            response.put("experiment_id", experimentId);
+            response.put("cancel_requested", Boolean.TRUE);
+            return HttpResponses.respondJson(res, 200, response, mapper);
+        } catch (Exception e) {
+            ServerErrorLogger.log("cancel_failed", e, verboseExceptions);
+            return HttpResponses.respondError(res, 500, "cancel_failed", HttpResponses.buildErrorMessage(e));
+        }
+    }
+
     public Object handleCleanup(spark.Request req, spark.Response res) throws Exception {
         String experimentId = req.params(":experimentId");
         try {
@@ -97,8 +121,8 @@ public final class PromHttpHandlers {
         }
 
         try {
-            int deletedPaths = artifactStore.cleanupExperiment(experimentId);
             pipelineEvaluator.cleanupExperiment(experimentId);
+            int deletedPaths = artifactStore.cleanupExperiment(experimentId);
             Map<String, Object> response = new LinkedHashMap<String, Object>();
             response.put("experiment_id", experimentId);
             response.put("deleted_paths", Integer.valueOf(deletedPaths));
@@ -142,6 +166,10 @@ public final class PromHttpHandlers {
         } catch (Exception e) {
             return ParsedPayload.error(HttpResponses.respondError(res, 400, "invalid_json", e.getMessage()));
         }
+    }
+
+    private static void clearInterruptedStatus() {
+        Thread.interrupted();
     }
 
     private static final class ParsedPayload<T> {

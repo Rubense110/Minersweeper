@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
+from execution_control import JobCancelled
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 
@@ -54,6 +55,9 @@ class PipelineOptimizationProblem(FloatProblem):
         self.obj_labels = metrics_list
 
     def evaluate(self, solution: FloatSolution) -> FloatSolution:
+        if hasattr(self.evaluator, "raise_if_cancel_requested"):
+            self.evaluator.raise_if_cancel_requested()
+
         cache_key = tuple(round(value, 8) for value in solution.variables)
         cache_hit = self.use_cache and cache_key in self.evaluation_cache
         if cache_hit:
@@ -86,6 +90,8 @@ class PipelineOptimizationProblem(FloatProblem):
         eval_started_ns = time.perf_counter_ns()
         try:
             evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.metrics_list)
+            if hasattr(self.evaluator, "raise_if_cancel_requested"):
+                self.evaluator.raise_if_cancel_requested()
             runtime_ms = int((time.perf_counter_ns() - eval_started_ns) / 1_000_000)
             if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
                 metric_values = evaluation_payload["metrics"]
@@ -104,6 +110,8 @@ class PipelineOptimizationProblem(FloatProblem):
                 experiment_id = None
                 fingerprint = None
             evaluation_error = None
+        except JobCancelled:
+            raise
         except Exception as error:  # noqa: BLE001 - We must keep optimization running.
             runtime_ms = int((time.perf_counter_ns() - eval_started_ns) / 1_000_000)
             metric_values = {

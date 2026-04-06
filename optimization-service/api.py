@@ -22,6 +22,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 from werkzeug.serving import WSGIRequestHandler
 
+from execution_control import ExecutionControl, JobCancelled
 from job_store import JobStore
 from java_service_client import ProMServiceClient
 
@@ -176,6 +177,7 @@ def _configure_logging() -> logging.Logger:
 LOGGER = _configure_logging()
 _PM4PY_IMPORT_LOCK = threading.Lock()
 _LEGACY_UI_API_PATHS = {"/ui/api/stats", "/ui/api/cluster", "/ui/api/query"}
+_TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class _QuietRequestHandler(WSGIRequestHandler):
@@ -552,6 +554,7 @@ class OptimizationJobManager:
             )
 
         job_id = str(uuid.uuid4())
+        execution_control = ExecutionControl()
         job = {
             "job_id": job_id,
             "status": "queued",
@@ -573,6 +576,8 @@ class OptimizationJobManager:
                 "discover": discover_cfg,
             },
             "result": None,
+            "_control": execution_control,
+            "_runtime_miner": None,
         }
 
         with self._lock:
@@ -601,14 +606,70 @@ class OptimizationJobManager:
         )
         return self._public_job(job)
 
+    def cancel(self, job_id: str) -> Dict[str, Any]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+
+            status = str(job.get("status") or "")
+            if status in {"completed", "failed"}:
+                raise RuntimeError(f"job '{job_id}' cannot be cancelled from state '{status}'")
+            if status == "cancelled":
+                return self._public_job(job)
+
+            control = job["_control"]
+            control.request_cancel()
+
+            request_data = dict(job.get("request") or {})
+            runtime_miner = job.get("_runtime_miner")
+            if status == "queued":
+                job["status"] = "cancelled"
+                job["finished_at"] = _utc_now_iso()
+                payload = self._public_job(job)
+            else:
+                job["status"] = "cancelling"
+                payload = self._public_job(job)
+
+        if status == "queued":
+            self._publish_event(job_id, "status_changed", {"job_id": job_id, "status": "cancelled"})
+            self._publish_event(job_id, "progress", self.get_progress(job_id))
+            return payload
+
+        if runtime_miner is not None:
+            try:
+                runtime_miner.request_cancel()
+            except Exception:
+                LOGGER.warning("job cancel local interrupt failed job_id=%s", job_id, exc_info=True)
+
+        self._request_java_experiment_cancel(job_id, request_data)
+        self._publish_event(job_id, "status_changed", {"job_id": job_id, "status": "cancelling"})
+        self._publish_event(job_id, "progress", self.get_progress(job_id))
+        return payload
+
     def _run_job(self, job_id: str) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
                 return
-            job["status"] = "running"
-            job["started_at"] = _utc_now_iso()
-            request_data = dict(job["request"])
+            control = job["_control"]
+            if control.is_cancel_requested():
+                if job.get("status") != "cancelled":
+                    job["status"] = "cancelled"
+                    job["finished_at"] = _utc_now_iso()
+                cancelled_payload = self._public_progress(job)
+            else:
+                cancelled_payload = None
+            if cancelled_payload is not None:
+                pass
+            else:
+                job["status"] = "running"
+                job["started_at"] = _utc_now_iso()
+                request_data = dict(job["request"])
+        if cancelled_payload is not None:
+            self._publish_event(job_id, "status_changed", {"job_id": job_id, "status": "cancelled"})
+            self._publish_event(job_id, "progress", cancelled_payload)
+            return
         LOGGER.info(
             "job running job_id=%s execution=%s metrics=%s conformance_mode=%s service_url=%s",
             job_id,
@@ -628,10 +689,12 @@ class OptimizationJobManager:
 
         try:
             result = self._execute(job_id, job["request"])
+            control.raise_if_cancel_requested()
             with self._lock:
                 job = self._jobs.get(job_id)
                 if not job:
                     return
+                job["_runtime_miner"] = None
                 job["finished_at"] = _utc_now_iso()
                 job["result"] = result
                 progress = job.get("progress", {})
@@ -641,11 +704,14 @@ class OptimizationJobManager:
                     progress["evaluations_done"] = max_evaluations
 
             self._persist_completed_experiment(job_id)
+            control.raise_if_cancel_requested()
 
             with self._lock:
                 job = self._jobs.get(job_id)
                 if not job:
                     return
+                if control.is_cancel_requested():
+                    raise JobCancelled("job cancelled")
                 job["status"] = "completed"
 
             all_solutions = result.get("all_solutions", [])
@@ -683,11 +749,14 @@ class OptimizationJobManager:
                     },
                 },
             )
+        except JobCancelled:
+            self._finalize_cancelled_job(job_id)
         except Exception as exc:
             with self._lock:
                 job = self._jobs.get(job_id)
                 if not job:
                     return
+                job["_runtime_miner"] = None
                 job["status"] = "failed"
                 job["finished_at"] = _utc_now_iso()
                 job["error"] = {
@@ -718,6 +787,13 @@ class OptimizationJobManager:
         # Lazy import so API module is lightweight to import and easier to test.
         from process_miner import OptimizedProcessMiner
 
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            control = job["_control"]
+
+        control.raise_if_cancel_requested()
         discover = config["discover"]
         max_evaluations = int(discover["max_evaluations"])
         progress_log_step = max(1, max_evaluations // 10)
@@ -777,7 +853,12 @@ class OptimizationJobManager:
             service_timeout_seconds=self.java_service_timeout_seconds,
             conformance_mode=config.get("conformance_mode"),
             excluded_miners=tuple(config.get("excluded_miners") or ()),
+            execution_control=control,
         )
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job["_runtime_miner"] = miner
 
         miner.discover(
             max_evaluations=discover["max_evaluations"],
@@ -786,6 +867,7 @@ class OptimizationJobManager:
             n_workers=discover["n_workers"],
             progress_callback=on_evaluation,
         )
+        miner.raise_if_cancel_requested()
 
         pareto_ids = set(miner.get_non_dominated_evaluation_ids())
         all_solutions_raw = miner.result or []
@@ -794,6 +876,7 @@ class OptimizationJobManager:
         all_solutions = [_serialize_solution(sol, pareto_ids) for sol in all_solutions_raw]
         pareto_solutions = [_serialize_solution(sol, pareto_ids) for sol in pareto_solutions_raw]
 
+        control.raise_if_cancel_requested()
         return {
             "execution_name": config["execution_name"],
             "metrics_order": list(miner.metrics_list),
@@ -813,15 +896,81 @@ class OptimizationJobManager:
             },
         }
 
-    def _persist_completed_experiment(self, job_id: str) -> None:
+    def _request_java_experiment_cancel(self, job_id: str, request_data: Dict[str, Any]) -> None:
+        execution_name = str(request_data.get("execution_name") or "").strip()
+        service_url = str(request_data.get("service_url") or self.default_service_url).strip()
+        if not execution_name or not service_url:
+            return
+
+        client = ProMServiceClient(
+            base_url=service_url,
+            experiment_id=execution_name,
+            timeout_seconds=self.java_service_timeout_seconds,
+        )
+        try:
+            client.cancel_experiment(experiment_id=execution_name)
+        except Exception:
+            LOGGER.warning(
+                "job cancel remote interrupt failed job_id=%s execution=%s",
+                job_id,
+                execution_name,
+                exc_info=True,
+            )
+
+    def _cleanup_cancelled_experiment(self, request_data: Dict[str, Any]) -> None:
+        execution_name = str(request_data.get("execution_name") or "").strip()
+        service_url = str(request_data.get("service_url") or self.default_service_url).strip()
+        if not execution_name or not service_url:
+            return
+
+        client = ProMServiceClient(
+            base_url=service_url,
+            experiment_id=execution_name,
+            timeout_seconds=self.java_service_timeout_seconds,
+        )
+        try:
+            client.cleanup_experiment(experiment_id=execution_name)
+        except Exception:
+            LOGGER.warning("job cancel cleanup failed execution=%s", execution_name, exc_info=True)
+
+    def _finalize_cancelled_job(self, job_id: str) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
                 return
             request_data = dict(job.get("request") or {})
+            job["_runtime_miner"] = None
+            job["status"] = "cancelled"
+            job["finished_at"] = _utc_now_iso()
+            job["result"] = None
+            job["error"] = None
+            progress_payload = self._public_progress(job)
+
+        try:
+            self.job_store.delete_experiment(job_id)
+        except Exception:
+            LOGGER.warning("job cancel database cleanup failed job_id=%s", job_id, exc_info=True)
+        self._cleanup_cancelled_experiment(request_data)
+        self._publish_event(job_id, "status_changed", {"job_id": job_id, "status": "cancelled"})
+        self._publish_event(job_id, "progress", progress_payload)
+        LOGGER.info(
+            "job cancelled job_id=%s execution=%s",
+            job_id,
+            request_data.get("execution_name"),
+        )
+
+    def _persist_completed_experiment(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            control = job["_control"]
+            request_data = dict(job.get("request") or {})
             result = dict(job.get("result") or {})
             started_at = job.get("started_at")
             finished_at = job.get("finished_at")
+
+        control.raise_if_cancel_requested()
 
         discover = request_data.get("discover") or {}
         all_solutions = list(result.get("all_solutions") or [])
@@ -852,6 +1001,7 @@ class OptimizationJobManager:
                 if not evaluation_id:
                     continue
                 artifacts_by_evaluation_id[str(evaluation_id)] = artifact
+        control.raise_if_cancel_requested()
 
         parsed_solutions: List[Dict[str, Any]] = []
         for solution in all_solutions:
@@ -893,6 +1043,7 @@ class OptimizationJobManager:
             "workers": int(discover.get("n_workers") or 1),
         }
 
+        control.raise_if_cancel_requested()
         self.job_store.save_completed_experiment(experiment_data, parsed_solutions)
 
     def get(self, job_id: str) -> Dict[str, Any]:
@@ -1212,6 +1363,17 @@ def create_job() -> Any:
     return jsonify(job), 202
 
 
+@app.post("/optimizations/<job_id>/cancel")
+def cancel_job(job_id: str) -> Any:
+    try:
+        job = _manager.cancel(job_id)
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"job '{job_id}' not found"}), 404
+    except RuntimeError as exc:
+        return jsonify({"error": "invalid_state", "message": str(exc)}), 409
+    return jsonify(job), 202
+
+
 @app.get("/optimizations/<job_id>")
 def get_job(job_id: str) -> Any:
     try:
@@ -1245,7 +1407,7 @@ def stream_job_events(job_id: str) -> Any:
             yield "retry: 2000\n\n"
             for item in initial_events:
                 yield _format_sse(item["event"], item["data"])
-                if item["event"] == "status_changed" and item["data"].get("status") in {"completed", "failed"}:
+                if item["event"] == "status_changed" and item["data"].get("status") in _TERMINAL_JOB_STATUSES:
                     terminal = True
             while not terminal:
                 try:
@@ -1254,7 +1416,7 @@ def stream_job_events(job_id: str) -> Any:
                     yield ": keep-alive\n\n"
                     continue
                 yield _format_sse(item["event"], item["data"])
-                if item["event"] == "status_changed" and item["data"].get("status") in {"completed", "failed"}:
+                if item["event"] == "status_changed" and item["data"].get("status") in _TERMINAL_JOB_STATUSES:
                     terminal = True
         finally:
             _manager.unsubscribe_events(job_id, listener)

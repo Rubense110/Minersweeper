@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from execution_control import ExecutionControl
 from java_service_client import ProMServiceClient
 from optimizer import PipelineNSGAIIIOptimizer
 from pipeline_space import PipelineSearchSpace
@@ -27,6 +28,7 @@ class OptimizedProcessMiner:
         service_timeout_seconds: int = 300,
         conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = ("ilp",),
+        execution_control: Optional[ExecutionControl] = None,
     ):
         self.execution_name = execution_name
         self.log_path = log
@@ -35,6 +37,7 @@ class OptimizedProcessMiner:
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
         self.conformance_mode = (conformance_mode or "").strip() or None
         self.excluded_miners = tuple(excluded_miners or ())
+        self.execution_control = execution_control or ExecutionControl()
 
         self.search_space: Optional[PipelineSearchSpace] = None
         self.problem: Optional[PipelineOptimizationProblem] = None
@@ -80,6 +83,7 @@ class OptimizedProcessMiner:
             population_size=population_size,
             n_partitions=n_partitions,
             n_workers=n_workers,
+            execution_control=self.execution_control,
         )
         self.optimizer.run()
         self.result = self.optimizer.get_result()
@@ -132,3 +136,11 @@ class OptimizedProcessMiner:
         if self.service_client is None:
             raise ValueError("discover() must be executed before cleaning artifacts")
         return self.service_client.cleanup_experiment(experiment_id=self.execution_name)
+
+    def request_cancel(self) -> None:
+        self.execution_control.request_cancel()
+        if self.optimizer is not None:
+            self.optimizer.cancel()
+
+    def raise_if_cancel_requested(self) -> None:
+        self.execution_control.raise_if_cancel_requested()

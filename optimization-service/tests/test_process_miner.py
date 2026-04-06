@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -65,7 +65,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         result = miner.discover(max_evaluations=50, population_size=20, n_partitions=3, n_workers=4)
 
         self.assertEqual(result, ["sol"])
-        mock_space_cls.assert_called_once_with(excluded_miners=("split", "ilp"))
+        mock_space_cls.assert_called_once_with(excluded_miners=("split", "ilp"), log_path="dummy.xes")
         mock_client_cls.assert_called_once_with(
             base_url="http://service",
             experiment_id="exec",
@@ -87,6 +87,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             population_size=20,
             n_partitions=3,
             n_workers=4,
+            execution_control=ANY,
         )
         mock_optimizer.run.assert_called_once()
 
@@ -149,6 +150,19 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         result = miner.cleanup_experiment_artifacts()
         self.assertTrue(result["deleted"])
         miner.service_client.cleanup_experiment.assert_called_once_with(experiment_id="exec")
+
+    def test_request_cancel_propagates_to_optimizer(self):
+        miner = OptimizedProcessMiner(
+            execution_name="exec",
+            log="dummy.xes",
+            metrics=["fitness", "precision", "simplicity", "generalisation"],
+        )
+        miner.optimizer = Mock()
+
+        miner.request_cancel()
+
+        self.assertTrue(miner.execution_control.is_cancel_requested())
+        miner.optimizer.cancel.assert_called_once_with()
 
 
 if __name__ == "__main__":

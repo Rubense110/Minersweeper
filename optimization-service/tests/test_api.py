@@ -15,6 +15,7 @@ class FakeManager:
     def __init__(self):
         self.last_submit_payload = None
         self.listeners = []
+        self.cancelled_job_id = None
 
     def list_jobs(self):
         return [{"job_id": "j1", "status": "completed"}]
@@ -75,6 +76,14 @@ class FakeManager:
         if listener in self.listeners:
             self.listeners.remove(listener)
 
+    def cancel(self, job_id):
+        if job_id == "missing":
+            raise KeyError(job_id)
+        if job_id == "done":
+            raise RuntimeError("job 'done' cannot be cancelled from state 'completed'")
+        self.cancelled_job_id = job_id
+        return {"job_id": job_id, "status": "cancelling"}
+
 
 class OptimizationApiTest(unittest.TestCase):
     def setUp(self):
@@ -128,6 +137,24 @@ class OptimizationApiTest(unittest.TestCase):
         response = self.client.get("/optimizations/missing")
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_cancel_job(self):
+        response = self.client.post("/optimizations/job-1/cancel")
+        self.assertEqual(202, response.status_code)
+        body = response.get_json()
+        self.assertEqual("job-1", body["job_id"])
+        self.assertEqual("cancelling", body["status"])
+        self.assertEqual("job-1", api._manager.cancelled_job_id)
+
+    def test_cancel_job_not_found(self):
+        response = self.client.post("/optimizations/missing/cancel")
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_cancel_job_invalid_state(self):
+        response = self.client.post("/optimizations/done/cancel")
+        self.assertEqual(409, response.status_code)
+        self.assertEqual("invalid_state", response.get_json()["error"])
 
     def test_get_solutions(self):
         response = self.client.get("/optimizations/job-1/solutions?scope=pareto")

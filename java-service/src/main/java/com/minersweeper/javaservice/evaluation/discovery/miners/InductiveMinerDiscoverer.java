@@ -3,6 +3,7 @@ package com.minersweeper.javaservice.evaluation.discovery.miners;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.evaluation.discovery.DiscoveryArtifact;
 import com.minersweeper.javaservice.evaluation.discovery.DiscoveryArtifactFactory;
+import com.minersweeper.javaservice.evaluation.ExperimentExecutionRegistry;
 import com.minersweeper.javaservice.evaluation.discovery.MinerDiscoverer;
 import com.minersweeper.javaservice.evaluation.utils.ParameterReader;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
@@ -32,9 +33,14 @@ import org.processmining.plugins.inductiveminer2.variants.MiningParametersIMPart
 
 public final class InductiveMinerDiscoverer implements MinerDiscoverer {
     private final DiscoveryArtifactFactory artifactFactory;
+    private final ExperimentExecutionRegistry executionRegistry;
 
-    public InductiveMinerDiscoverer(DiscoveryArtifactFactory artifactFactory) {
+    public InductiveMinerDiscoverer(
+        DiscoveryArtifactFactory artifactFactory,
+        ExperimentExecutionRegistry executionRegistry
+    ) {
         this.artifactFactory = artifactFactory;
+        this.executionRegistry = executionRegistry;
     }
 
     @Override
@@ -63,7 +69,8 @@ public final class InductiveMinerDiscoverer implements MinerDiscoverer {
         Canceller canceller = new Canceller() {
             @Override
             public boolean isCancelled() {
-                return false;
+                return executionRegistry != null
+                    && executionRegistry.isCancellationRequested(request.experiment_id);
             }
         };
 
