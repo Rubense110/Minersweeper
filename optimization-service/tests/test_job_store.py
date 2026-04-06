@@ -13,7 +13,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from job_store import JobStore, Solution
+from job_store import JobStore, SnapshotSolution, Solution
 
 
 class JobStoreRuntimeTest(unittest.TestCase):
@@ -133,6 +133,81 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 persisted = session.query(Solution).one()
                 self.assertTrue(all(math.isfinite(float(value)) for value in persisted.objectives))
                 self.assertEqual(persisted.objectives, [-0.5, 0.0])
+
+    def test_save_completed_experiment_persists_snapshot_solutions(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "snapshots.db")
+            store = JobStore(db_url=f"sqlite:///{db_path}")
+
+            experiment_data = {
+                "experiment_id": "exp-snap",
+                "experiment_name": "exp-snap",
+                "start_at": datetime.now(timezone.utc),
+                "end_at": datetime.now(timezone.utc),
+                "max_evals": 10,
+                "pop_size": 5,
+                "miners": ["inductive"],
+                "preprocessing": ["matrix_filter"],
+                "log_path": "/data/logs/log.xes",
+                "metrics": ["fitness"],
+                "workers": 1,
+            }
+            solutions = [
+                {
+                    "variables": [0.1],
+                    "objectives": [-0.9],
+                    "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "runtime_ms": 245,
+                    "is_pareto": True,
+                    "places": [],
+                    "transitions": [],
+                    "arcs": [],
+                }
+            ]
+            snapshot_solutions = [
+                {
+                    "snapshot_index": 1,
+                    "evaluations_done": 5,
+                    "member_index": 1,
+                    "variables": [0.1],
+                    "objectives": [-0.8],
+                    "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "runtime_ms": 200,
+                    "is_pareto": True,
+                    "places": [{"id": "p1"}],
+                    "transitions": [{"id": "t1"}],
+                    "arcs": [{"source": "p1", "target": "t1"}],
+                },
+                {
+                    "snapshot_index": 1,
+                    "evaluations_done": 5,
+                    "member_index": 2,
+                    "variables": [0.2],
+                    "objectives": [-0.7],
+                    "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "runtime_ms": 210,
+                    "is_pareto": False,
+                    "places": [],
+                    "transitions": [],
+                    "arcs": [],
+                },
+            ]
+
+            store.save_completed_experiment(experiment_data, solutions, snapshot_solutions)
+
+            with store._session_factory() as session:
+                persisted = session.query(SnapshotSolution).order_by(SnapshotSolution.member_index.asc()).all()
+                self.assertEqual(2, len(persisted))
+                self.assertEqual(1, persisted[0].snapshot_index)
+                self.assertEqual(5, persisted[0].evaluations_done)
+                self.assertEqual(1, persisted[0].member_index)
+                self.assertEqual([{"id": "p1"}], persisted[0].places)
+                self.assertFalse(persisted[1].is_pareto)
+
+            exported = store.get_experiment_snapshot_solutions("exp-snap")
+            self.assertEqual(2, len(exported))
+            self.assertEqual(1, exported[0]["snapshot_index"])
+            self.assertEqual(2, exported[1]["member_index"])
 
 
 if __name__ == "__main__":

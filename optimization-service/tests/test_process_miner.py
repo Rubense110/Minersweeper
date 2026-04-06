@@ -53,6 +53,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         mock_optimizer = Mock()
         mock_optimizer.get_result.return_value = ["sol"]
         mock_optimizer.get_non_dominated.return_value = []
+        mock_optimizer.get_population_snapshots.return_value = [{"snapshot_index": 1, "evaluations_done": 20, "solutions": []}]
         mock_optimizer_cls.return_value = mock_optimizer
 
         miner = OptimizedProcessMiner(
@@ -65,6 +66,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         result = miner.discover(max_evaluations=50, population_size=20, n_partitions=3, n_workers=4)
 
         self.assertEqual(result, ["sol"])
+        self.assertEqual([{"snapshot_index": 1, "evaluations_done": 20, "solutions": []}], miner.population_snapshots)
         mock_space_cls.assert_called_once_with(excluded_miners=("split", "ilp"), log_path="dummy.xes")
         mock_client_cls.assert_called_once_with(
             base_url="http://service",

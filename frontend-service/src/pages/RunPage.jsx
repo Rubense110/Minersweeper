@@ -21,6 +21,7 @@ const CONFORMANCE_MODE_OPTIONS = [
   { value: 'alignment', label: 'Alignments' },
   { value: 'replay', label: 'Replay' },
 ]
+const DEFAULT_LOG_PREFERENCE = 'BPI_Challenge_2013_closed_problems.xes'
 const HW_CONCURRENCY =
   typeof navigator !== 'undefined' && Number.isFinite(navigator.hardwareConcurrency)
     ? Math.max(1, Math.floor(navigator.hardwareConcurrency))
@@ -42,6 +43,12 @@ function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b))
 }
 
+function pickDefaultLog(logs, currentValue) {
+  if (currentValue && logs.includes(currentValue)) return currentValue
+  if (logs.includes(DEFAULT_LOG_PREFERENCE)) return DEFAULT_LOG_PREFERENCE
+  return logs[0] || ''
+}
+
 function toRelativeLogPath(value) {
   if (!value) return ''
   const normalized = String(value).trim().replace(/\\/g, '/')
@@ -61,7 +68,7 @@ export default function RunPage() {
   const [maxEvaluations, setMaxEvaluations] = useState(100)
   const [populationSize, setPopulationSize] = useState(20)
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
-  const [conformanceMode, setConformanceMode] = useState('alignment')
+  const [conformanceMode, setConformanceMode] = useState('replay')
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
   const [submitting, setSubmitting] = useState(false)
   const [loadingLogs, setLoadingLogs] = useState(true)
@@ -77,7 +84,7 @@ export default function RunPage() {
         if (!active) return
         const normalized = uniqueSorted((payload.logs || []).map((item) => toRelativeLogPath(item)))
         setAvailableLogs(normalized)
-        if (normalized.length) setLogPath((previous) => previous || normalized[0])
+        if (normalized.length) setLogPath((previous) => pickDefaultLog(normalized, previous))
       } catch (_primaryError) {
         try {
           const [fromDb, fromJobs] = await Promise.all([listExperiments(), listOptimizations()])
@@ -86,7 +93,7 @@ export default function RunPage() {
           const jobPaths = (fromJobs.jobs || []).map((item) => toRelativeLogPath(item.request?.log_path))
           const fallbackLogs = uniqueSorted([...dbPaths, ...jobPaths])
           setAvailableLogs(fallbackLogs)
-          if (fallbackLogs.length) setLogPath((previous) => previous || fallbackLogs[0])
+          if (fallbackLogs.length) setLogPath((previous) => pickDefaultLog(fallbackLogs, previous))
         } catch (_fallbackError) {
           if (!active) return
           setAvailableLogs([])

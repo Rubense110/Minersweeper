@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import os
@@ -12,6 +14,7 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
@@ -505,12 +508,121 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
     return payload
 
 
+def _non_dominated_evaluation_ids(solutions: List[Any]) -> set[str]:
+    if not solutions:
+        return set()
+
+    # Imported lazily because api.py should remain lightweight in tests and CLI startup.
+    from jmetal.util.ranking import FastNonDominatedRanking
+
+    ranking = FastNonDominatedRanking()
+    ranking.compute_ranking(list(solutions), k=len(solutions))
+
+    evaluation_ids: set[str] = set()
+    for solution in ranking.get_subfront(0):
+        attrs = getattr(solution, "attributes", {}) or {}
+        evaluation_id = attrs.get("evaluation_id")
+        if evaluation_id:
+            evaluation_ids.add(str(evaluation_id))
+    return evaluation_ids
+
+
 def _count_failed_solutions(all_solutions: List[Dict[str, Any]], observed_error_count: int = 0) -> int:
     serialized_failures = 0
     for item in all_solutions:
         if isinstance(item, dict) and item.get("evaluation_error"):
             serialized_failures += 1
     return max(serialized_failures, max(0, _to_int(observed_error_count, 0)))
+
+
+def _csv_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _build_csv_bytes(fieldnames: List[str], rows: List[Dict[str, Any]]) -> bytes:
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: _csv_cell(row.get(key)) for key in fieldnames})
+    return buffer.getvalue().encode("utf-8")
+
+
+def _safe_filename_part(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("._-")
+    return normalized or fallback
+
+
+def _build_experiment_export_archive(
+    experiment: Dict[str, Any],
+    solutions: List[Dict[str, Any]],
+    snapshot_solutions: List[Dict[str, Any]],
+) -> Tuple[bytes, str]:
+    experiment_fields = [
+        "experiment_id",
+        "experiment_name",
+        "start_at",
+        "end_at",
+        "max_evals",
+        "pop_size",
+        "miners",
+        "preprocessing",
+        "log_path",
+        "metrics",
+        "workers",
+        "counts",
+    ]
+    solution_fields = [
+        "solution_id",
+        "experiment_id",
+        "variables",
+        "objectives",
+        "pipeline",
+        "runtime_ms",
+        "is_pareto",
+        "places",
+        "transitions",
+        "arcs",
+    ]
+    snapshot_solution_fields = [
+        "snapshot_solution_id",
+        "experiment_id",
+        "snapshot_index",
+        "evaluations_done",
+        "member_index",
+        "variables",
+        "objectives",
+        "pipeline",
+        "runtime_ms",
+        "is_pareto",
+        "places",
+        "transitions",
+        "arcs",
+    ]
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("experiment.csv", _build_csv_bytes(experiment_fields, [experiment]))
+        archive.writestr("solutions.csv", _build_csv_bytes(solution_fields, solutions))
+        archive.writestr(
+            "snapshot_solutions.csv",
+            _build_csv_bytes(snapshot_solution_fields, snapshot_solutions),
+        )
+
+    filename = "experiment_{experiment_id}_{experiment_name}.zip".format(
+        experiment_id=_safe_filename_part(experiment.get("experiment_id"), "experiment"),
+        experiment_name=_safe_filename_part(experiment.get("experiment_name"), "data"),
+    )
+    return zip_buffer.getvalue(), filename
 
 
 class OptimizationJobManager:
@@ -873,9 +985,23 @@ class OptimizationJobManager:
         pareto_ids = set(miner.get_non_dominated_evaluation_ids())
         all_solutions_raw = miner.result or []
         pareto_solutions_raw = miner.non_dominated or []
+        population_snapshots_raw = miner.population_snapshots or []
 
         all_solutions = [_serialize_solution(sol, pareto_ids) for sol in all_solutions_raw]
         pareto_solutions = [_serialize_solution(sol, pareto_ids) for sol in pareto_solutions_raw]
+        population_snapshots = []
+        for snapshot in population_snapshots_raw:
+            snapshot_solutions_raw = list(snapshot.get("solutions") or [])
+            snapshot_pareto_ids = _non_dominated_evaluation_ids(snapshot_solutions_raw)
+            population_snapshots.append(
+                {
+                    "snapshot_index": int(snapshot.get("snapshot_index") or 0),
+                    "evaluations_done": int(snapshot.get("evaluations_done") or 0),
+                    "solutions": [
+                        _serialize_solution(solution, snapshot_pareto_ids) for solution in snapshot_solutions_raw
+                    ],
+                }
+            )
 
         control.raise_if_cancel_requested()
         return {
@@ -884,11 +1010,14 @@ class OptimizationJobManager:
             "counts": {
                 "all_solutions": len(all_solutions),
                 "pareto_solutions": len(pareto_solutions),
+                "snapshot_solutions": sum(len(snapshot.get("solutions") or []) for snapshot in population_snapshots),
+                "snapshots": len(population_snapshots),
                 "failed_solutions": _count_failed_solutions(all_solutions, progress_state["error_count"]),
             },
             "pareto_evaluation_ids": list(pareto_ids),
             "all_solutions": all_solutions,
             "pareto_solutions": pareto_solutions,
+            "population_snapshots": population_snapshots,
             "non_dominated_pipelines": miner.get_non_dominated_pipelines(),
             "non_dominated_metrics": miner.get_non_dominated_metrics(),
             "catalogs": {
@@ -975,6 +1104,7 @@ class OptimizationJobManager:
 
         discover = request_data.get("discover") or {}
         all_solutions = list(result.get("all_solutions") or [])
+        population_snapshots = list(result.get("population_snapshots") or [])
 
         evaluation_ids: List[str] = []
         seen = set()
@@ -984,6 +1114,13 @@ class OptimizationJobManager:
                 continue
             seen.add(evaluation_id)
             evaluation_ids.append(evaluation_id)
+        for snapshot in population_snapshots:
+            for solution in snapshot.get("solutions") or []:
+                evaluation_id = solution.get("evaluation_id")
+                if not evaluation_id or evaluation_id in seen:
+                    continue
+                seen.add(evaluation_id)
+                evaluation_ids.append(evaluation_id)
 
         artifacts_by_evaluation_id: Dict[str, Dict[str, Any]] = {}
         if evaluation_ids:
@@ -1005,7 +1142,9 @@ class OptimizationJobManager:
         control.raise_if_cancel_requested()
 
         parsed_solutions: List[Dict[str, Any]] = []
-        for solution in all_solutions:
+        parsed_snapshot_solutions: List[Dict[str, Any]] = []
+
+        def parse_solution_payload(solution: Dict[str, Any]) -> Dict[str, Any]:
             places: List[Dict[str, Any]] = []
             transitions: List[Dict[str, Any]] = []
             arcs: List[Dict[str, Any]] = []
@@ -1017,18 +1156,29 @@ class OptimizationJobManager:
                     pnml_text = str(artifact.get("pnml") or "")
                     places, transitions, arcs = _petri_from_pnml(pnml_text)
 
-            parsed_solutions.append(
-                {
-                    "variables": solution.get("variables", []),
-                    "objectives": solution.get("objectives", []),
-                    "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
-                    "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
-                    "is_pareto": bool(solution.get("is_pareto")),
-                    "places": places,
-                    "transitions": transitions,
-                    "arcs": arcs,
-                }
-            )
+            return {
+                "variables": solution.get("variables", []),
+                "objectives": solution.get("objectives", []),
+                "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
+                "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
+                "is_pareto": bool(solution.get("is_pareto")),
+                "places": places,
+                "transitions": transitions,
+                "arcs": arcs,
+            }
+
+        for solution in all_solutions:
+            parsed_solutions.append(parse_solution_payload(solution))
+
+        for snapshot in population_snapshots:
+            snapshot_index = int(snapshot.get("snapshot_index") or 0)
+            evaluations_done = int(snapshot.get("evaluations_done") or 0)
+            for member_index, solution in enumerate(list(snapshot.get("solutions") or []), start=1):
+                parsed_snapshot = parse_solution_payload(solution)
+                parsed_snapshot["snapshot_index"] = snapshot_index
+                parsed_snapshot["evaluations_done"] = evaluations_done
+                parsed_snapshot["member_index"] = member_index
+                parsed_snapshot_solutions.append(parsed_snapshot)
 
         experiment_data = {
             "experiment_id": job_id,
@@ -1045,7 +1195,7 @@ class OptimizationJobManager:
         }
 
         control.raise_if_cancel_requested()
-        self.job_store.save_completed_experiment(experiment_data, parsed_solutions)
+        self.job_store.save_completed_experiment(experiment_data, parsed_solutions, parsed_snapshot_solutions)
 
     def get(self, job_id: str) -> Dict[str, Any]:
         with self._lock:
@@ -1091,6 +1241,12 @@ class OptimizationJobManager:
         experiment = self.job_store.get_experiment(experiment_id)
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
         return select_weighted_model(experiment=experiment, solutions=solutions, raw_weights=weights, scope=scope)
+
+    def get_experiment_export(self, experiment_id: str) -> Tuple[bytes, str]:
+        experiment = self.job_store.get_experiment(experiment_id)
+        solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope="all")
+        snapshot_solutions = self.job_store.get_experiment_snapshot_solutions(experiment_id=experiment_id)
+        return _build_experiment_export_archive(experiment, solutions, snapshot_solutions)
 
     def get_solutions(self, job_id: str, scope: str) -> Dict[str, Any]:
         with self._lock:
@@ -1383,6 +1539,19 @@ def select_experiment_model(experiment_id: str) -> Any:
         return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
     except ModelSelectionUnavailable as exc:
         return jsonify({"error": "invalid_state", "message": str(exc)}), 409
+
+
+@app.get("/experiments/<experiment_id>/download")
+def download_experiment_data(experiment_id: str) -> Any:
+    try:
+        payload, filename = _manager.get_experiment_export(experiment_id)
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+    }
+    return Response(payload, mimetype="application/zip", headers=headers)
 
 
 @app.post("/optimizations")
