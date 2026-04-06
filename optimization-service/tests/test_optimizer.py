@@ -65,6 +65,23 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             PipelineNSGAIIIOptimizer(problem=problem, n_workers=0)
 
+    def test_optimizer_captures_generation_snapshots(self):
+        problem = self._build_problem()
+
+        optimizer = PipelineNSGAIIIOptimizer(
+            problem=problem,
+            max_evaluations=8,
+            population_size=4,
+            n_partitions=1,
+        )
+        optimizer.run()
+
+        snapshots = optimizer.get_population_snapshots()
+        self.assertEqual(2, len(snapshots))
+        self.assertEqual([1, 2], [snapshot["snapshot_index"] for snapshot in snapshots])
+        self.assertEqual([4, 8], [snapshot["evaluations_done"] for snapshot in snapshots])
+        self.assertTrue(all(len(snapshot["solutions"]) == 4 for snapshot in snapshots))
+
 
 if __name__ == "__main__":
     unittest.main()

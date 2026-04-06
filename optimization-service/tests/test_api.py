@@ -108,6 +108,11 @@ class FakeManager:
             "scalarized_objective": -0.838,
         }
 
+    def get_experiment_export(self, experiment_id):
+        if experiment_id == "missing":
+            raise KeyError(experiment_id)
+        return (b"zip-data", "experiment_exp-1_run.zip")
+
 
 class OptimizationApiTest(unittest.TestCase):
     def setUp(self):
@@ -282,6 +287,20 @@ class OptimizationApiTest(unittest.TestCase):
 
         self.assertEqual(409, response.status_code)
         self.assertEqual("invalid_state", response.get_json()["error"])
+
+    def test_download_experiment_data(self):
+        response = self.client.get("/experiments/exp-1/download")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/zip", response.mimetype)
+        self.assertEqual(b"zip-data", response.data)
+        self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
+
+    def test_download_experiment_data_not_found(self):
+        response = self.client.get("/experiments/missing/download")
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
 
     def test_get_artifacts_defaults(self):
         response = self.client.get("/optimizations/job-1/artifacts")

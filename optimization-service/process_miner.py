@@ -45,6 +45,7 @@ class OptimizedProcessMiner:
         self.service_client: Optional[ProMServiceClient] = None
         self.result = None
         self.non_dominated = None
+        self.population_snapshots: List[Dict[str, Any]] = []
 
     def discover(
         self,
@@ -88,6 +89,7 @@ class OptimizedProcessMiner:
         self.optimizer.run()
         self.result = self.optimizer.get_result()
         self.non_dominated = self.optimizer.get_non_dominated()
+        self.population_snapshots = self.optimizer.get_population_snapshots()
         return self.result
 
     def get_non_dominated_pipelines(self) -> List[Dict]:

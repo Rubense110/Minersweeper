@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
-from typing import List
+from typing import Any, Callable, Dict, List
 
 from execution_control import ExecutionControl, JobCancelled
 from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
@@ -59,14 +59,34 @@ class ThreadPoolEvaluator(Evaluator):
 
 
 class CancelAwareNSGAIII(NSGAIII):
-    def __init__(self, *args, execution_control: ExecutionControl | None = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        execution_control: ExecutionControl | None = None,
+        snapshot_callback: Callable[[int, List[Any]], None] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.execution_control = execution_control
+        self.snapshot_callback = snapshot_callback
 
     def stopping_condition_is_met(self) -> bool:
         if self.execution_control is not None and self.execution_control.is_cancel_requested():
             return True
         return super().stopping_condition_is_met()
+
+    def init_progress(self) -> None:
+        super().init_progress()
+        self._emit_snapshot()
+
+    def update_progress(self) -> None:
+        super().update_progress()
+        self._emit_snapshot()
+
+    def _emit_snapshot(self) -> None:
+        if self.snapshot_callback is None:
+            return
+        self.snapshot_callback(int(self.evaluations or 0), list(self.solutions or []))
 
 
 class PipelineNSGAIIIOptimizer:
@@ -82,9 +102,12 @@ class PipelineNSGAIIIOptimizer:
         mutation_distribution_index: float = 20.0,
         n_workers: int = 1,
         execution_control: ExecutionControl | None = None,
+        snapshot_callback: Callable[[Dict[str, Any]], None] | None = None,
     ):
         self.problem = problem
         self.execution_control = execution_control
+        self.snapshot_callback = snapshot_callback
+        self.population_snapshots: List[Dict[str, Any]] = []
 
         n_obj = self.problem.number_of_objectives()
         if n_partitions is None:
@@ -120,6 +143,7 @@ class PipelineNSGAIIIOptimizer:
             termination_criterion=StoppingByEvaluations(max_evaluations=max_evaluations),
             population_evaluator=population_evaluator,
             execution_control=execution_control,
+            snapshot_callback=self._store_population_snapshot,
         )
         self.result = None
         self.non_dominated = None
@@ -149,6 +173,9 @@ class PipelineNSGAIIIOptimizer:
     def get_non_dominated(self):
         return self.non_dominated
 
+    def get_population_snapshots(self) -> List[Dict[str, Any]]:
+        return list(self.population_snapshots)
+
     def cancel(self) -> None:
         population_evaluator = getattr(self.algorithm, "population_evaluator", None)
         if hasattr(population_evaluator, "cancel"):
@@ -157,3 +184,14 @@ class PipelineNSGAIIIOptimizer:
     def raise_if_cancel_requested(self) -> None:
         if self.execution_control is not None:
             self.execution_control.raise_if_cancel_requested()
+
+    def _store_population_snapshot(self, evaluations_done: int, solutions: List[Any]) -> None:
+        snapshot = {
+            "snapshot_index": len(self.population_snapshots) + 1,
+            "evaluations_done": int(evaluations_done),
+            "solutions": list(solutions or []),
+        }
+        self.population_snapshots.append(snapshot)
+
+        if self.snapshot_callback is not None:
+            self.snapshot_callback(dict(snapshot))
