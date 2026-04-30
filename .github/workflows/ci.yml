@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  optimization-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run optimization service tests
+        run: python -m unittest discover -s optimization-service/tests -p "test_*.py" -v
+
+  java-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      - name: Install ProM dependencies
+        run: ./install_prom_jars.sh
+
+      - name: Run Java service tests
+        working-directory: java-service
+        run: mvn -q test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        working-directory: frontend-service
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend-service
+        run: npm run build
+
+  compose-build:
+    runs-on: ubuntu-latest
+    needs:
+      - optimization-tests
+      - java-tests
+      - frontend-build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: docker compose config
+
+      - name: Build compose services
+        run: docker compose build
+
+  publish-images:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    needs:
+      - compose-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            image: rubjimjim/minersweeper-frontend
+            dockerfile: frontend-service/Dockerfile
+          - service: optimization
+            image: rubjimjim/minersweeper-optimization
+            dockerfile: optimization-service/Dockerfile
+          - service: mining
+            image: rubjimjim/minersweeper-mining
+            dockerfile: java-service/Dockerfile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=sha,format=long
+            type=ref,event=tag
+
+      - name: Build and push ${{ matrix.service }} image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

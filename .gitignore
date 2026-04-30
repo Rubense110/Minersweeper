@@ -27,9 +27,7 @@ __pycache__/*
 /.m2-local/
 !/frontend-service/package.json
 /optimization-service/reports/*
-logs/services.log
-logs/services copy.log
-pm_site/pm_app/logs/*
+/logs/*.log
 /event_logs/*.xes
 
 # Frontend build/runtime artifacts
