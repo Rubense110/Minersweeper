@@ -52,7 +52,7 @@ public class PromService {
     private static PipelineEvaluator buildPipelineEvaluator() {
         return new PromPipelineEvaluator(
             ARTIFACT_STORE,
-            Paths.get(env("LOGS_ROOT", "pm_site/pm_app/logs"))
+            Paths.get(env("LOGS_ROOT", "event_logs"))
         );
     }
 

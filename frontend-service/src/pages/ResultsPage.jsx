@@ -845,116 +845,119 @@ export default function ResultsPage() {
 
         {job?.status === 'completed' ? (
           <>
-            <section className="weighted-selection-card">
-              <div className="header-row">
+            <details className="weighted-selection-card weighted-selection-panel">
+              <summary className="weighted-selection-summary">
                 <div>
                   <h3>Weighted Model Selection</h3>
-                  <p className="small muted">
-                    Adjust the priorities using the sliders. We will return the Pareto-front model that best matches your
-                    preferences.
-                  </p>
                 </div>
-                {modelSelectionResult?.selected_solution_id ? (
-                  <span className="status-pill status-completed">
-                    Selected: Solution #{modelSelectionResult.selected_solution_id}
+                <div className="weighted-selection-summary-meta">
+                  {modelSelectionResult?.selected_solution_id ? (
+                    <span className="status-pill status-completed">
+                      Selected: Solution #{modelSelectionResult.selected_solution_id}
+                    </span>
+                  ) : null}
+                  <span className="weighted-selection-chevron" aria-hidden="true">
+                    ▾
                   </span>
-                ) : null}
+                </div>
+              </summary>
+
+              <div className="weighted-selection-content">
+                {preferredMetricOrder.length > 0 ? (
+                  <>
+                    <div className="weight-slider-grid">
+                      {preferredMetricOrder.map((metric) => (
+                        <label className="weight-slider-card" key={metric}>
+                          <div className="weight-slider-header">
+                            <span>{metric}</span>
+                            <span className="weight-slider-value">{modelWeights[metric] ?? 50}</span>
+                          </div>
+                          <input
+                            max="100"
+                            min="0"
+                            onChange={(event) => handleWeightChange(metric, event.target.value)}
+                            step="1"
+                            type="range"
+                            value={modelWeights[metric] ?? 50}
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="inline-actions">
+                      <button disabled={modelSelectionPending} onClick={handleSelectModel} type="button">
+                        {modelSelectionPending ? 'Submitting...' : 'Submit'}
+                      </button>
+                      <button className="link-button secondary" onClick={handleResetWeights} type="button">
+                        Reset Weights
+                      </button>
+                    </div>
+
+                    {modelSelectionError ? <p className="error">{modelSelectionError}</p> : null}
+                    {modelSelectionResult ? (
+                      <div className="selection-summary small muted">
+                        <p>
+                          <strong>Scope:</strong> Pareto front | <strong>Candidates considered:</strong>{' '}
+                          {modelSelectionResult.candidate_count ?? 0} | <strong>Scalarized objective:</strong>{' '}
+                          {formatObjectiveValue(modelSelectionResult.scalarized_objective)}
+                        </p>
+                        <p>
+                          <strong>Normalized weights:</strong>{' '}
+                          {preferredMetricOrder
+                            .map((metric) => {
+                              const value = modelSelectionResult.normalized_weights?.[metric]
+                              return `${metric}: ${formatMetricValue(value ?? 0)}`
+                            })
+                            .join(' | ')}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {weightedSelectedSolution ? (
+                      <div className="weighted-selection-preview">
+                        <div className="header-row">
+                          <div>
+                            <h4>Selected Model Preview</h4>
+                            <p className="small muted">{weightedSelectedSolution.label}</p>
+                          </div>
+                        </div>
+
+                        <div className="petri-view-toggle" role="group" aria-label="Selected model visualization mode">
+                          <button
+                            className={modelPetriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
+                            onClick={() => setModelPetriViewMode('interactive')}
+                            type="button"
+                          >
+                            Interactive
+                          </button>
+                          <button
+                            className={modelPetriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
+                            onClick={() => setModelPetriViewMode('image')}
+                            type="button"
+                          >
+                            PM4Py image
+                          </button>
+                        </div>
+
+                        {modelPetriViewMode === 'interactive' ? (
+                          <PnmlViewer petri={weightedSelectedSolution.petri} />
+                        ) : (
+                          <div className="petri-image-panel">
+                            {modelPetriImageLoading ? <p className="small muted">Generating model image...</p> : null}
+                            {modelPetriImageError ? <p className="error">{modelPetriImageError}</p> : null}
+                            {!modelPetriImageLoading && !modelPetriImageError && modelPetriImageUrl ? (
+                              <img alt="Selected model rendered with PM4Py" className="petri-image" src={modelPetriImageUrl} />
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="small muted">No metrics were recorded for this experiment, so weighting is unavailable.</p>
+                )}
               </div>
-
-              {preferredMetricOrder.length > 0 ? (
-                <>
-                  <div className="weight-slider-grid">
-                    {preferredMetricOrder.map((metric) => (
-                      <label className="weight-slider-card" key={metric}>
-                        <div className="weight-slider-header">
-                          <span>{metric}</span>
-                          <span className="weight-slider-value">{modelWeights[metric] ?? 50}</span>
-                        </div>
-                        <input
-                          max="100"
-                          min="0"
-                          onChange={(event) => handleWeightChange(metric, event.target.value)}
-                          step="1"
-                          type="range"
-                          value={modelWeights[metric] ?? 50}
-                        />
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="inline-actions">
-                    <button disabled={modelSelectionPending} onClick={handleSelectModel} type="button">
-                      {modelSelectionPending ? 'Submitting...' : 'Submit'}
-                    </button>
-                    <button className="link-button secondary" onClick={handleResetWeights} type="button">
-                      Reset Weights
-                    </button>
-                  </div>
-
-                  {modelSelectionError ? <p className="error">{modelSelectionError}</p> : null}
-                  {modelSelectionResult ? (
-                    <div className="selection-summary small muted">
-                      <p>
-                        <strong>Scope:</strong> Pareto front | <strong>Candidates considered:</strong>{' '}
-                        {modelSelectionResult.candidate_count ?? 0} | <strong>Scalarized objective:</strong>{' '}
-                        {formatObjectiveValue(modelSelectionResult.scalarized_objective)}
-                      </p>
-                      <p>
-                        <strong>Normalized weights:</strong>{' '}
-                        {preferredMetricOrder
-                          .map((metric) => {
-                            const value = modelSelectionResult.normalized_weights?.[metric]
-                            return `${metric}: ${formatMetricValue(value ?? 0)}`
-                          })
-                          .join(' | ')}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {weightedSelectedSolution ? (
-                    <div className="weighted-selection-preview">
-                      <div className="header-row">
-                        <div>
-                          <h4>Selected Model Preview</h4>
-                          <p className="small muted">{weightedSelectedSolution.label}</p>
-                        </div>
-                      </div>
-
-                      <div className="petri-view-toggle" role="group" aria-label="Selected model visualization mode">
-                        <button
-                          className={modelPetriViewMode === 'interactive' ? 'petri-view-button active' : 'petri-view-button'}
-                          onClick={() => setModelPetriViewMode('interactive')}
-                          type="button"
-                        >
-                          Interactive
-                        </button>
-                        <button
-                          className={modelPetriViewMode === 'image' ? 'petri-view-button active' : 'petri-view-button'}
-                          onClick={() => setModelPetriViewMode('image')}
-                          type="button"
-                        >
-                          PM4Py image
-                        </button>
-                      </div>
-
-                      {modelPetriViewMode === 'interactive' ? (
-                        <PnmlViewer petri={weightedSelectedSolution.petri} />
-                      ) : (
-                        <div className="petri-image-panel">
-                          {modelPetriImageLoading ? <p className="small muted">Generating model image...</p> : null}
-                          {modelPetriImageError ? <p className="error">{modelPetriImageError}</p> : null}
-                          {!modelPetriImageLoading && !modelPetriImageError && modelPetriImageUrl ? (
-                            <img alt="Selected model rendered with PM4Py" className="petri-image" src={modelPetriImageUrl} />
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <p className="small muted">No metrics were recorded for this experiment, so weighting is unavailable.</p>
-              )}
-            </section>
+            </details>
 
             <h3>Groups by objectives ({solutionGroups.length})</h3>
             <p className="small muted">Total recorded solutions: {solutions.length}</p>

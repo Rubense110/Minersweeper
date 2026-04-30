@@ -18,6 +18,7 @@ services:
       retries: 5
 
   prom_service:
+    image: rubjimjim/minersweeper-mining:develop
     container_name: prom_service
     restart: unless-stopped
     build:
@@ -46,6 +47,7 @@ services:
       retries: 5
 
   optimization_service:
+    image: rubjimjim/minersweeper-optimization:develop
     container_name: optimization_service
     restart: unless-stopped
     build:
@@ -79,6 +81,7 @@ services:
     working_dir: /app/optimization-service
 
   frontend_service:
+    image: rubjimjim/minersweeper-frontend:develop
     container_name: frontend_service
     restart: unless-stopped
     build:

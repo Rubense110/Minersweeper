@@ -24,7 +24,7 @@ Plataforma para optimizacion de pipelines de process mining con NSGA-III y evalu
 
 - Docker + Docker Compose
 - `prom-lite-1.4-all-platforms/` en la raiz del repo
-- Logs XES en `pm_site/pm_app/logs/`
+- Logs XES en `event_logs/` en la raiz del proyecto
 
 ## Arranque con Docker
 
@@ -45,6 +45,12 @@ Servicios:
 - `optimization_service`: `http://localhost:8080`
 - `frontend_service`: `http://localhost:5173`
 - `postgres`: `localhost:5432` (`minersweeper/minersweeper`)
+
+Imagenes publicadas:
+
+- `rubjimjim/minersweeper-mining`
+- `rubjimjim/minersweeper-optimization`
+- `rubjimjim/minersweeper-frontend`
 
 Healthchecks:
 
@@ -382,4 +388,4 @@ docker compose down
 docker compose down -v
 ```
 
-`docker-compose.old.yml` queda como referencia historica.
+La version Django legacy fue eliminada. La release soportada es la definida por `docker-compose.yml`.

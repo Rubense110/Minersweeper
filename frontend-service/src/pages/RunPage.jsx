@@ -217,8 +217,6 @@ export default function RunPage() {
             </label>
           </div>
 
-          <p className="small muted">{loadingLogs ? 'Scanning logs...' : `${availableLogs.length} logs detected`}</p>
-
           <fieldset className="metric-fieldset">
             <legend>Metrics</legend>
             <div className="metric-options">
@@ -262,7 +260,10 @@ export default function RunPage() {
             </label>
           </div>
 
-          <p className="small muted">Detected CPU cores: {HW_CONCURRENCY}</p>
+          <div className="run-form-meta small muted">
+            <span>Detected CPU cores: {HW_CONCURRENCY}</span>
+            <span>{loadingLogs ? 'Scanning logs...' : `${availableLogs.length} logs detected`}</span>
+          </div>
 
           {error ? <p className="error">{error}</p> : null}
 
