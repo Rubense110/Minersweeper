@@ -50,6 +50,7 @@ install "$PROM_HOME/packages/efficientstorage-6.9.126/EfficientStorage.jar" prom
 install "$PROM_HOME/packages/lpsolve-5.5.4/lib/lpsolve55j.jar" prom.thirdparty lpsolve55j 5.5.4
 install "$PROM_HOME/packages/pnetreplayer-6.9.179/PNetReplayer.jar" prom PNetReplayer 6.9.179
 install "$PROM_HOME/packages/pnetalignmentanalysis-6.10.114/PNetAlignmentAnalysis.jar" prom PNetAlignmentAnalysis 6.10.114
+install "$PROM_HOME/packages/etconformance-6.9.52/ETConformance.jar" prom.local ETConformance-local 6.9.52
 install "$PROM_HOME/packages/prom-framework-6.10.110/ProM-Framework.jar" prom ProM-Framework 6.10.110
 install "$PROM_HOME/packages/prom-contexts-6.10.62/ProM-Contexts.jar" prom ProM-Contexts 6.10.62
 install "$PROM_HOME/packages/prom-models-6.10.40/ProM-Models.jar" prom ProM-Models 6.10.40
