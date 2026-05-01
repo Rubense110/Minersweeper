@@ -1,34 +1,34 @@
 # Minersweeper
 
-Plataforma para optimizacion de pipelines de process mining con NSGA-III y evaluacion real en ProM.
+Platform for process mining pipeline optimization with NSGA-III and real evaluation in ProM.
 
-## Arquitectura
+## Architecture
 
 - `prom_service` (`java-service`, SparkJava + ProM):
-  - evalua pipelines
-  - descubre modelos Petri (PNML)
-  - calcula metricas
-  - persiste artefactos por evaluacion
+  - evaluates pipelines
+  - discovers Petri models (PNML)
+  - computes metrics
+  - persists artifacts per evaluation
 - `optimization_service` (`optimization-service`, Flask + jMetalPy):
-  - ejecuta optimizacion NSGA-III
-  - expone jobs HTTP (`queued/running/completed/failed`)
-  - persiste resultados finales de experimento en PostgreSQL
+  - runs NSGA-III optimization
+  - exposes HTTP jobs (`queued/running/completed/failed`)
+  - persists final experiment results in PostgreSQL
 - `frontend_service` (`frontend-service`, React + Vite):
-  - lanza optimizaciones
-  - consume SSE de progreso
-  - visualiza soluciones y PNML
+  - launches optimizations
+  - consumes progress SSE
+  - visualizes solutions and PNML
 - `postgres`:
-  - BBDD unica para persistencia del `optimization_service`
+  - single DB for `optimization_service` persistence
 
-## Prerrequisitos
+## Prerequisites
 
 - Docker + Docker Compose
-- `prom-lite-1.4-all-platforms/` en la raiz del repo
-- Logs XES en `event_logs/` en la raiz del proyecto
+- `prom-lite-1.4-all-platforms/` at the repo root
+- XES logs in `event_logs/` at the project root
 
-## Arranque con Docker
+## Startup with Docker
 
-Antes del primer build (solo una vez), generar el jar slim de Split Miner:
+Before the first build (only once), generate the Split Miner slim jar:
 
 ```bash
 ./tools/build_splitminer_slim.sh
@@ -39,29 +39,29 @@ cd Minersweeper
 docker compose up --build -d
 ```
 
-Servicios:
+Services:
 
 - `prom_service`: `http://localhost:7070`
 - `optimization_service`: `http://localhost:8080`
 - `frontend_service`: `http://localhost:5173`
 - `postgres`: `localhost:5432` (`minersweeper/minersweeper`)
 
-Imagenes publicadas:
+Published images:
 
 - `rubjimjim/minersweeper-mining`
 - `rubjimjim/minersweeper-optimization`
 - `rubjimjim/minersweeper-frontend`
 
-Healthchecks:
+Health checks:
 
 ```bash
 curl -sS http://localhost:7070/health
 curl -sS http://localhost:8080/health
 ```
 
-## Flujo rapido
+## Quick flow
 
-1. Lanzar optimizacion:
+1. Launch an optimization:
 
 ```bash
 curl -sS -X POST http://localhost:8080/optimizations \
@@ -76,21 +76,21 @@ curl -sS -X POST http://localhost:8080/optimizations \
   }'
 ```
 
-2. Consultar estado:
+2. Check status:
 
 ```bash
 curl -sS http://localhost:8080/optimizations/<job_id>
 curl -sS http://localhost:8080/optimizations/<job_id>/progress
 ```
 
-3. Obtener resultados:
+3. Get results:
 
 ```bash
 curl -sS "http://localhost:8080/optimizations/<job_id>/solutions?scope=pareto"
 curl -sS "http://localhost:8080/optimizations/<job_id>/artifacts?scope=pareto&include_pnml=true"
 ```
 
-## API de `optimization_service`
+## `optimization_service` API
 
 Endpoints:
 
@@ -103,14 +103,14 @@ Endpoints:
 - `GET /optimizations/:job_id/solutions?scope=pareto|all`
 - `GET /optimizations/:job_id/artifacts?scope=pareto|all&include_pnml=true|false`
 
-Eventos SSE:
+SSE events:
 
 - `status_changed`
 - `progress`
 - `result_ready`
 - `error`
 
-## API de `prom_service`
+## `prom_service` API
 
 Endpoints:
 
@@ -120,24 +120,24 @@ Endpoints:
 - `POST /experiments/:experimentId/cleanup`
 - `GET /experiments/:experimentId/fingerprints`
 
-### Metricas y `conformance_mode`
+### Metrics and `conformance_mode`
 
-`POST /pipeline` acepta ahora metricas funcionales y un selector explicito de modo de conformance:
+`POST /pipeline` now accepts functional metrics and an explicit conformance mode selector:
 
 - `conformance_mode`: `alignment` | `replay` (default: `alignment`)
-- metricas canonicas soportadas en request:
+- canonical metrics supported in the request:
   - `fitness`
   - `precision`
   - `simplicity`
   - `generalisation`
 
-Compatibilidad hacia atras (se normalizan internamente):
+Backward compatibility (normalized internally):
 
 - `precision_alignment` -> `precision`
 - `simplicity_structural` -> `simplicity`
 - `generalization` / `generalization_alignment` -> `generalisation`
 
-Ejemplo de request:
+Example request:
 
 ```json
 {
@@ -152,25 +152,25 @@ Ejemplo de request:
 }
 ```
 
-### Preprocesado de log (pipeline)
+### Log preprocessing (pipeline)
 
-`POST /pipeline` soporta dos formatos de entrada para preprocesado:
+`POST /pipeline` supports two input formats for preprocessing:
 
-- `pipeline.preprocessing` (legacy, un solo paso)
-- `pipeline.preprocessings` (nuevo, lista ordenada de pasos)
+- `pipeline.preprocessing` (legacy, a single step)
+- `pipeline.preprocessings` (new, ordered list of steps)
 
-Reglas del contrato:
+Contract rules:
 
-- Si llega `preprocessings`, se aplica en orden (`[0] -> [1] -> ...`) sobre el log actual.
-- Si llega solo `preprocessing`, se normaliza internamente a `preprocessings` de tamaño 1.
-- Se mantiene `pipeline.preprocessing` en metadata como alias del primer paso para compatibilidad.
-- Claves soportadas (`key`):
+- If `preprocessings` is provided, it is applied in order (`[0] -> [1] -> ...`) on the current log.
+- If only `preprocessing` is provided, it is internally normalized to `preprocessings` of size 1.
+- `pipeline.preprocessing` is kept in metadata as an alias of the first step for compatibility.
+- Supported keys (`key`):
   - `projection_filter`
   - `variant_filter`
   - `repair_log_filter`
   - `matrix_filter`
 
-Ejemplo con cadena de preprocesados:
+Example with a preprocessing chain:
 
 ```json
 {
@@ -209,82 +209,82 @@ Ejemplo con cadena de preprocesados:
 }
 ```
 
-Implementacion actual por filtro:
+Current implementation by filter:
 
 - `projection_filter`:
   - `FilterdEventRateFilter.filter(...)`
   - `Toolbox.computeDesiredEventsFromThreshold(...)`
-  - Parámetro soportado:
+  - Supported parameter:
     - `keep_threshold_p` (`0..100`)
 - `variant_filter`:
   - `FilterdTraceFrequencyFilter.filter(...)`
-  - Parámetro soportado:
+  - Supported parameter:
     - `keep_threshold_vf` (`0..100`)
 - `matrix_filter`:
-  - Descubrimiento de matriz causal: `DiscoverFromEventLogAlgorithm.apply(...)`
-  - Filtrado sobre matriz: `FilterLogUsingMatrixAlgorithm.apply(...)`
-  - Parámetros soportados:
+  - Causal matrix discovery: `DiscoverFromEventLogAlgorithm.apply(...)`
+  - Filtering on the matrix: `FilterLogUsingMatrixAlgorithm.apply(...)`
+  - Supported parameters:
     - `subsequence_length_mf` (`1..3`)
     - `probability_of_removal_mf` (`0..1`)
 - `repair_log_filter`:
-  - Implementación propia basada en ventanas (determinística) sobre el log XES.
-  - Parámetros soportados:
+  - Custom window-based implementation (deterministic) on the XES log.
+  - Supported parameters:
     - `subsequence_length_rl` (`1..5`)
     - `probability_of_removal_rl` (`0..1`)
-  - Nota:
-    - En el bundle `prom-lite-1.4-all-platforms` usado por el proyecto no están las clases de `LogFiltering`
-      (`VariantCounterPlugin`, `RepairBasedOnWindows`, `FilterBasedOnRelationMatrixK`), por lo que se usa esta implementación equivalente disponible en el classpath actual.
+  - Note:
+    - In the `prom-lite-1.4-all-platforms` bundle used by the project, the classes from `LogFiltering`
+      (`VariantCounterPlugin`, `RepairBasedOnWindows`, `FilterBasedOnRelationMatrixK`) are not present, so this equivalent implementation available in the current classpath is used.
 
-Notas operativas:
+Operational notes:
 
-- El tiempo de preprocesado queda trazado en logs como `preprocess_ms`.
-- El fingerprint incluye toda la cadena de preprocesados en orden para evitar colisiones.
-- El descubrimiento del modelo se ejecuta con log preprocesado, pero las métricas de conformance se calculan sobre el log original.
+- Preprocessing time is traced in logs as `preprocess_ms`.
+- The fingerprint includes the full preprocessing chain in order to avoid collisions.
+- Model discovery is executed on the preprocessed log, but conformance metrics are computed on the original log.
 
-#### Implementacion tecnica por modo
+#### Technical implementation by mode
 
 `alignment` (default):
 
 - `fitness`:
-  - Replay sobre Petri net con `PNLogReplayer` + `PetrinetReplayerWithILP` (`PNetReplayer`).
-  - Se usa `PNRepResult.TRACEFITNESS`.
-- `precision` y `generalisation`:
-  - `AlignmentPrecGen.measureConformanceAssumingCorrectAlignment` (`PNetAlignmentAnalysis`) sobre el replay anterior.
+  - Replay on the Petri net with `PNLogReplayer` + `PetrinetReplayerWithILP` (`PNetReplayer`).
+  - `PNRepResult.TRACEFITNESS` is used.
+- `precision` and `generalisation`:
+  - `AlignmentPrecGen.measureConformanceAssumingCorrectAlignment` (`PNetAlignmentAnalysis`) on the previous replay.
 - `simplicity`:
-  - Metrica estructural propia (lugares/transiciones/arcos + penalizacion por branching).
+  - Custom structural metric (places/transitions/arcs + branching penalty).
 
 `replay`:
 
 - `fitness`:
-  - Replay con `PNLogReplayer` + `PetrinetReplayerWithoutILP` (`PNetReplayer`).
-  - Enfoque tipo PM4Py legacy (token-based-like): combina dos componentes del replay:
+  - Replay with `PNLogReplayer` + `PetrinetReplayerWithoutILP` (`PNetReplayer`).
+  - PM4Py-legacy-like approach (token-based-like): combines two replay components:
     - `Move-Log Fitness`
     - `Move-Model Fitness`
-  - score final: promedio de ambos (`(move_log + move_model) / 2`), con fallback a `TRACEFITNESS` si faltan componentes.
+  - final score: average of both (`(move_log + move_model) / 2`), with fallback to `TRACEFITNESS` if components are missing.
 - `precision`:
-  - ETConformance replay-based (`ETCAlgorithm`, plugin `ETConformance`), valor `ETCp` (`ETCResults.getEtcp()`).
+  - Replay-based ETConformance (`ETCAlgorithm`, plugin `ETConformance`), `ETCp` value (`ETCResults.getEtcp()`).
 - `generalisation`:
-  - Replay-based (inspirado en el enfoque de conteo de activaciones de PM4Py):
-    - se cuentan activaciones de transiciones a partir del `PNRepResult` (ponderando por multiplicidad de trazas representadas),
-    - penalizacion por transicion: `1` si no aparece, si aparece `1/sqrt(n_activaciones)`,
-    - score final: `1 - promedio_penalizacion`.
+  - Replay-based (inspired by PM4Py's activation counting approach):
+    - transition activations are counted from `PNRepResult` (weighted by the multiplicity of represented traces),
+    - penalty per transition: `1` if it does not appear, if it appears `1/sqrt(n_activations)`,
+    - final score: `1 - average_penalty`.
 - `simplicity`:
-  - Igual que en `alignment`.
+  - Same as in `alignment`.
 
-Notas:
+Notes:
 
-- Ambos modos reutilizan el mismo modelo descubierto y el mismo mapping log->transicion.
-- El `fingerprint` incluye `conformance_mode` para evitar colisiones entre evaluaciones con distinto modo.
+- Both modes reuse the same discovered model and the same log->transition mapping.
+- The `fingerprint` includes `conformance_mode` to avoid collisions between evaluations with different modes.
 
-### Nuevo endpoint: fingerprints por experimento
+### New endpoint: fingerprints by experiment
 
-Devuelve `evaluation_id` + `fingerprint` para todas las evaluaciones encontradas en ese experimento.
+Returns `evaluation_id` + `fingerprint` for all evaluations found in that experiment.
 
 ```bash
 curl -sS "http://localhost:7070/experiments/<experiment_id>/fingerprints"
 ```
 
-Respuesta:
+Response:
 
 ```json
 {
@@ -295,9 +295,9 @@ Respuesta:
 }
 ```
 
-## Persistencia en PostgreSQL (`optimization_service`)
+## Persistence in PostgreSQL (`optimization_service`)
 
-La persistencia se hace al finalizar el job, guardando la poblacion final del experimento.
+Persistence is performed when the job finishes, storing the final population of the experiment.
 
 ### `Experiment`
 
@@ -307,10 +307,10 @@ La persistencia se hace al finalizar el job, guardando la poblacion final del ex
 - `EndAt`
 - `Max_evals`
 - `Pop_size`
-- `Miners` (catalogo usado)
-- `Preprocessing` (catalogo usado)
+- `Miners` (catalog used)
+- `Preprocessing` (catalog used)
 - `log_path`
-- `metrics` (orden oficial)
+- `metrics` (official order)
 - `workers`
 
 ### `Solution`
@@ -319,36 +319,36 @@ La persistencia se hace al finalizar el job, guardando la poblacion final del ex
 - `ExperimentID` (FK)
 - `variables`
 - `objectives`
-- `pipeline` (compactado: `variant` + `parameters`)
-- `runtime_ms` (tiempo de evaluacion de esa solucion, en milisegundos)
+- `pipeline` (compacted: `variant` + `parameters`)
+- `runtime_ms` (evaluation time of that solution, in milliseconds)
 - `is_pareto`
 - `places`
 - `transitions`
 - `arcs`
 
-Contrato de `metrics/objectives`:
+`metrics/objectives` contract:
 
-- `Experiment.metrics[i]` corresponde a `Solution.objectives[i]`.
-- `objectives` estan en espacio del optimizador (si se maximiza, se almacenan negadas).
+- `Experiment.metrics[i]` corresponds to `Solution.objectives[i]`.
+- `objectives` are in optimizer space (if maximized, they are stored negated).
 
-## Desarrollo local por servicio
+## Local development by service
 
 ### Java service
 
-Prerequisitos:
+Prerequisites:
 
 - Java 8+
 - Maven
-- `install_prom_jars.sh` ejecutado
+- `install_prom_jars.sh` executed
 
-Compilar:
+Compile:
 
 ```bash
 cd java-service
 mvn -DskipTests package dependency:copy-dependencies
 ```
 
-Run recomendado:
+Recommended run:
 
 ```bash
 cd java-service
@@ -373,7 +373,7 @@ npm run dev
 
 `VITE_OPTIMIZATION_API_URL` default: `http://localhost:8080`.
 
-## Logs utiles
+## Useful logs
 
 ```bash
 docker compose logs -f prom_service
@@ -381,11 +381,11 @@ docker compose logs -f optimization_service
 docker compose logs -f postgres
 ```
 
-## Parada
+## Shutdown
 
 ```bash
 docker compose down
 docker compose down -v
 ```
 
-La version Django legacy fue eliminada. La release soportada es la definida por `docker-compose.yml`.
+The legacy Django version was removed. The supported release is the one defined by `docker-compose.yml`.
