@@ -1,0 +1,7 @@
+title: Minersweeper Manual
+description: User and developer manual for Minersweeper
+theme: minima
+markdown: kramdown
+kramdown:
+  input: GFM
+
