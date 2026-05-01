@@ -29,6 +29,7 @@ __pycache__/*
 /optimization-service/reports/*
 /logs/*.log
 /event_logs/*.xes
+/known_issues.md
 
 # Frontend build/runtime artifacts
 /frontend-service/node_modules/
