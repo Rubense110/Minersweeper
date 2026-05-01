@@ -1,36 +1,104 @@
-
 services:
-
-  db:
-    container_name: database
+  postgres:
+    image: postgres:16-alpine
+    container_name: optimization_db
     restart: unless-stopped
-    image: postgres:latest
-    ports:
-      - '5432:5432'
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-MS}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MS}
-      POSTGRES_DB: ${POSTGRES_DB:-MS}
+      POSTGRES_DB: minersweeper
+      POSTGRES_USER: minersweeper
+      POSTGRES_PASSWORD: minersweeper
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  
-  web:
-    container_name: django_app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minersweeper -d minersweeper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prom_service:
+    image: rubjimjim/minersweeper-mining:develop
+    container_name: prom_service
     restart: unless-stopped
     build:
       context: .
-      dockerfile: Dockerfile
-    command: sh -c "python3 -u pm_site/manage.py makemigrations ; python3 -u pm_site/manage.py migrate ; python3 -u pm_site/manage.py runserver 0.0.0.0:8000"
+      dockerfile: java-service/Dockerfile
+    ports:
+      - "7070:7070"
+    environment:
+      PORT: 7070
+      LOGS_ROOT: /data/logs
+      PIPELINE_EVALUATOR_MODE: real
+      PROM_VERBOSE_EXCEPTIONS: "true"
+      PROM_TIMING_ENABLED: "true"
+      PROM_TIMING_SLOW_MS: "0"
+      PROM_LOG_CACHE_MAX_EXPERIMENTS: "8"
+      PROM_LOG_TO_FILE: "true"
+      PROM_LOG_FILE: /var/log/minersweeper/services.log
+      PROM_SUPPRESS_PROM_NOISE: "true"
+    volumes:
+      - ./event_logs:/data/logs
+      - ./logs:/var/log/minersweeper
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7070/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  optimization_service:
+    image: rubjimjim/minersweeper-optimization:develop
+    container_name: optimization_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: optimization-service/Dockerfile
+    depends_on:
+      prom_service:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      JAVA_SERVICE_URL: http://prom_service:7070
+      JAVA_SERVICE_TIMEOUT_SECONDS: "300"
+      OPT_DB_URL: postgresql+psycopg://minersweeper:minersweeper@postgres:5432/minersweeper
+      LOGS_ROOT: /data/logs
+      OPTIMIZATION_HOST: 0.0.0.0
+      OPTIMIZATION_PORT: 8080
+      OPTIMIZATION_LOG_LEVEL: INFO
+      OPT_LOG_TO_FILE: "true"
+      OPT_LOG_FILE: /var/log/minersweeper/services.log
+      OPT_LOG_MAX_BYTES: 0
+      OPT_LOG_BACKUP_COUNT: 0
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app/optimization-service
+    ports:
+      - "8080:8080"
     volumes:
       - .:/app
-    ports:
-      - "8000:8000"
+      - ./event_logs:/data/logs
+      - ./logs:/var/log/minersweeper
+    working_dir: /app/optimization-service
+
+  frontend_service:
+    image: rubjimjim/minersweeper-frontend:develop
+    container_name: frontend_service
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: frontend-service/Dockerfile
     depends_on:
-      - db
-    env_file:
-      - .env
+      optimization_service:
+        condition: service_started
     environment:
-      PYTHONUNBUFFERED: 1
+      VITE_OPTIMIZATION_API_URL: http://localhost:8080
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend-service:/app/frontend-service
+      - frontend_node_modules:/app/frontend-service/node_modules
+    working_dir: /app/frontend-service
 
 volumes:
+  frontend_node_modules:
   postgres_data:
