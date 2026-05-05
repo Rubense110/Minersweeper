@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROM_HOME=${PROM_HOME:-prom-lite-1.4-all-platforms}
+PROM_HOME=${PROM_HOME:-tools/prom-lite-1.4-all-platforms}
 SPLIT_DIR="${PROM_HOME}/packages/splitminer-1.7.1"
 ALL_JAR="${SPLIT_DIR}/split-miner-1.7.1-all.jar"
 SLIM_JAR="${SPLIT_DIR}/split-miner-1.7.1-slim.jar"

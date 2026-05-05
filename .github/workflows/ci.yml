@@ -23,10 +23,12 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r src/optimization-service/requirements.txt
 
       - name: Run optimization service tests
-        run: python -m unittest discover -s optimization-service/tests -p "test_*.py" -v
+        env:
+          PYTHONPATH: src/optimization-service/src
+        run: python -m unittest discover -s src/optimization-service/tests -p "test_*.py" -v
 
   java-tests:
     runs-on: ubuntu-latest
@@ -43,10 +45,10 @@ jobs:
           cache: maven
 
       - name: Install ProM dependencies
-        run: ./install_prom_jars.sh
+        run: ./tools/install_prom_jars.sh
 
       - name: Run Java service tests
-        working-directory: java-service
+        working-directory: src/mining-service
         run: mvn -q test
 
   frontend-build:
@@ -62,11 +64,11 @@ jobs:
           node-version: "20"
 
       - name: Install frontend dependencies
-        working-directory: frontend-service
+        working-directory: src/frontend-service
         run: npm install
 
       - name: Build frontend
-        working-directory: frontend-service
+        working-directory: src/frontend-service
         run: npm run build
 
   compose-build:

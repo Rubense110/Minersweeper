@@ -1,6 +1,7 @@
 /.venv
 /venv
 /.out
+.DS_Store
 *.png
 *.csv
 *.sqlite3
@@ -17,22 +18,21 @@ __pycache__/*
 /form_tests/*
 *.sql
 /backups/*
-/java-service/target/
-/java-service/target/dependency/
-/java-service/lib/*
-!/java-service/lib/.gitkeep
+/src/mining-service/target/
+/src/mining-service/target/dependency/
+/src/mining-service/lib/*
+!/src/mining-service/lib/.gitkeep
 /m2/
 /.m2/
 /m2-local/
 /.m2-local/
-!/frontend-service/package.json
-/optimization-service/reports/*
+/src/optimization-service/reports/*
 /logs/*.log
 /event_logs/*.xes
 /known_issues.md
 
 # Frontend build/runtime artifacts
-/frontend-service/node_modules/
-/frontend-service/dist/
-/frontend-service/.vite/
-/frontend-service/.cache/
+/src/frontend-service/node_modules/
+/src/frontend-service/dist/
+/src/frontend-service/.vite/
+/src/frontend-service/.cache/

@@ -4,13 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-PROM_HOME="${PROM_HOME:-${ROOT_DIR}/prom-lite-1.4-all-platforms}"
+PROM_HOME="${PROM_HOME:-${ROOT_DIR}/tools/prom-lite-1.4-all-platforms}"
 PORT="${PORT:-7070}"
 LOGS_ROOT="${LOGS_ROOT:-${ROOT_DIR}/event_logs}"
 
 if [[ ! -f "${SCRIPT_DIR}/target/prom-service-0.1.0.jar" ]]; then
   echo "Missing jar: ${SCRIPT_DIR}/target/prom-service-0.1.0.jar"
-  echo "Run: cd java-service && mvn -DskipTests package dependency:copy-dependencies"
+  echo "Run: cd src/mining-service && mvn -DskipTests package dependency:copy-dependencies"
   exit 1
 fi
 

@@ -22,15 +22,15 @@ jobs:
         include:
           - service: frontend
             image: rubjimjim/minersweeper-frontend
-            dockerfile: frontend-service/Dockerfile
+            dockerfile: src/frontend-service/Dockerfile
 
           - service: optimization
             image: rubjimjim/minersweeper-optimization
-            dockerfile: optimization-service/Dockerfile
+            dockerfile: src/optimization-service/Dockerfile
 
           - service: mining
             image: rubjimjim/minersweeper-mining
-            dockerfile: java-service/Dockerfile
+            dockerfile: src/mining-service/Dockerfile
 
     steps:
       - name: Checkout merged commit

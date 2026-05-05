@@ -106,7 +106,7 @@ public class PromPipelineEvaluatorRealTest {
             return Paths.get(env.trim()).toAbsolutePath().normalize();
         }
         Path javaServiceDir = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
-        return javaServiceDir.resolve("..").resolve("prom-lite-1.4-all-platforms").normalize();
+        return javaServiceDir.resolve("..").resolve("..").resolve("tools").resolve("prom-lite-1.4-all-platforms").normalize();
     }
 
     private static Path findLpSolveNativeDir(Path promHome) throws Exception {

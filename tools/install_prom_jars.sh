@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROM_HOME=${PROM_HOME:-prom-lite-1.4-all-platforms}
+PROM_HOME=${PROM_HOME:-tools/prom-lite-1.4-all-platforms}
 REPO_LOCAL=${REPO_LOCAL:-$HOME/.m2/repository}
 MVN=${MVN:-mvn}
 
@@ -77,5 +77,5 @@ install "$PROM_HOME/lib/jargs-latest.jar" jargs jargs latest
 install "$PROM_HOME/lib/TableLayout-20050920.jar" prom.thirdparty TableLayout 20050920
 install "$PROM_HOME/lib/Spex-1.1.jar" prom.thirdparty Spex 1.1
 
-printf "\nDone. You can now add the dependencies to java-service/pom.xml.\n"
+printf "\nDone. You can now add the dependencies to src/mining-service/pom.xml.\n"
 printf "Local Maven repository used: %s\n" "$REPO_LOCAL"

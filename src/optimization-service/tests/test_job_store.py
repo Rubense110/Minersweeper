@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 from sqlalchemy import inspect
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if SERVICE_SRC not in sys.path:
+    sys.path.insert(0, SERVICE_SRC)
 
 from job_store import JobStore, SnapshotSolution, Solution
 
