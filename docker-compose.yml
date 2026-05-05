@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
     build:
       context: .
-      dockerfile: java-service/Dockerfile
+      dockerfile: src/mining-service/Dockerfile
     ports:
       - "7070:7070"
     environment:
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
     build:
       context: .
-      dockerfile: optimization-service/Dockerfile
+      dockerfile: src/optimization-service/Dockerfile
     depends_on:
       prom_service:
         condition: service_healthy
@@ -71,14 +71,14 @@ services:
       OPT_LOG_MAX_BYTES: 0
       OPT_LOG_BACKUP_COUNT: 0
       PYTHONUNBUFFERED: 1
-      PYTHONPATH: /app/optimization-service
+      PYTHONPATH: /app/src/optimization-service/src
     ports:
       - "8080:8080"
     volumes:
       - .:/app
       - ./event_logs:/data/logs
       - ./logs:/var/log/minersweeper
-    working_dir: /app/optimization-service
+    working_dir: /app/src/optimization-service
 
   frontend_service:
     image: rubjimjim/minersweeper-frontend:develop
@@ -86,7 +86,7 @@ services:
     restart: unless-stopped
     build:
       context: .
-      dockerfile: frontend-service/Dockerfile
+      dockerfile: src/frontend-service/Dockerfile
     depends_on:
       optimization_service:
         condition: service_started
@@ -95,9 +95,9 @@ services:
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend-service:/app/frontend-service
-      - frontend_node_modules:/app/frontend-service/node_modules
-    working_dir: /app/frontend-service
+      - ./src/frontend-service:/app/src/frontend-service
+      - frontend_node_modules:/app/src/frontend-service/node_modules
+    working_dir: /app/src/frontend-service
 
 volumes:
   frontend_node_modules:

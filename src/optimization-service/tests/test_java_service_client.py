@@ -6,9 +6,9 @@ from unittest.mock import Mock, patch
 import requests
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if SERVICE_SRC not in sys.path:
+    sys.path.insert(0, SERVICE_SRC)
 
 from java_service_client import ProMServiceClient
 from execution_control import JobCancelled
