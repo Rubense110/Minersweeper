@@ -1,391 +1,313 @@
 # Minersweeper
 
-Platform for process mining pipeline optimization with NSGA-III and real evaluation in ProM.
+Minersweeper is a web-based platform for multi-objective optimization of process mining pipelines. It combines preprocessing selection, process discovery configuration, and quality evaluation into a single optimization workflow driven by NSGA-III and executed against real ProM operators.
 
-## Architecture
+The system is designed as a research software artifact: it exposes a user-facing web application for running experiments, inspecting Pareto-optimal solutions, and comparing discovered models, while keeping the full optimization and evaluation workflow reproducible from the repository.
 
-- `prom_service` (`java-service`, SparkJava + ProM):
-  - evaluates pipelines
-  - discovers Petri models (PNML)
-  - computes metrics
-  - persists artifacts per evaluation
-- `optimization_service` (`optimization-service`, Flask + jMetalPy):
-  - runs NSGA-III optimization
-  - exposes HTTP jobs (`queued/running/completed/failed`)
-  - persists final experiment results in PostgreSQL
-- `frontend_service` (`frontend-service`, React + Vite):
-  - launches optimizations
-  - consumes progress SSE
-  - visualizes solutions and PNML
-- `postgres`:
-  - single DB for `optimization_service` persistence
+## Purpose
 
-## Prerequisites
+Given an event log in XES format, Minersweeper searches over:
 
-- Docker + Docker Compose
-- `prom-lite-1.4-all-platforms/` at the repo root
-- XES logs in `event_logs/` at the project root
+- log preprocessing strategies
+- process discovery algorithms and their parameterizations
+- evaluation criteria used to score candidate pipelines
 
-## Startup with Docker
+The objective is not to tune a single miner in isolation, but to optimize the full discovery pipeline under multiple quality criteria such as fitness, precision, simplicity, and generalisation.
 
-Before the first build (only once), generate the Split Miner slim jar:
+## System Overview
+
+The platform is organized as three services plus PostgreSQL:
+
+- `src/frontend-service`
+  - React/Vite web client
+  - entry point for end users
+  - supports experiment launch, history browsing, result inspection, model selection, and Petri net rendering
+- `src/optimization-service`
+  - Flask application served with `gunicorn`
+  - orchestrates NSGA-III optimization
+  - manages jobs, progress tracking, persistence, and web/API integration
+- `src/mining-service`
+  - Java service built on SparkJava and ProM
+  - executes preprocessing, process discovery, conformance evaluation, and artifact generation
+- `postgres`
+  - stores completed experiments and their final solution sets
+
+Supporting assets:
+
+- `tools/prom-lite-1.4-all-platforms`
+  - ProM Lite distribution used by the mining service
+- `tools/install_prom_jars.sh`
+  - installs required ProM jars into the local Maven repository
+- `tools/build_splitminer_slim.sh`
+  - generates the slim Split Miner jar required by the Java service
+- `event_logs`
+  - input XES logs mounted into the containers
+- `logs`
+  - runtime service logs
+
+## End-to-End Workflow
+
+The intended interaction mode is the web interface exposed by `frontend_service`.
+
+### 1. Create an experiment
+
+From the **New Experiment** page, the user selects:
+
+- an event log
+- the optimization budget (`max_evaluations`)
+- the population size
+- the number of workers
+- the conformance mode (`alignment` or `replay`)
+- the metrics to optimize
+
+The optimization service then creates an optimization job and starts evaluating candidate pipelines.
+
+### 2. Search the pipeline space
+
+The optimizer explores combinations of:
+
+- preprocessing filters
+  - `projection_filter`
+  - `variant_filter`
+  - `matrix_filter`
+  - `repair_log_filter`
+- discovery miners
+  - `alpha`
+  - `inductive`
+  - `heuristics`
+  - `split`
+  - `ilp`
+  - `hybrid_ilp`
+
+Each candidate pipeline is sent to the mining service, which:
+
+- loads the log
+- applies preprocessing
+- discovers a Petri net
+- computes the requested metrics
+- stores artifacts associated with the evaluation
+
+### 3. Inspect results
+
+The **Results** page presents:
+
+- optimization progress
+- final solution sets
+- Pareto-optimal candidates
+- pipeline configurations
+- objective values and runtime
+- Petri net renderings
+
+The interface also supports weighted model selection from the solution set and allows interactive or rendered views of discovered Petri nets.
+
+### 4. Revisit completed experiments
+
+The **History** page exposes persisted experiments from PostgreSQL and provides access to previously completed runs and their stored solutions.
+
+## Optimization Model
+
+Minersweeper frames process discovery as a multi-objective optimization problem.
+
+### Search space
+
+The decision space includes:
+
+- the selected preprocessing method
+- the selected miner family and variant
+- the active hyperparameters of the chosen preprocessing/miner pair
+
+The search space is hierarchical: only the parameters relevant to the selected preprocessing and miner remain active for a candidate solution.
+
+### Optimization algorithm
+
+- algorithm: NSGA-III
+- implementation: `jmetalpy`
+- objective handling: maximization objectives are internally negated for optimizer compatibility
+- execution mode: sequential or threaded evaluation depending on the configured worker count
+
+### Evaluation metrics
+
+The platform supports both conformance-oriented and structural metrics.
+
+Main metrics:
+
+- `fitness`
+- `precision`
+- `simplicity`
+- `generalisation`
+
+Additional structural metrics available through the UI/API:
+
+- `places`
+- `transitions`
+- `arcs`
+- `cycl_complx`
+- `ratio`
+- `joins`
+- `splits`
+
+### Conformance modes
+
+Two evaluation modes are supported:
+
+- `alignment`
+  - alignment-based conformance evaluation
+- `replay`
+  - replay-based conformance evaluation
+
+The selected conformance mode is part of the evaluation fingerprint so that results from different modes remain distinguishable.
+
+## Repository Layout
+
+```text
+.
+├── docker-compose.yml
+├── event_logs/
+├── logs/
+├── src/
+│   ├── frontend-service/
+│   ├── mining-service/
+│   └── optimization-service/
+└── tools/
+    ├── build_splitminer_slim.sh
+    ├── install_prom_jars.sh
+    └── prom-lite-1.4-all-platforms/
+```
+
+Inside `src/optimization-service`, Python source files live under `src/optimization-service/src`, while tests remain under `src/optimization-service/tests`.
+
+## Running the Platform
+
+### Prerequisites
+
+- Docker and Docker Compose
+- `tools/prom-lite-1.4-all-platforms`
+- one or more `.xes` logs in `event_logs`
+
+Before the first build, generate the Split Miner slim jar:
 
 ```bash
 ./tools/build_splitminer_slim.sh
 ```
 
+Then start the full stack:
+
 ```bash
-cd Minersweeper
 docker compose up --build -d
 ```
 
-Services:
+Default service endpoints:
 
-- `prom_service`: `http://localhost:7070`
-- `optimization_service`: `http://localhost:8080`
-- `frontend_service`: `http://localhost:5173`
-- `postgres`: `localhost:5432` (`minersweeper/minersweeper`)
+- frontend: `http://localhost:5173`
+- optimization service: `http://localhost:8080`
+- mining service: `http://localhost:7070`
+- PostgreSQL: `localhost:5432`
 
-Published images:
+### Recommended Usage
 
-- `rubjimjim/minersweeper-mining`
-- `rubjimjim/minersweeper-optimization`
-- `rubjimjim/minersweeper-frontend`
-
-Health checks:
-
-```bash
-curl -sS http://localhost:7070/health
-curl -sS http://localhost:8080/health
-```
+For normal operation:
 
-## Quick flow
+1. Open `http://localhost:5173`
+2. Launch a new experiment from the web interface
+3. Monitor progress in the results view
+4. Inspect stored runs from the history page
 
-1. Launch an optimization:
+Although the backend also exposes HTTP endpoints, the repository is documented around the web workflow because that is the intended user interaction path.
 
-```bash
-curl -sS -X POST http://localhost:8080/optimizations \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "execution_name":"run_test_python_api",
-    "log_path":"/data/logs/BPI_Challenge_2013_open_problems.xes",
-    "max_evaluations":50,
-    "population_size":20,
-    "n_workers":1,
-    "excluded_miners":["ilp"]
-  }'
-```
+## Persistence and Outputs
 
-2. Check status:
-
-```bash
-curl -sS http://localhost:8080/optimizations/<job_id>
-curl -sS http://localhost:8080/optimizations/<job_id>/progress
-```
-
-3. Get results:
-
-```bash
-curl -sS "http://localhost:8080/optimizations/<job_id>/solutions?scope=pareto"
-curl -sS "http://localhost:8080/optimizations/<job_id>/artifacts?scope=pareto&include_pnml=true"
-```
-
-## `optimization_service` API
-
-Endpoints:
-
-- `GET /health`
-- `GET /optimizations`
-- `POST /optimizations`
-- `GET /optimizations/:job_id`
-- `GET /optimizations/:job_id/progress`
-- `GET /optimizations/:job_id/events` (SSE)
-- `GET /optimizations/:job_id/solutions?scope=pareto|all`
-- `GET /optimizations/:job_id/artifacts?scope=pareto|all&include_pnml=true|false`
-
-SSE events:
-
-- `status_changed`
-- `progress`
-- `result_ready`
-- `error`
-
-## `prom_service` API
-
-Endpoints:
-
-- `GET /health`
-- `POST /pipeline`
-- `POST /artifacts/bulk`
-- `POST /experiments/:experimentId/cleanup`
-- `GET /experiments/:experimentId/fingerprints`
-
-### Metrics and `conformance_mode`
-
-`POST /pipeline` now accepts functional metrics and an explicit conformance mode selector:
-
-- `conformance_mode`: `alignment` | `replay` (default: `alignment`)
-- canonical metrics supported in the request:
-  - `fitness`
-  - `precision`
-  - `simplicity`
-  - `generalisation`
-
-Backward compatibility (normalized internally):
-
-- `precision_alignment` -> `precision`
-- `simplicity_structural` -> `simplicity`
-- `generalization` / `generalization_alignment` -> `generalisation`
-
-Example request:
-
-```json
-{
-  "experiment_id": "run_001",
-  "log_path": "/data/logs/BPI_Challenge_2013_open_problems.xes",
-  "conformance_mode": "replay",
-  "pipeline": {
-    "preprocessing": { "key": "variant_filter", "variant": "Variant Log Filter", "parameters": { "keep_threshold_vf": 45 } },
-    "miner": { "key": "inductive", "family": "inductive", "variant": "Inductive Miner (IM)", "parameters": { "is_debug": false, "use_multithreading": true } }
-  },
-  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
-}
-```
-
-### Log preprocessing (pipeline)
-
-`POST /pipeline` supports two input formats for preprocessing:
-
-- `pipeline.preprocessing` (legacy, a single step)
-- `pipeline.preprocessings` (new, ordered list of steps)
-
-Contract rules:
-
-- If `preprocessings` is provided, it is applied in order (`[0] -> [1] -> ...`) on the current log.
-- If only `preprocessing` is provided, it is internally normalized to `preprocessings` of size 1.
-- `pipeline.preprocessing` is kept in metadata as an alias of the first step for compatibility.
-- Supported keys (`key`):
-  - `projection_filter`
-  - `variant_filter`
-  - `repair_log_filter`
-  - `matrix_filter`
-
-Example with a preprocessing chain:
-
-```json
-{
-  "experiment_id": "run_chain_001",
-  "log_path": "/data/logs/BPI_Challenge_2013_open_problems.xes",
-  "conformance_mode": "alignment",
-  "pipeline": {
-    "preprocessings": [
-      {
-        "key": "projection_filter",
-        "variant": "Projection Log Filter",
-        "parameters": { "keep_threshold_p": 60 }
-      },
-      {
-        "key": "variant_filter",
-        "variant": "Variant Log Filter",
-        "parameters": { "keep_threshold_vf": 50 }
-      },
-      {
-        "key": "matrix_filter",
-        "variant": "Conditional Probabilities (MF)",
-        "parameters": {
-          "subsequence_length_mf": 2,
-          "probability_of_removal_mf": 0.15
-        }
-      }
-    ],
-    "miner": {
-      "key": "inductive",
-      "family": "inductive",
-      "variant": "Inductive Miner (IM)",
-      "parameters": { "is_debug": false, "use_multithreading": true }
-    }
-  },
-  "metrics": ["fitness", "precision", "simplicity", "generalisation"]
-}
-```
-
-Current implementation by filter:
-
-- `projection_filter`:
-  - `FilterdEventRateFilter.filter(...)`
-  - `Toolbox.computeDesiredEventsFromThreshold(...)`
-  - Supported parameter:
-    - `keep_threshold_p` (`0..100`)
-- `variant_filter`:
-  - `FilterdTraceFrequencyFilter.filter(...)`
-  - Supported parameter:
-    - `keep_threshold_vf` (`0..100`)
-- `matrix_filter`:
-  - Causal matrix discovery: `DiscoverFromEventLogAlgorithm.apply(...)`
-  - Filtering on the matrix: `FilterLogUsingMatrixAlgorithm.apply(...)`
-  - Supported parameters:
-    - `subsequence_length_mf` (`1..3`)
-    - `probability_of_removal_mf` (`0..1`)
-- `repair_log_filter`:
-  - Custom window-based implementation (deterministic) on the XES log.
-  - Supported parameters:
-    - `subsequence_length_rl` (`1..5`)
-    - `probability_of_removal_rl` (`0..1`)
-  - Note:
-    - In the `prom-lite-1.4-all-platforms` bundle used by the project, the classes from `LogFiltering`
-      (`VariantCounterPlugin`, `RepairBasedOnWindows`, `FilterBasedOnRelationMatrixK`) are not present, so this equivalent implementation available in the current classpath is used.
-
-Operational notes:
-
-- Preprocessing time is traced in logs as `preprocess_ms`.
-- The fingerprint includes the full preprocessing chain in order to avoid collisions.
-- Model discovery is executed on the preprocessed log, but conformance metrics are computed on the original log.
-
-#### Technical implementation by mode
-
-`alignment` (default):
-
-- `fitness`:
-  - Replay on the Petri net with `PNLogReplayer` + `PetrinetReplayerWithILP` (`PNetReplayer`).
-  - `PNRepResult.TRACEFITNESS` is used.
-- `precision` and `generalisation`:
-  - `AlignmentPrecGen.measureConformanceAssumingCorrectAlignment` (`PNetAlignmentAnalysis`) on the previous replay.
-- `simplicity`:
-  - Custom structural metric (places/transitions/arcs + branching penalty).
-
-`replay`:
-
-- `fitness`:
-  - Replay with `PNLogReplayer` + `PetrinetReplayerWithoutILP` (`PNetReplayer`).
-  - PM4Py-legacy-like approach (token-based-like): combines two replay components:
-    - `Move-Log Fitness`
-    - `Move-Model Fitness`
-  - final score: average of both (`(move_log + move_model) / 2`), with fallback to `TRACEFITNESS` if components are missing.
-- `precision`:
-  - Replay-based ETConformance (`ETCAlgorithm`, plugin `ETConformance`), `ETCp` value (`ETCResults.getEtcp()`).
-- `generalisation`:
-  - Replay-based (inspired by PM4Py's activation counting approach):
-    - transition activations are counted from `PNRepResult` (weighted by the multiplicity of represented traces),
-    - penalty per transition: `1` if it does not appear, if it appears `1/sqrt(n_activations)`,
-    - final score: `1 - average_penalty`.
-- `simplicity`:
-  - Same as in `alignment`.
-
-Notes:
-
-- Both modes reuse the same discovered model and the same log->transition mapping.
-- The `fingerprint` includes `conformance_mode` to avoid collisions between evaluations with different modes.
-
-### New endpoint: fingerprints by experiment
-
-Returns `evaluation_id` + `fingerprint` for all evaluations found in that experiment.
-
-```bash
-curl -sS "http://localhost:7070/experiments/<experiment_id>/fingerprints"
-```
-
-Response:
-
-```json
-{
-  "experiment_id": "run_001",
-  "fingerprints": [
-    { "evaluation_id": "1770734531539-1", "fingerprint": "..." }
-  ]
-}
-```
-
-## Persistence in PostgreSQL (`optimization_service`)
-
-Persistence is performed when the job finishes, storing the final population of the experiment.
-
-### `Experiment`
-
-- `ExperimentID` (PK)
-- `ExperimentName`
-- `StartAt`
-- `EndAt`
-- `Max_evals`
-- `Pop_size`
-- `Miners` (catalog used)
-- `Preprocessing` (catalog used)
-- `log_path`
-- `metrics` (official order)
-- `workers`
-
-### `Solution`
-
-- `SolutionID` (PK)
-- `ExperimentID` (FK)
-- `variables`
-- `objectives`
-- `pipeline` (compacted: `variant` + `parameters`)
-- `runtime_ms` (evaluation time of that solution, in milliseconds)
-- `is_pareto`
-- `places`
-- `transitions`
-- `arcs`
-
-`metrics/objectives` contract:
-
-- `Experiment.metrics[i]` corresponds to `Solution.objectives[i]`.
-- `objectives` are in optimizer space (if maximized, they are stored negated).
-
-## Local development by service
-
-### Java service
-
-Prerequisites:
-
-- Java 8+
-- Maven
-- `install_prom_jars.sh` executed
-
-Compile:
-
-```bash
-cd java-service
-mvn -DskipTests package dependency:copy-dependencies
-```
-
-Recommended run:
-
-```bash
-cd java-service
-./run_prom_service.sh
-```
+Completed experiments are stored in PostgreSQL by the optimization service.
+
+Persisted data includes:
+
+- experiment metadata
+- configured metrics
+- log path
+- optimization budget
+- worker count
+- final solution set
+- Pareto membership
+- serialized pipeline definitions
+- structural Petri net data
+- evaluation runtime per solution
+
+Transient and generated outputs:
+
+- service logs in `logs/services.log`
+- runtime artifacts produced by the mining service
+- optional analysis reports under `src/optimization-service/reports`
+
+## API Role
+
+The API exists to support the web client and scripted experimentation. It is not the primary interaction mode documented here, but it remains important for reproducibility and integration.
+
+Main API capabilities include:
+
+- job submission and cancellation
+- job status and progress tracking
+- experiment listing and retrieval
+- solution and artifact retrieval
+- SSE event streaming
+- model selection from completed experiments
+- Petri net rendering
+
+## Development Notes
+
+### Frontend
+
+- framework: React
+- bundler: Vite
+- primary pages:
+  - experiment creation
+  - experiment history
+  - result exploration
 
 ### Optimization service
 
-Tests:
+- framework: Flask
+- container runtime: `gunicorn`
+- responsibilities:
+  - request handling
+  - optimization orchestration
+  - persistence
+  - event streaming
+  - model selection
+
+For local non-container debugging, the service can still be started directly with:
 
 ```bash
-venv/bin/python -m unittest discover -s optimization-service/tests -p "test_*.py" -v
+python src/optimization-service/src/api.py
 ```
 
-### Frontend service
+### Mining service
+
+- language: Java 8
+- framework: SparkJava
+- dependencies: ProM Lite jars installed through `tools/install_prom_jars.sh`
+
+## Testing
+
+### Optimization service tests
 
 ```bash
-cd frontend-service
+PYTHONPATH=src/optimization-service/src venv/bin/python -m unittest discover -s src/optimization-service/tests -p "test_*.py" -v
+```
+
+### Mining service tests
+
+```bash
+cd src/mining-service
+mvn -q test
+```
+
+### Frontend build validation
+
+```bash
+cd src/frontend-service
 npm install
-npm run dev
+npm run build
 ```
 
-`VITE_OPTIMIZATION_API_URL` default: `http://localhost:8080`.
+## License
 
-## Useful logs
-
-```bash
-docker compose logs -f prom_service
-docker compose logs -f optimization_service
-docker compose logs -f postgres
-```
-
-## Shutdown
-
-```bash
-docker compose down
-docker compose down -v
-```
-
-The legacy Django version was removed. The supported release is the one defined by `docker-compose.yml`.
+Minersweeper is distributed under the GNU General Public License v3.0 (GPL-3.0). See `LICENSE.txt` for the full license text.
