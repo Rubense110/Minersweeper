@@ -57,6 +57,31 @@ public class StubPipelineEvaluatorTest {
     }
 
     @Test
+    public void evaluateReturnsRequestedStructuralMetrics() throws Exception {
+        Path tmp = Files.createTempDirectory("stub-evaluator-structural-test");
+        ArtifactStore store = new ArtifactStore(tmp.toString());
+        StubPipelineEvaluator evaluator = new StubPipelineEvaluator(store);
+
+        List<String> requestedMetrics = TestFixtures.structuralMetrics();
+
+        PipelineRequest request = TestFixtures.buildRequest(
+            "run_stub_structural",
+            "/tmp/log.xes",
+            TestFixtures.matrixFilter(),
+            TestFixtures.inductiveImf(),
+            requestedMetrics
+        );
+
+        EvaluationResult result = evaluator.evaluate(request);
+
+        assertEquals(requestedMetrics.size(), result.metrics.size());
+        TestFixtures.assertNonNegativeMetrics(result.metrics, requestedMetrics);
+        assertEquals(10.0, result.metrics.get("t_edges").doubleValue(), 0.0);
+        assertEquals(0.0, result.metrics.get("cfc").doubleValue(), 0.0);
+        assertEquals(0.9, result.metrics.get("elc").doubleValue(), 0.0);
+    }
+
+    @Test
     public void evaluateIsStableForEquivalentMapsWithDifferentInsertionOrder() throws Exception {
         Path tmp = Files.createTempDirectory("stub-evaluator-order-test");
         ArtifactStore store = new ArtifactStore(tmp.toString());

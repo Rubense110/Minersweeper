@@ -21,7 +21,10 @@ public class RequestValidatorTest {
             "places",
             "transitions",
             "arcs",
+            "t_edges",
             "cycl_complx",
+            "cfc",
+            "elc",
             "ratio",
             "joins",
             "splits"
