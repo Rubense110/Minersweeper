@@ -1,7 +1,10 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.evaluation.conformance.metrics.ConformanceMetric;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.ControlFlowComplexity;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.CyclComplx;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.EdgeCount;
+import com.minersweeper.javaservice.evaluation.conformance.metrics.EdgeLoadCentrality;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Fitness;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Generalisation;
 import com.minersweeper.javaservice.evaluation.conformance.metrics.Joins;
@@ -24,7 +27,10 @@ public enum ConformanceMetricCatalog {
     PLACES(new Places(), MetricScope.ANY),
     TRANSITIONS(new Transitions(), MetricScope.ANY),
     ARCS(new Arcs(), MetricScope.ANY),
+    T_EDGES(new EdgeCount(), MetricScope.ANY),
     CYCL_COMPLX(new CyclComplx(), MetricScope.ANY),
+    CFC(new ControlFlowComplexity(), MetricScope.ANY),
+    ELC(new EdgeLoadCentrality(), MetricScope.ANY),
     RATIO(new Ratio(), MetricScope.ANY),
     JOINS(new Joins(), MetricScope.ANY),
     SPLITS(new Splits(), MetricScope.ANY),
