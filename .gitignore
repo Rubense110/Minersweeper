@@ -30,6 +30,8 @@ __pycache__/*
 /logs/*.log
 /event_logs/*.xes
 /known_issues.md
+/docker-compose.override.yml
+/tools/run_all_logs.py
 
 # Frontend build/runtime artifacts
 /src/frontend-service/node_modules/
