@@ -41,6 +41,7 @@ class Experiment(Base):
     preprocessing: Mapped[Any] = mapped_column(JSON, nullable=False)
     log_path: Mapped[str] = mapped_column(Text, nullable=False)
     metrics: Mapped[Any] = mapped_column(JSON, nullable=False)
+    constraints: Mapped[Any] = mapped_column(JSON, nullable=False)
     workers: Mapped[int] = mapped_column(Integer, nullable=False)
 
     solutions: Mapped[List["Solution"]] = relationship(
@@ -68,9 +69,12 @@ class Solution(Base):
     )
     variables: Mapped[Any] = mapped_column(JSON, nullable=False)
     objectives: Mapped[Any] = mapped_column(JSON, nullable=False)
+    metrics: Mapped[Any] = mapped_column(JSON, nullable=False)
     pipeline: Mapped[Any] = mapped_column(JSON, nullable=False)
     runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_pareto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False)
+    is_feasible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
@@ -97,9 +101,12 @@ class SnapshotSolution(Base):
     member_index: Mapped[int] = mapped_column(Integer, nullable=False)
     variables: Mapped[Any] = mapped_column(JSON, nullable=False)
     objectives: Mapped[Any] = mapped_column(JSON, nullable=False)
+    metrics: Mapped[Any] = mapped_column(JSON, nullable=False)
     pipeline: Mapped[Any] = mapped_column(JSON, nullable=False)
     runtime_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_pareto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False)
+    is_feasible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
@@ -114,20 +121,42 @@ class JobStore:
         self.engine = create_engine(db_url, future=True, pool_pre_ping=True)
         self._session_factory = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
         Base.metadata.create_all(self.engine)
-        self._ensure_runtime_ms_column()
+        self._ensure_schema_columns()
 
-    def _ensure_runtime_ms_column(self) -> None:
+    def _ensure_schema_columns(self) -> None:
         inspector = inspect(self.engine)
         table_names = set(inspector.get_table_names())
-        if "solutions" not in table_names:
-            return
-
-        columns = {column["name"] for column in inspector.get_columns("solutions")}
-        if "runtime_ms" in columns:
-            return
-
         with self.engine.begin() as connection:
-            connection.execute(text("ALTER TABLE solutions ADD COLUMN runtime_ms INTEGER"))
+            if "experiments" in table_names:
+                experiment_columns = {column["name"] for column in inspector.get_columns("experiments")}
+                if "constraints" not in experiment_columns:
+                    connection.execute(text("ALTER TABLE experiments ADD COLUMN constraints JSON NOT NULL DEFAULT '[]'"))
+
+            if "solutions" in table_names:
+                solution_columns = {column["name"] for column in inspector.get_columns("solutions")}
+                if "runtime_ms" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN runtime_ms INTEGER"))
+                if "metrics" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN metrics JSON NOT NULL DEFAULT '{}'"))
+                if "constraint_violations" not in solution_columns:
+                    connection.execute(
+                        text("ALTER TABLE solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'")
+                    )
+                if "is_feasible" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN is_feasible BOOLEAN NOT NULL DEFAULT 1"))
+
+            if "snapshot_solutions" in table_names:
+                snapshot_columns = {column["name"] for column in inspector.get_columns("snapshot_solutions")}
+                if "metrics" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN metrics JSON NOT NULL DEFAULT '{}'"))
+                if "constraint_violations" not in snapshot_columns:
+                    connection.execute(
+                        text("ALTER TABLE snapshot_solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'")
+                    )
+                if "is_feasible" not in snapshot_columns:
+                    connection.execute(
+                        text("ALTER TABLE snapshot_solutions ADD COLUMN is_feasible BOOLEAN NOT NULL DEFAULT 1")
+                    )
 
     @staticmethod
     def _to_int_or_none(value: Any) -> int | None:
@@ -176,6 +205,7 @@ class JobStore:
                     preprocessing=experiment_data.get("preprocessing", []),
                     log_path=str(experiment_data["log_path"]),
                     metrics=experiment_data.get("metrics", []),
+                    constraints=experiment_data.get("constraints", []),
                     workers=int(experiment_data["workers"]),
                 )
                 session.add(experiment)
@@ -186,9 +216,12 @@ class JobStore:
                             experiment_id=experiment_id,
                             variables=self._sanitize_json(item.get("variables", [])),
                             objectives=self._sanitize_json(item.get("objectives", [])),
+                            metrics=self._sanitize_json(item.get("metrics", {})),
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
+                            constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
+                            is_feasible=bool(item.get("is_feasible", True)),
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
@@ -204,9 +237,12 @@ class JobStore:
                             member_index=int(item.get("member_index") or 0),
                             variables=self._sanitize_json(item.get("variables", [])),
                             objectives=self._sanitize_json(item.get("objectives", [])),
+                            metrics=self._sanitize_json(item.get("metrics", {})),
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
+                            constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
+                            is_feasible=bool(item.get("is_feasible", True)),
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
@@ -233,6 +269,7 @@ class JobStore:
             "preprocessing": experiment.preprocessing or [],
             "log_path": experiment.log_path,
             "metrics": experiment.metrics or [],
+            "constraints": experiment.constraints or [],
             "workers": int(experiment.workers),
         }
 
@@ -243,9 +280,12 @@ class JobStore:
             "experiment_id": solution.experiment_id,
             "variables": solution.variables or [],
             "objectives": solution.objectives or [],
+            "metrics": solution.metrics or {},
             "pipeline": solution.pipeline or {},
             "runtime_ms": solution.runtime_ms,
             "is_pareto": bool(solution.is_pareto),
+            "constraint_violations": solution.constraint_violations or [],
+            "is_feasible": bool(solution.is_feasible),
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
@@ -261,9 +301,12 @@ class JobStore:
             "member_index": int(solution.member_index),
             "variables": solution.variables or [],
             "objectives": solution.objectives or [],
+            "metrics": solution.metrics or {},
             "pipeline": solution.pipeline or {},
             "runtime_ms": solution.runtime_ms,
             "is_pareto": bool(solution.is_pareto),
+            "constraint_violations": solution.constraint_violations or [],
+            "is_feasible": bool(solution.is_feasible),
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],

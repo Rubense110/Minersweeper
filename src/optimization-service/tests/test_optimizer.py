@@ -31,6 +31,8 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         return PipelineOptimizationProblem(
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
+            required_metrics=["fitness", "precision", "simplicity", "generalisation"],
+            constraints=[],
             search_space=space,
             evaluator=evaluator,
         )

@@ -9,6 +9,7 @@ from execution_control import ExecutionControl, JobCancelled
 from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
 from jmetal.operator.crossover import SBXCrossover
 from jmetal.operator.mutation import PolynomialMutation
+from jmetal.util.comparator import DominanceWithConstraintsComparator
 from jmetal.util.evaluator import Evaluator, SequentialEvaluator
 from jmetal.util.ranking import FastNonDominatedRanking
 from jmetal.util.termination_criterion import StoppingByEvaluations
@@ -108,6 +109,7 @@ class PipelineNSGAIIIOptimizer:
         self.execution_control = execution_control
         self.snapshot_callback = snapshot_callback
         self.population_snapshots: List[Dict[str, Any]] = []
+        self.dominance_comparator = DominanceWithConstraintsComparator()
 
         n_obj = self.problem.number_of_objectives()
         if n_partitions is None:
@@ -142,6 +144,7 @@ class PipelineNSGAIIIOptimizer:
             ),
             termination_criterion=StoppingByEvaluations(max_evaluations=max_evaluations),
             population_evaluator=population_evaluator,
+            dominance_comparator=self.dominance_comparator,
             execution_control=execution_control,
             snapshot_callback=self._store_population_snapshot,
         )
@@ -161,9 +164,8 @@ class PipelineNSGAIIIOptimizer:
         self.non_dominated = self._calculate_non_dominated(self.result)
         return self.result
 
-    @staticmethod
-    def _calculate_non_dominated(solutions: List):
-        ranking = FastNonDominatedRanking()
+    def _calculate_non_dominated(self, solutions: List):
+        ranking = FastNonDominatedRanking(self.dominance_comparator)
         ranking.compute_ranking(solutions)
         return ranking.get_subfront(0)
 

@@ -33,15 +33,19 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "preprocessing": ["matrix_filter"],
                 "log_path": "/data/logs/log.xes",
                 "metrics": ["fitness"],
+                "constraints": [{"metric": "places", "operator": "<=", "value": 10.0}],
                 "workers": 1,
             }
             solutions = [
                 {
                     "variables": [0.1],
                     "objectives": [-0.9],
+                    "metrics": {"fitness": 0.9, "places": 8.0},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "runtime_ms": 245,
                     "is_pareto": True,
+                    "constraint_violations": [],
+                    "is_feasible": True,
                     "places": [],
                     "transitions": [],
                     "arcs": [],
@@ -53,6 +57,8 @@ class JobStoreRuntimeTest(unittest.TestCase):
             with store._session_factory() as session:
                 persisted = session.query(Solution).one()
                 self.assertEqual(245, persisted.runtime_ms)
+                self.assertEqual({"fitness": 0.9, "places": 8.0}, persisted.metrics)
+                self.assertTrue(persisted.is_feasible)
 
     def test_init_adds_runtime_ms_column_for_existing_schema(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -95,6 +101,11 @@ class JobStoreRuntimeTest(unittest.TestCase):
             store = JobStore(db_url=f"sqlite:///{db_path}")
             columns = {column["name"] for column in inspect(store.engine).get_columns("solutions")}
             self.assertIn("runtime_ms", columns)
+            self.assertIn("metrics", columns)
+            self.assertIn("constraint_violations", columns)
+            self.assertIn("is_feasible", columns)
+            experiment_columns = {column["name"] for column in inspect(store.engine).get_columns("experiments")}
+            self.assertIn("constraints", experiment_columns)
 
     def test_save_completed_experiment_sanitizes_non_finite_json_values(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -112,15 +123,19 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "preprocessing": ["matrix_filter"],
                 "log_path": "/data/logs/log.xes",
                 "metrics": ["fitness", "precision"],
+                "constraints": [],
                 "workers": 1,
             }
             solutions = [
                 {
                     "variables": [0.1],
                     "objectives": [-0.5, float("nan")],
+                    "metrics": {"fitness": 0.5, "precision": float("nan")},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "runtime_ms": 100,
                     "is_pareto": True,
+                    "constraint_violations": [],
+                    "is_feasible": True,
                     "places": [],
                     "transitions": [],
                     "arcs": [],
@@ -133,6 +148,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 persisted = session.query(Solution).one()
                 self.assertTrue(all(math.isfinite(float(value)) for value in persisted.objectives))
                 self.assertEqual(persisted.objectives, [-0.5, 0.0])
+                self.assertEqual(persisted.metrics, {"fitness": 0.5, "precision": 0.0})
 
     def test_save_completed_experiment_persists_snapshot_solutions(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -150,15 +166,19 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "preprocessing": ["matrix_filter"],
                 "log_path": "/data/logs/log.xes",
                 "metrics": ["fitness"],
+                "constraints": [],
                 "workers": 1,
             }
             solutions = [
                 {
                     "variables": [0.1],
                     "objectives": [-0.9],
+                    "metrics": {"fitness": 0.9},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "runtime_ms": 245,
                     "is_pareto": True,
+                    "constraint_violations": [],
+                    "is_feasible": True,
                     "places": [],
                     "transitions": [],
                     "arcs": [],
@@ -171,9 +191,12 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "member_index": 1,
                     "variables": [0.1],
                     "objectives": [-0.8],
+                    "metrics": {"fitness": 0.8, "places": 9.0},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "runtime_ms": 200,
                     "is_pareto": True,
+                    "constraint_violations": [],
+                    "is_feasible": True,
                     "places": [{"id": "p1"}],
                     "transitions": [{"id": "t1"}],
                     "arcs": [{"source": "p1", "target": "t1"}],
@@ -184,9 +207,12 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "member_index": 2,
                     "variables": [0.2],
                     "objectives": [-0.7],
+                    "metrics": {"fitness": 0.7, "places": 14.0},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "runtime_ms": 210,
                     "is_pareto": False,
+                    "constraint_violations": [-2.0],
+                    "is_feasible": False,
                     "places": [],
                     "transitions": [],
                     "arcs": [],
@@ -203,6 +229,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 self.assertEqual(1, persisted[0].member_index)
                 self.assertEqual([{"id": "p1"}], persisted[0].places)
                 self.assertFalse(persisted[1].is_pareto)
+                self.assertFalse(persisted[1].is_feasible)
 
             exported = store.get_experiment_snapshot_solutions("exp-snap")
             self.assertEqual(2, len(exported))

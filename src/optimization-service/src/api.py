@@ -25,6 +25,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 from werkzeug.serving import WSGIRequestHandler
 
+from constraints import collect_required_metrics, normalize_constraints, normalize_metric_names, summarize_constraints
 from execution_control import ExecutionControl, JobCancelled
 from job_store import JobStore
 from java_service_client import ProMServiceClient
@@ -498,8 +499,13 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "fingerprint": attrs.get("fingerprint"),
         "pipeline": attrs.get("pipeline", {}),
         "metrics": attrs.get("metrics", {}),
+        "objective_metrics": attrs.get("objective_metrics", {}),
+        "constraints": attrs.get("constraints", []),
+        "constraint_violations": attrs.get("constraint_violations", []),
+        "is_feasible": bool(attrs.get("is_feasible", True)),
         "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),
+        "constraint_values": list(getattr(solution, "constraints", []) or []),
         "variables": list(getattr(solution, "variables", []) or []),
         "is_pareto": bool(evaluation_id and evaluation_id in pareto_ids),
     }
@@ -513,9 +519,10 @@ def _non_dominated_evaluation_ids(solutions: List[Any]) -> set[str]:
         return set()
 
     # Imported lazily because api.py should remain lightweight in tests and CLI startup.
+    from jmetal.util.comparator import DominanceWithConstraintsComparator
     from jmetal.util.ranking import FastNonDominatedRanking
 
-    ranking = FastNonDominatedRanking()
+    ranking = FastNonDominatedRanking(DominanceWithConstraintsComparator())
     ranking.compute_ranking(list(solutions), k=len(solutions))
 
     evaluation_ids: set[str] = set()
@@ -578,6 +585,7 @@ def _build_experiment_export_archive(
         "preprocessing",
         "log_path",
         "metrics",
+        "constraints",
         "workers",
         "counts",
     ]
@@ -586,9 +594,12 @@ def _build_experiment_export_archive(
         "experiment_id",
         "variables",
         "objectives",
+        "metrics",
         "pipeline",
         "runtime_ms",
         "is_pareto",
+        "constraint_violations",
+        "is_feasible",
         "places",
         "transitions",
         "arcs",
@@ -601,9 +612,12 @@ def _build_experiment_export_archive(
         "member_index",
         "variables",
         "objectives",
+        "metrics",
         "pipeline",
         "runtime_ms",
         "is_pareto",
+        "constraint_violations",
+        "is_feasible",
         "places",
         "transitions",
         "arcs",
@@ -646,7 +660,9 @@ class OptimizationJobManager:
         if not service_url:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
-        metrics = payload.get("metrics")
+        metrics = normalize_metric_names(payload.get("metrics") or ["fitness", "precision", "simplicity", "generalisation"])
+        constraints = normalize_constraints(payload.get("constraints"))
+        required_metrics = collect_required_metrics(metrics, constraints)
         conformance_mode = payload.get("conformance_mode")
         excluded_miners = payload.get("excluded_miners", ["ilp"])
 
@@ -684,6 +700,8 @@ class OptimizationJobManager:
                 "log_path": log_path,
                 "service_url": service_url,
                 "metrics": metrics,
+                "constraints": constraints,
+                "required_metrics": required_metrics,
                 "conformance_mode": conformance_mode,
                 "excluded_miners": excluded_miners,
                 "discover": discover_cfg,
@@ -709,10 +727,12 @@ class OptimizationJobManager:
         worker = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
         worker.start()
         LOGGER.info(
-            "job queued job_id=%s execution=%s log_path=%s max_evaluations=%s population_size=%s n_workers=%s",
+            "job queued job_id=%s execution=%s log_path=%s metrics=%s constraints=%s max_evaluations=%s population_size=%s n_workers=%s",
             job_id,
             execution_name,
             log_path,
+            ",".join(metrics),
+            summarize_constraints(constraints) or "-",
             discover_cfg["max_evaluations"],
             discover_cfg["population_size"],
             discover_cfg["n_workers"],
@@ -784,10 +804,11 @@ class OptimizationJobManager:
             self._publish_event(job_id, "progress", cancelled_payload)
             return
         LOGGER.info(
-            "job running job_id=%s execution=%s metrics=%s conformance_mode=%s service_url=%s",
+            "job running job_id=%s execution=%s metrics=%s constraints=%s conformance_mode=%s service_url=%s",
             job_id,
             request_data.get("execution_name"),
             request_data.get("metrics"),
+            summarize_constraints(request_data.get("constraints") or []) or "-",
             request_data.get("conformance_mode"),
             request_data.get("service_url"),
         )
@@ -962,6 +983,7 @@ class OptimizationJobManager:
             execution_name=config["execution_name"],
             log=config["log_path"],
             metrics=config.get("metrics"),
+            constraints=config.get("constraints"),
             service_url=config["service_url"],
             service_timeout_seconds=self.java_service_timeout_seconds,
             conformance_mode=config.get("conformance_mode"),
@@ -1007,12 +1029,14 @@ class OptimizationJobManager:
         return {
             "execution_name": config["execution_name"],
             "metrics_order": list(miner.metrics_list),
+            "constraints": list(miner.constraints),
             "counts": {
                 "all_solutions": len(all_solutions),
                 "pareto_solutions": len(pareto_solutions),
                 "snapshot_solutions": sum(len(snapshot.get("solutions") or []) for snapshot in population_snapshots),
                 "snapshots": len(population_snapshots),
                 "failed_solutions": _count_failed_solutions(all_solutions, progress_state["error_count"]),
+                "feasible_solutions": sum(1 for item in all_solutions if item.get("is_feasible", True)),
             },
             "pareto_evaluation_ids": list(pareto_ids),
             "all_solutions": all_solutions,
@@ -1159,9 +1183,12 @@ class OptimizationJobManager:
             return {
                 "variables": solution.get("variables", []),
                 "objectives": solution.get("objectives", []),
+                "metrics": solution.get("metrics", {}),
                 "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
                 "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
                 "is_pareto": bool(solution.get("is_pareto")),
+                "constraint_violations": solution.get("constraint_violations", []),
+                "is_feasible": bool(solution.get("is_feasible", True)),
                 "places": places,
                 "transitions": transitions,
                 "arcs": arcs,
@@ -1191,6 +1218,7 @@ class OptimizationJobManager:
             "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
             "log_path": request_data.get("log_path") or "",
             "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
+            "constraints": result.get("constraints") or request_data.get("constraints") or [],
             "workers": int(discover.get("n_workers") or 1),
         }
 
@@ -1237,10 +1265,17 @@ class OptimizationJobManager:
         experiment_id: str,
         weights: Dict[str, Any] | None,
         scope: str,
+        feasible_only: bool,
     ) -> Dict[str, Any]:
         experiment = self.job_store.get_experiment(experiment_id)
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
-        return select_weighted_model(experiment=experiment, solutions=solutions, raw_weights=weights, scope=scope)
+        return select_weighted_model(
+            experiment=experiment,
+            solutions=solutions,
+            raw_weights=weights,
+            scope=scope,
+            feasible_only=feasible_only,
+        )
 
     def get_experiment_export(self, experiment_id: str) -> Tuple[bytes, str]:
         experiment = self.job_store.get_experiment(experiment_id)
@@ -1526,6 +1561,7 @@ def select_experiment_model(experiment_id: str) -> Any:
     scope = str(payload.get("scope") or "pareto").strip().lower()
     if scope not in {"pareto", "all"}:
         return jsonify({"error": "invalid_request", "message": "scope must be 'pareto' or 'all'"}), 400
+    feasible_only = _to_bool(payload.get("feasible_only"), default=False)
 
     weights = payload.get("weights")
     if weights is None:
@@ -1534,7 +1570,14 @@ def select_experiment_model(experiment_id: str) -> Any:
         return jsonify({"error": "invalid_request", "message": "weights must be an object"}), 400
 
     try:
-        return jsonify(_manager.select_experiment_model(experiment_id=experiment_id, weights=weights, scope=scope))
+        return jsonify(
+            _manager.select_experiment_model(
+                experiment_id=experiment_id,
+                weights=weights,
+                scope=scope,
+                feasible_only=feasible_only,
+            )
+        )
     except KeyError:
         return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
     except ModelSelectionUnavailable as exc:
