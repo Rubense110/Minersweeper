@@ -48,16 +48,19 @@ function metricPairsFromObjectives(objectives, metricsOrder) {
 
 function mapDbSolution(item, index, metricsOrder) {
   const solutionId = item.solution_id || index + 1
+  const storedMetrics = item.metrics && typeof item.metrics === 'object' && !Array.isArray(item.metrics) ? item.metrics : null
   return {
     id: `db-${solutionId}`,
     solutionId,
     label: `Solution #${solutionId}`,
     pipeline: item.pipeline || {},
     runtimeMs: item.runtime_ms ?? null,
-    metrics: metricPairsFromObjectives(item.objectives, metricsOrder),
+    metrics: storedMetrics || metricPairsFromObjectives(item.objectives, metricsOrder),
     objectives: Array.isArray(item.objectives) ? item.objectives : [],
     variables: Array.isArray(item.variables) ? item.variables : [],
     isPareto: Boolean(item.is_pareto),
+    isFeasible: item.is_feasible !== false,
+    constraintViolations: Array.isArray(item.constraint_violations) ? item.constraint_violations : [],
     petri: {
       places: Array.isArray(item.places) ? item.places : [],
       transitions: Array.isArray(item.transitions) ? item.transitions : [],
@@ -246,6 +249,8 @@ export default function ResultsPage() {
   const [modelSelectionPending, setModelSelectionPending] = useState(false)
   const [modelSelectionError, setModelSelectionError] = useState('')
   const [modelSelectionResult, setModelSelectionResult] = useState(null)
+  const [feasibleOnlySelection, setFeasibleOnlySelection] = useState(false)
+  const [showOnlyFeasible, setShowOnlyFeasible] = useState(false)
   const [modelPetriViewMode, setModelPetriViewMode] = useState('interactive')
   const [modelPetriImageUrl, setModelPetriImageUrl] = useState('')
   const [modelPetriImageLoading, setModelPetriImageLoading] = useState(false)
@@ -327,6 +332,7 @@ export default function ResultsPage() {
           execution_name: experimentPayload.experiment_name,
           log_path: experimentPayload.log_path,
           metrics: experimentPayload.metrics || [],
+          constraints: experimentPayload.constraints || [],
           discover: {
             max_evaluations: experimentPayload.max_evals,
             population_size: experimentPayload.pop_size,
@@ -530,7 +536,12 @@ export default function ResultsPage() {
     }
   }
 
-  const solutionGroups = useMemo(() => buildSolutionGroups(solutions), [solutions])
+  const filteredSolutions = useMemo(
+    () => (showOnlyFeasible ? solutions.filter((solution) => solution.isFeasible) : solutions),
+    [showOnlyFeasible, solutions]
+  )
+
+  const solutionGroups = useMemo(() => buildSolutionGroups(filteredSolutions), [filteredSolutions])
 
   useEffect(() => {
     setSelectedGroupId((previous) => {
@@ -617,6 +628,7 @@ export default function ResultsPage() {
       const payload = await selectExperimentModel(jobId, {
         scope: 'pareto',
         weights: modelWeights,
+        feasible_only: feasibleOnlySelection,
       })
       setModelSelectionResult(payload)
 
@@ -824,6 +836,12 @@ export default function ResultsPage() {
                 : 'default'}
             </p>
             <p>
+              <strong>Constraints:</strong>{' '}
+              {Array.isArray(job.request?.constraints) && job.request.constraints.length
+                ? job.request.constraints.map((item) => `${item.metric} ${item.operator} ${item.value}`).join(' AND ')
+                : 'none'}
+            </p>
+            <p>
               <strong>Progress:</strong>{' '}
               {progress ? `${progress.evaluations_done}/${progress.max_evaluations} (${progress.percentage}%)` : '-'}
             </p>
@@ -885,6 +903,14 @@ export default function ResultsPage() {
                     </div>
 
                     <div className="inline-actions">
+                      <label className="inline-toggle">
+                        <input
+                          checked={feasibleOnlySelection}
+                          onChange={(event) => setFeasibleOnlySelection(event.target.checked)}
+                          type="checkbox"
+                        />
+                        Consider only feasible
+                      </label>
                       <button disabled={modelSelectionPending} onClick={handleSelectModel} type="button">
                         {modelSelectionPending ? 'Submitting...' : 'Submit'}
                       </button>
@@ -900,6 +926,9 @@ export default function ResultsPage() {
                           <strong>Scope:</strong> Pareto front | <strong>Candidates considered:</strong>{' '}
                           {modelSelectionResult.candidate_count ?? 0} | <strong>Scalarized objective:</strong>{' '}
                           {formatObjectiveValue(modelSelectionResult.scalarized_objective)}
+                        </p>
+                        <p>
+                          <strong>Feasible only:</strong> {modelSelectionResult.feasible_only ? 'yes' : 'no'}
                         </p>
                         <p>
                           <strong>Normalized weights:</strong>{' '}
@@ -960,7 +989,19 @@ export default function ResultsPage() {
             </details>
 
             <h3>Groups by objectives ({solutionGroups.length})</h3>
-            <p className="small muted">Total recorded solutions: {solutions.length}</p>
+            <div className="header-row">
+              <p className="small muted">
+                Total recorded solutions: {solutions.length} | Showing: {filteredSolutions.length}
+              </p>
+              <label className="inline-toggle">
+                <input
+                  checked={showOnlyFeasible}
+                  onChange={(event) => setShowOnlyFeasible(event.target.checked)}
+                  type="checkbox"
+                />
+                Show only feasible
+              </label>
+            </div>
             {solutions.length === 0 ? <p>No solutions recorded for this experiment.</p> : null}
 
             <div className="solutions-grid">
@@ -985,6 +1026,7 @@ export default function ResultsPage() {
                         {group.size} solutions | {group.uniquePipelines} pipelines | best runtime:{' '}
                         {formatRuntime(group.best?.runtimeMs)}
                       </div>
+                      <div className="small muted">Best solution feasible: {group.best?.isFeasible ? 'yes' : 'no'}</div>
                       <div className="small muted">
                         Objectives: [{group.objectives.map((value) => formatObjectiveValue(value)).join(', ')}]
                       </div>
@@ -1040,6 +1082,26 @@ export default function ResultsPage() {
                     <p>
                       <strong>Runtime (ms):</strong> {selectedSolution.runtimeMs === null ? '-' : selectedSolution.runtimeMs}
                     </p>
+                    <p>
+                      <strong>Feasible:</strong> {selectedSolution.isFeasible ? 'yes' : 'no'}
+                    </p>
+                    {Array.isArray(job?.request?.constraints) && job.request.constraints.length ? (
+                      <>
+                        <h4>Constraints</h4>
+                        <ul className="metric-list">
+                          {job.request.constraints.map((constraint, index) => {
+                            const violation = selectedSolution.constraintViolations[index]
+                            const satisfied = typeof violation === 'number' ? violation >= 0 : true
+                            return (
+                              <li key={`${constraint.metric}-${constraint.operator}-${constraint.value}-${index}`}>
+                                <strong>{constraint.metric}</strong> {constraint.operator} {String(constraint.value)} (
+                                {satisfied ? 'ok' : 'violated'})
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </>
+                    ) : null}
 
                     <h4>Metrics</h4>
                     {hasAnyMetric(selectedSolution) ? (
