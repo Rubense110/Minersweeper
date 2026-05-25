@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 
+from constraints import summarize_constraints
 from execution_control import JobCancelled
 
 
@@ -23,6 +24,7 @@ class ProMServiceClient:
         experiment_id: Optional[str] = None,
         conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = None,
+        constraints: Optional[Sequence[Dict[str, Any]]] = None,
         artifacts_bulk_endpoint: str = "/artifacts/bulk",
         cleanup_endpoint_template: str = "/experiments/{experiment_id}/cleanup",
         cancel_endpoint_template: str = "/experiments/{experiment_id}/cancel",
@@ -33,6 +35,7 @@ class ProMServiceClient:
         self.experiment_id = experiment_id
         self.conformance_mode = (conformance_mode or "").strip() or None
         self.excluded_miners = tuple(excluded_miners or ())
+        self.constraints_summary = summarize_constraints(constraints or [])
         self.artifacts_bulk_endpoint = artifacts_bulk_endpoint
         self.cleanup_endpoint_template = cleanup_endpoint_template
         self.cancel_endpoint_template = cancel_endpoint_template
@@ -78,10 +81,11 @@ class ProMServiceClient:
 
         pipeline_text = json.dumps(pipeline or {}, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
         LOGGER.info(
-            "evaluation dispatch experiment_id=%s log_path=%s metrics=%s pipeline=%s",
+            "evaluation dispatch experiment_id=%s log_path=%s metrics=%s constraints=%s pipeline=%s",
             resolved_experiment_id,
             log_path,
             ",".join(service_metrics),
+            self.constraints_summary or "-",
             pipeline_text,
         )
 
