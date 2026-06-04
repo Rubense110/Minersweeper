@@ -26,9 +26,11 @@ services:
       dockerfile: src/mining-service/Dockerfile
     ports:
       - "7070:7070"
+    mem_limit: ${PROM_SERVICE_MEM_LIMIT:-28g}
     environment:
       PORT: 7070
       LOGS_ROOT: /data/logs
+      JAVA_TOOL_OPTIONS: "-Xms${PROM_JAVA_XMS:-4g} -Xmx${PROM_JAVA_XMX:-26g} -XX:+UseG1GC"
       PIPELINE_EVALUATOR_MODE: real
       PROM_VERBOSE_EXCEPTIONS: "true"
       PROM_TIMING_ENABLED: "true"
@@ -60,7 +62,7 @@ services:
         condition: service_healthy
     environment:
       JAVA_SERVICE_URL: http://prom_service:7070
-      JAVA_SERVICE_TIMEOUT_SECONDS: "300"
+      JAVA_SERVICE_TIMEOUT_SECONDS: "3600"
       OPT_DB_URL: postgresql+psycopg://minersweeper:minersweeper@postgres:5432/minersweeper
       LOGS_ROOT: /data/logs
       OPTIMIZATION_HOST: 0.0.0.0

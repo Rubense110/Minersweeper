@@ -28,6 +28,8 @@ __pycache__/*
 /.m2-local/
 /src/optimization-service/reports/*
 /logs/*.log
+/logs/*.jsonl
+/logs/worker_matrix/
 /event_logs/*.xes
 /known_issues.md
 /docker-compose.override.yml
@@ -38,3 +40,4 @@ __pycache__/*
 /src/frontend-service/dist/
 /src/frontend-service/.vite/
 /src/frontend-service/.cache/
+/scripts/

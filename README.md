@@ -193,6 +193,20 @@ Before the first build, generate the Split Miner slim jar:
 ./tools/build_splitminer_slim.sh
 ```
 
+The mining service memory limits are configured through Docker Compose
+variable substitution. For local runs, copy the example environment file and
+adjust it to the host:
+
+```bash
+cp .env.example .env
+```
+
+The main knobs are:
+
+- `PROM_SERVICE_MEM_LIMIT`: hard memory limit for the Java mining container
+- `PROM_JAVA_XMS`: initial JVM heap
+- `PROM_JAVA_XMX`: maximum JVM heap, which should stay below the container limit
+
 Then start the full stack:
 
 ```bash
