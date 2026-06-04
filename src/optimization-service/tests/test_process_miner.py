@@ -62,12 +62,17 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             metrics=["fitness", "precision", "simplicity", "generalisation"],
             service_url="http://service",
             excluded_miners=("split", "ilp"),
+            excluded_preprocessings=("repair_log_filter",),
         )
         result = miner.discover(max_evaluations=50, population_size=20, n_partitions=3, n_workers=4)
 
         self.assertEqual(result, ["sol"])
         self.assertEqual([{"snapshot_index": 1, "evaluations_done": 20, "solutions": []}], miner.population_snapshots)
-        mock_space_cls.assert_called_once_with(excluded_miners=("split", "ilp"), log_path="dummy.xes")
+        mock_space_cls.assert_called_once_with(
+            excluded_miners=("split", "ilp"),
+            log_path="dummy.xes",
+            excluded_preprocessings=("repair_log_filter",),
+        )
         mock_client_cls.assert_called_once_with(
             base_url="http://service",
             experiment_id="exec",

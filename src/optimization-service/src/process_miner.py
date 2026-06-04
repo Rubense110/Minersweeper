@@ -30,6 +30,7 @@ class OptimizedProcessMiner:
         service_timeout_seconds: int = 300,
         conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = ("ilp",),
+        excluded_preprocessings: Optional[Sequence[str]] = None,
         execution_control: Optional[ExecutionControl] = None,
     ):
         self.execution_name = execution_name
@@ -41,6 +42,7 @@ class OptimizedProcessMiner:
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
         self.conformance_mode = (conformance_mode or "").strip() or None
         self.excluded_miners = tuple(excluded_miners or ())
+        self.excluded_preprocessings = tuple(excluded_preprocessings or ())
         self.execution_control = execution_control or ExecutionControl()
 
         self.search_space: Optional[PipelineSearchSpace] = None
@@ -64,7 +66,11 @@ class OptimizedProcessMiner:
         if not url:
             raise ValueError("service_url is required to evaluate candidate pipelines")
 
-        self.search_space = PipelineSearchSpace(excluded_miners=self.excluded_miners, log_path=self.log_path)
+        self.search_space = PipelineSearchSpace(
+            excluded_miners=self.excluded_miners,
+            log_path=self.log_path,
+            excluded_preprocessings=self.excluded_preprocessings,
+        )
         self.service_client = ProMServiceClient(
             base_url=url,
             experiment_id=self.execution_name,
