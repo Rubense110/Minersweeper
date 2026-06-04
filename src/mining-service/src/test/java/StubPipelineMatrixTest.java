@@ -23,6 +23,7 @@ public class StubPipelineMatrixTest {
         List<PipelineRequest.PreprocessingConfig> preprocessings = TestFixtures.allPreprocessings();
         List<PipelineRequest.MinerConfig> miners = TestFixtures.allMinerFamilies();
         List<String> metrics = TestFixtures.defaultMetrics();
+        List<String> structuralMetrics = TestFixtures.structuralMetrics();
 
         int evalCount = 0;
         for (PipelineRequest.PreprocessingConfig preprocessing : preprocessings) {
@@ -43,6 +44,16 @@ public class StubPipelineMatrixTest {
                 assertTrue(result.fingerprint.contains(preprocessing.key));
                 assertTrue(result.fingerprint.contains(miner.key));
                 TestFixtures.assertMetricsRange(result.metrics, metrics);
+
+                PipelineRequest structuralRequest = TestFixtures.buildRequest(
+                    experimentId + "_structural",
+                    "/tmp/log.xes",
+                    preprocessing,
+                    miner,
+                    structuralMetrics
+                );
+                EvaluationResult structuralResult = evaluator.evaluate(structuralRequest);
+                TestFixtures.assertNonNegativeMetrics(structuralResult.metrics, structuralMetrics);
 
                 ArtifactBulkResponse bulk = store.readBulk(experimentId, Arrays.asList(result.evaluation_id), true);
                 assertEquals(1, bulk.artifacts.size());

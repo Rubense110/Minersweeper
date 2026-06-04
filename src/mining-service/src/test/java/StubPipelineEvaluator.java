@@ -75,6 +75,8 @@ public class StubPipelineEvaluator implements PipelineEvaluator {
         double transitions = 2.0 + minerParams + (preParams % 2);
         double arcs = places + transitions + (totalParams % 4);
         double cyclComplx = arcs - (places + transitions) + 2.0;
+        double cfc = (minerParams % 3) + (preParams % 2);
+        double elc = arcs <= 0.0 ? 0.0 : (places + transitions) / arcs;
         double ratio = transitions <= 0.0 ? 0.0 : places / transitions;
         double joins = preParams % 4;
         double splits = minerParams % 4;
@@ -83,7 +85,10 @@ public class StubPipelineEvaluator implements PipelineEvaluator {
         metrics.put("places", places);
         metrics.put("transitions", transitions);
         metrics.put("arcs", arcs);
+        metrics.put("t_edges", arcs);
         metrics.put("cycl_complx", cyclComplx);
+        metrics.put("cfc", cfc);
+        metrics.put("elc", elc);
         metrics.put("ratio", ratio);
         metrics.put("joins", joins);
         metrics.put("splits", splits);

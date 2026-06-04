@@ -85,7 +85,7 @@ class FakeManager:
         self.cancelled_job_id = job_id
         return {"job_id": job_id, "status": "cancelling"}
 
-    def select_experiment_model(self, experiment_id, weights, scope):
+    def select_experiment_model(self, experiment_id, weights, scope, feasible_only):
         if experiment_id == "missing":
             raise KeyError(experiment_id)
         if experiment_id == "empty":
@@ -94,6 +94,7 @@ class FakeManager:
             "experiment_id": experiment_id,
             "weights": weights,
             "scope": scope,
+            "feasible_only": feasible_only,
         }
         return {
             "experiment_id": experiment_id,
@@ -103,6 +104,7 @@ class FakeManager:
             "slider_weights": {"fitness": 80, "precision": 20},
             "normalized_weights": {"fitness": 0.8, "precision": 0.2},
             "candidate_count": 2,
+            "feasible_only": feasible_only,
             "selected_solution_id": 7,
             "selected_solution": {"solution_id": 7, "objectives": [-0.91, -0.55], "is_pareto": True},
             "scalarized_objective": -0.838,
@@ -151,11 +153,21 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("j1", body["jobs"][0]["job_id"])
 
     def test_create_job_ok(self):
-        response = self.client.post("/optimizations", json={"execution_name": "run_1", "log_path": "/data/log.xes"})
+        response = self.client.post(
+            "/optimizations",
+            json={
+                "execution_name": "run_1",
+                "log_path": "/data/log.xes",
+                "metrics": ["fitness"],
+                "constraints": [{"metric": "places", "operator": "<=", "value": 12}],
+            },
+        )
         self.assertEqual(202, response.status_code)
         body = response.get_json()
         self.assertEqual("created", body["job_id"])
         self.assertEqual("queued", body["status"])
+        self.assertEqual(["fitness"], api._manager.last_submit_payload["metrics"])
+        self.assertEqual([{"metric": "places", "operator": "<=", "value": 12}], api._manager.last_submit_payload["constraints"])
 
     def test_create_job_validation_error(self):
         response = self.client.post("/optimizations", json={"raise": "value"})
@@ -254,9 +266,20 @@ class OptimizationApiTest(unittest.TestCase):
                 "experiment_id": "exp-1",
                 "weights": {"fitness": 80, "precision": 20},
                 "scope": "pareto",
+                "feasible_only": False,
             },
             api._manager.last_model_selection,
         )
+
+    def test_select_experiment_model_passes_feasible_only(self):
+        response = self.client.post(
+            "/experiments/exp-1/select-model",
+            json={"scope": "pareto", "feasible_only": True, "weights": {"fitness": 100}},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.get_json()["feasible_only"])
+        self.assertTrue(api._manager.last_model_selection["feasible_only"])
 
     def test_select_experiment_model_rejects_invalid_scope(self):
         response = self.client.post("/experiments/exp-1/select-model", json={"scope": "bad", "weights": {}})

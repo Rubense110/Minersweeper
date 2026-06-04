@@ -103,7 +103,10 @@ class ProMServiceClientTest(unittest.TestCase):
                 "places": 12.0,
                 "transitions": 9.0,
                 "arcs": 24.0,
+                "t_edges": 24.0,
                 "cycl_complx": 5.0,
+                "cfc": 7.0,
+                "elc": 13.5,
                 "ratio": 1.3333333333,
                 "joins": 2.0,
                 "splits": 3.0,
@@ -113,7 +116,18 @@ class ProMServiceClientTest(unittest.TestCase):
         mock_post.return_value = response
 
         client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
-        requested = ["places", "transitions", "arcs", "cycl_complx", "ratio", "joins", "splits"]
+        requested = [
+            "places",
+            "transitions",
+            "arcs",
+            "t_edges",
+            "cycl_complx",
+            "cfc",
+            "elc",
+            "ratio",
+            "joins",
+            "splits",
+        ]
         result = client.evaluate_pipeline(
             log_path="dummy.xes",
             pipeline={"miner": {}, "preprocessing": {}},
@@ -121,6 +135,8 @@ class ProMServiceClientTest(unittest.TestCase):
         )
         self.assertEqual(result["metrics"]["places"], 12.0)
         self.assertEqual(result["metrics"]["cycl_complx"], 5.0)
+        self.assertEqual(result["metrics"]["cfc"], 7.0)
+        self.assertEqual(result["metrics"]["elc"], 13.5)
         self.assertEqual(
             mock_post.call_args.kwargs["json"]["metrics"],
             requested,
@@ -212,6 +228,29 @@ class ProMServiceClientTest(unittest.TestCase):
                 pipeline={"miner": {}, "preprocessing": {}},
                 metrics=["fitness"],
             )
+
+    @patch("java_service_client.LOGGER")
+    @patch("java_service_client.requests.post")
+    def test_evaluation_dispatch_log_includes_constraints_summary(self, mock_post, mock_logger):
+        response = Mock()
+        response.json.return_value = {"metrics": {"fitness": 0.9}}
+        response.raise_for_status.return_value = None
+        mock_post.return_value = response
+
+        client = ProMServiceClient(
+            base_url="http://service",
+            experiment_id="exp-1",
+            constraints=[{"metric": "cycl_complx", "operator": "<=", "value": 5.0}],
+        )
+        client.evaluate_pipeline(
+            log_path="dummy.xes",
+            pipeline={"miner": {}, "preprocessing": {}},
+            metrics=["fitness"],
+        )
+
+        message = mock_logger.info.call_args.args[0]
+        self.assertIn("constraints=%s", message)
+        self.assertEqual("cycl_complx<=5.0", mock_logger.info.call_args.args[4])
 
 
 if __name__ == "__main__":

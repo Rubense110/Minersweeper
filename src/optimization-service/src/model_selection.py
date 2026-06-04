@@ -66,18 +66,23 @@ def select_weighted_model(
     solutions: List[Dict[str, Any]],
     raw_weights: Dict[str, Any] | None,
     scope: str,
+    feasible_only: bool = False,
 ) -> Dict[str, Any]:
     metrics = [str(item) for item in list(experiment.get("metrics") or []) if str(item).strip()]
     slider_weights, normalized_weights = normalize_slider_weights(metrics, raw_weights)
 
     valid_candidates: List[Tuple[float, Dict[str, Any]]] = []
     for solution in solutions:
+        if feasible_only and not bool(solution.get("is_feasible", True)):
+            continue
         scalarized = _scalarize_objectives(list(solution.get("objectives") or []), metrics, normalized_weights)
         if scalarized is None:
             continue
         valid_candidates.append((scalarized, solution))
 
     if not valid_candidates:
+        if feasible_only:
+            raise ModelSelectionUnavailable("experiment has no feasible valid solutions for weighted model selection")
         raise ModelSelectionUnavailable("experiment has no valid solutions for weighted model selection")
 
     best_score, best_solution = min(valid_candidates, key=lambda item: item[0])
@@ -88,6 +93,7 @@ def select_weighted_model(
         "metrics": metrics,
         "slider_weights": slider_weights,
         "normalized_weights": normalized_weights,
+        "feasible_only": bool(feasible_only),
         "candidate_count": len(valid_candidates),
         "selected_solution_id": best_solution.get("solution_id"),
         "selected_solution": best_solution,

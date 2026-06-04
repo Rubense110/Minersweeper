@@ -11,12 +11,16 @@ const METRIC_OPTIONS = [
   { value: 'places', label: 'places' },
   { value: 'transitions', label: 'transitions' },
   { value: 'arcs', label: 'arcs' },
+  { value: 't_edges', label: 't_edges' },
   { value: 'cycl_complx', label: 'cycl_complex' },
+  { value: 'cfc', label: 'cfc' },
+  { value: 'elc', label: 'elc' },
   { value: 'ratio', label: 'ratio' },
   { value: 'joins', label: 'joins' },
   { value: 'splits', label: 'splits' },
 ]
 const DEFAULT_SELECTED_METRICS = ['fitness', 'precision', 'simplicity', 'generalisation']
+const CONSTRAINT_OPERATORS = ['<=', '<', '>=', '>', '==']
 const CONFORMANCE_MODE_OPTIONS = [
   { value: 'alignment', label: 'Alignments' },
   { value: 'replay', label: 'Replay' },
@@ -60,6 +64,14 @@ function toRelativeLogPath(value) {
   return normalized
 }
 
+function createEmptyConstraint(metric = METRIC_OPTIONS[0]?.value || 'fitness') {
+  return {
+    metric,
+    operator: '<=',
+    value: '',
+  }
+}
+
 export default function RunPage() {
   const navigate = useNavigate()
   const [executionName, setExecutionName] = useState(`run_${Date.now()}`)
@@ -70,6 +82,7 @@ export default function RunPage() {
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
   const [conformanceMode, setConformanceMode] = useState('replay')
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
+  const [constraints, setConstraints] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [error, setError] = useState('')
@@ -111,6 +124,20 @@ export default function RunPage() {
 
   const hasNoMetrics = selectedMetrics.length === 0
 
+  function updateConstraint(index, key, value) {
+    setConstraints((previous) =>
+      previous.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item))
+    )
+  }
+
+  function addConstraint() {
+    setConstraints((previous) => [...previous, createEmptyConstraint(selectedMetrics[0] || METRIC_OPTIONS[0]?.value)])
+  }
+
+  function removeConstraint(index) {
+    setConstraints((previous) => previous.filter((_, itemIndex) => itemIndex !== index))
+  }
+
   function toggleMetric(metric) {
     setSelectedMetrics((previous) => {
       if (previous.includes(metric)) {
@@ -147,10 +174,30 @@ export default function RunPage() {
       if (!CONFORMANCE_MODE_OPTIONS.some((option) => option.value === conformanceMode)) {
         throw new Error('Invalid conformance mode')
       }
+      const normalizedConstraints = constraints.map((constraint, index) => {
+        const metric = String(constraint.metric || '').trim()
+        const operator = String(constraint.operator || '').trim()
+        const parsedValue = Number.parseFloat(String(constraint.value))
+        if (!metric) {
+          throw new Error(`Constraint #${index + 1}: metric is required`)
+        }
+        if (!CONSTRAINT_OPERATORS.includes(operator)) {
+          throw new Error(`Constraint #${index + 1}: invalid operator`)
+        }
+        if (!Number.isFinite(parsedValue)) {
+          throw new Error(`Constraint #${index + 1}: value must be numeric`)
+        }
+        return {
+          metric,
+          operator,
+          value: parsedValue,
+        }
+      })
       const job = await createOptimization({
         execution_name: executionName.trim() || `run_${Date.now()}`,
         log_path: toRelativeLogPath(logPath),
         metrics: selectedMetrics,
+        constraints: normalizedConstraints,
         conformance_mode: conformanceMode,
         max_evaluations: parsedMaxEvaluations,
         population_size: parsedPopulationSize,
@@ -232,6 +279,44 @@ export default function RunPage() {
               ))}
             </div>
             {hasNoMetrics ? <p className="error">Select at least one metric.</p> : null}
+          </fieldset>
+
+          <fieldset className="metric-fieldset">
+            <div className="header-row">
+              <legend>Constraints</legend>
+              <button className="link-button secondary" onClick={addConstraint} type="button">
+                Add constraint
+              </button>
+            </div>
+            {constraints.length === 0 ? <p className="small muted">No constraints configured.</p> : null}
+            <div className="constraint-list">
+              {constraints.map((constraint, index) => (
+                <div className="constraint-row" key={`constraint-${index}`}>
+                  <FancySelect
+                    ariaLabel={`Select metric for constraint ${index + 1}`}
+                    onChange={(value) => updateConstraint(index, 'metric', value)}
+                    options={METRIC_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    value={constraint.metric}
+                  />
+                  <FancySelect
+                    ariaLabel={`Select operator for constraint ${index + 1}`}
+                    onChange={(value) => updateConstraint(index, 'operator', value)}
+                    options={CONSTRAINT_OPERATORS.map((operator) => ({ value: operator, label: operator }))}
+                    value={constraint.operator}
+                  />
+                  <input
+                    onChange={(event) => updateConstraint(index, 'value', event.target.value)}
+                    placeholder="Threshold"
+                    step="any"
+                    type="number"
+                    value={constraint.value}
+                  />
+                  <button className="link-button danger" onClick={() => removeConstraint(index)} type="button">
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
           </fieldset>
 
           <div className="row row-compact">

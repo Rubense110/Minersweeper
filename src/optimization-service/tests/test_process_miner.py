@@ -74,11 +74,17 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             timeout_seconds=300,
             conformance_mode=None,
             excluded_miners=("split", "ilp"),
+            constraints=[],
         )
 
         _, kwargs = mock_problem_cls.call_args
         self.assertEqual(kwargs["log_path"], "dummy.xes")
         self.assertEqual(kwargs["metrics_list"], ["fitness", "precision", "simplicity", "generalisation"])
+        self.assertEqual(
+            kwargs["required_metrics"],
+            ["fitness", "precision", "simplicity", "generalisation"],
+        )
+        self.assertEqual(kwargs["constraints"], [])
         self.assertEqual(kwargs["maximize_metrics"], [True, True, True, True])
         self.assertIs(kwargs["search_space"], mock_space)
         self.assertIs(kwargs["evaluator"], mock_client.evaluate_pipeline)

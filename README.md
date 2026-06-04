@@ -141,7 +141,10 @@ Additional structural metrics available through the UI/API:
 - `places`
 - `transitions`
 - `arcs`
+- `t_edges`
 - `cycl_complx`
+- `cfc`
+- `elc`
 - `ratio`
 - `joins`
 - `splits`

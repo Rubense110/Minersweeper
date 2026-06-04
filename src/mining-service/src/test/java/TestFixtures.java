@@ -38,6 +38,10 @@ final class TestFixtures {
         return Arrays.asList("fitness", "precision", "simplicity", "generalisation");
     }
 
+    static List<String> structuralMetrics() {
+        return Arrays.asList("t_edges", "cfc", "elc");
+    }
+
     static PipelineRequest buildRequest(
         String experimentId,
         String logPath,
@@ -212,6 +216,18 @@ final class TestFixtures {
             Double value = metrics.get(key);
             if (value == null || value.doubleValue() < 0.0 || value.doubleValue() > 1.0) {
                 throw new AssertionError("metric out of [0,1] for key " + key + ": " + value);
+            }
+        }
+    }
+
+    static void assertNonNegativeMetrics(Map<String, Double> metrics, List<String> expectedKeys) {
+        for (String key : expectedKeys) {
+            if (!metrics.containsKey(key)) {
+                throw new AssertionError("missing metric key: " + key + " in " + metrics.keySet());
+            }
+            Double value = metrics.get(key);
+            if (value == null || value.doubleValue() < 0.0 || !Double.isFinite(value.doubleValue())) {
+                throw new AssertionError("metric is not finite and non-negative for key " + key + ": " + value);
             }
         }
     }
