@@ -78,6 +78,16 @@ public class RequestValidatorTest {
     }
 
     @Test
+    public void pipelineRequestAcceptsReplayTokenMode() {
+        PipelineRequest request = buildValidPipelineRequest("fitness", "precision", "generalisation");
+        request.conformance_mode = "replay-token";
+
+        RequestValidator.validatePipelineRequest(request);
+
+        assertTrue("replay-token".equals(request.conformance_mode));
+    }
+
+    @Test
     public void pipelineRequestAcceptsPreprocessingChain() {
         PipelineRequest request = buildValidPipelineRequest("fitness");
         request.pipeline.preprocessing = null;
