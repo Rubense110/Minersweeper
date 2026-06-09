@@ -24,6 +24,7 @@ const CONSTRAINT_OPERATORS = ['<=', '<', '>=', '>', '==']
 const CONFORMANCE_MODE_OPTIONS = [
   { value: 'alignment', label: 'Alignments' },
   { value: 'replay', label: 'Replay' },
+  { value: 'replay-token', label: 'Token replay' },
 ]
 const DEFAULT_LOG_PREFERENCE = 'BPI_Challenge_2013_closed_problems.xes'
 const HW_CONCURRENCY =

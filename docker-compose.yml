@@ -62,7 +62,7 @@ services:
         condition: service_healthy
     environment:
       JAVA_SERVICE_URL: http://prom_service:7070
-      JAVA_SERVICE_TIMEOUT_SECONDS: "3600"
+      JAVA_SERVICE_TIMEOUT_SECONDS: "300"
       OPT_DB_URL: postgresql+psycopg://minersweeper:minersweeper@postgres:5432/minersweeper
       LOGS_ROOT: /data/logs
       OPTIMIZATION_HOST: 0.0.0.0
