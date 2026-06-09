@@ -44,6 +44,9 @@ public class ConformanceComputation {
     private TransEvClassMapping mapping;
     private PNRepResult replayResult;
     private AlignmentPrecGenRes alignment;
+    private TokenReplayEngine tokenReplayEngine;
+    private TokenReplayResult tokenReplayResult;
+    private TokenReplayPrecisionResult tokenReplayPrecisionResult;
     private Double replayPrecision;
     private Double replayGeneralisation;
 
@@ -128,7 +131,10 @@ public class ConformanceComputation {
     }
 
     public synchronized double getFitness() throws Exception {
-        if (!conformanceMode.isAlignment()) {
+        if (conformanceMode.isReplayToken()) {
+            return getTokenReplayResult().fitness();
+        }
+        if (conformanceMode.isReplay()) {
             return getReplayFitnessLikePm4py();
         }
         Map<String, Object> info = getReplayResult().getInfo();
@@ -139,6 +145,9 @@ public class ConformanceComputation {
         if (conformanceMode.isAlignment()) {
             return getAlignment().getPrecision();
         }
+        if (conformanceMode.isReplayToken()) {
+            return getTokenReplayPrecisionResult().precision();
+        }
         return getReplayPrecision();
     }
 
@@ -146,7 +155,45 @@ public class ConformanceComputation {
         if (conformanceMode.isAlignment()) {
             return getAlignment().getGeneralization();
         }
+        if (conformanceMode.isReplayToken()) {
+            return getTokenReplayGeneralisation();
+        }
         return getReplayGeneralisation();
+    }
+
+    public synchronized TokenReplayResult getTokenReplayResult() {
+        if (tokenReplayResult != null) {
+            return tokenReplayResult;
+        }
+        TokenReplayComputation computation = new TokenReplayComputation(log, getTokenReplayEngine(), timing);
+        tokenReplayResult = computation.compute();
+        return tokenReplayResult;
+    }
+
+    public synchronized TokenReplayPrecisionResult getTokenReplayPrecisionResult() {
+        if (tokenReplayPrecisionResult != null) {
+            return tokenReplayPrecisionResult;
+        }
+        TokenReplayPrecisionComputation computation = new TokenReplayPrecisionComputation(
+            log,
+            getTokenReplayEngine(),
+            timing
+        );
+        tokenReplayPrecisionResult = computation.compute();
+        return tokenReplayPrecisionResult;
+    }
+
+    private synchronized TokenReplayEngine getTokenReplayEngine() {
+        if (tokenReplayEngine == null) {
+            tokenReplayEngine = new TokenReplayEngine(
+                net,
+                initialMarking,
+                finalMarking,
+                getClassifier(),
+                getMapping()
+            );
+        }
+        return tokenReplayEngine;
     }
 
     public synchronized AlignmentPrecGenRes getAlignment() throws Exception {
@@ -240,6 +287,34 @@ public class ConformanceComputation {
         if (timing != null) {
             timing.markFromStart("replay_generalisation_ms", replayGeneralisationStartNs);
         }
+        return replayGeneralisation.doubleValue();
+    }
+
+    private synchronized double getTokenReplayGeneralisation() {
+        if (replayGeneralisation != null) {
+            return replayGeneralisation.doubleValue();
+        }
+
+        Map<Transition, Integer> transitionActivations = getTokenReplayResult().transitionActivations();
+        int transitionCount = net.getTransitions().size();
+        if (transitionCount <= 0) {
+            replayGeneralisation = Double.valueOf(1.0);
+        } else {
+            double penalty = 0.0;
+            for (Transition transition : net.getTransitions()) {
+                int activations = transitionActivations.containsKey(transition)
+                    ? transitionActivations.get(transition).intValue()
+                    : 0;
+                if (activations <= 0) {
+                    penalty += 1.0;
+                } else {
+                    penalty += 1.0 / Math.sqrt((double) activations);
+                }
+            }
+            double value = 1.0 - (penalty / (double) transitionCount);
+            replayGeneralisation = Double.valueOf(value);
+        }
+
         return replayGeneralisation.doubleValue();
     }
 

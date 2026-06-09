@@ -23,14 +23,18 @@ class DecisionVariable:
 class PipelineSearchSpace:
     """Builds a flat float search space and decodes it into pipeline configs."""
 
-    def __init__(self, excluded_miners: Optional[Sequence[str]] = None, log_path: Optional[str] = None):
+    def __init__(
+        self,
+        excluded_miners: Optional[Sequence[str]] = None,
+        log_path: Optional[str] = None,
+        excluded_preprocessings: Optional[Sequence[str]] = None,
+    ):
         excluded = set(excluded_miners or [])
+        excluded_pre = set(excluded_preprocessings or [])
         self.log_path = log_path
 
-        self.preprocessing_keys = list(PREPROCESSING_CATALOG.keys())
+        self.preprocessing_keys = [key for key in PREPROCESSING_CATALOG.keys() if key not in excluded_pre]
         self.miner_keys = [key for key in MINER_CATALOG.keys() if key not in excluded]
-        if not self.preprocessing_keys:
-            raise ValueError("Preprocessing catalog is empty")
         if not self.miner_keys:
             raise ValueError("Miner catalog is empty after exclusions")
 
@@ -73,13 +77,14 @@ class PipelineSearchSpace:
         raise ValueError(f"Unsupported optimizable parameter type: {ptype}")
 
     def _build(self) -> None:
-        self._add_variable(
-            key="preprocessing::selected",
-            ptype="enum",
-            min_val=0.0,
-            max_val=float(len(self.preprocessing_keys) - 1),
-            choices=self.preprocessing_keys,
-        )
+        if self.preprocessing_keys:
+            self._add_variable(
+                key="preprocessing::selected",
+                ptype="enum",
+                min_val=0.0,
+                max_val=float(len(self.preprocessing_keys) - 1),
+                choices=self.preprocessing_keys,
+            )
 
         # Pasos del preprocesado
         for prep_key in self.preprocessing_keys:
@@ -175,6 +180,9 @@ class PipelineSearchSpace:
         raise ValueError(f"Unsupported parameter type: {ptype}")
 
     def _decode_preprocessing(self, values: Sequence[float]) -> Dict[str, Any]:
+        if not self.preprocessing_keys:
+            return {}
+
         selected_key = self._decode_value(
             raw=self._get_raw(values, "preprocessing::selected"),
             ptype="enum",
@@ -251,7 +259,10 @@ class PipelineSearchSpace:
         }
 
     def decode(self, values: Sequence[float]) -> Dict[str, Any]:
-        return {
-            "preprocessing": self._decode_preprocessing(values),
-            "miner": self._decode_miner(values),
-        }
+        pipeline = {"miner": self._decode_miner(values)}
+        preprocessing = self._decode_preprocessing(values)
+        if preprocessing:
+            pipeline["preprocessing"] = preprocessing
+        else:
+            pipeline["preprocessings"] = []
+        return pipeline

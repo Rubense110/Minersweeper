@@ -42,9 +42,6 @@ public final class RequestValidator {
         } else if (payload.pipeline.preprocessing != null) {
             preprocessings.add(payload.pipeline.preprocessing);
         }
-        if (preprocessings.isEmpty()) {
-            throw new BadRequestException("pipeline.preprocessing or pipeline.preprocessings is required");
-        }
         for (int i = 0; i < preprocessings.size(); i++) {
             PipelineRequest.PreprocessingConfig preprocessing = preprocessings.get(i);
             if (preprocessing == null) {
@@ -68,7 +65,7 @@ public final class RequestValidator {
             }
         }
         payload.pipeline.preprocessings = preprocessings;
-        payload.pipeline.preprocessing = preprocessings.get(0);
+        payload.pipeline.preprocessing = preprocessings.isEmpty() ? null : preprocessings.get(0);
 
         if (payload.pipeline.miner.parameters == null) {
             payload.pipeline.miner.parameters = new HashMap<String, Object>();

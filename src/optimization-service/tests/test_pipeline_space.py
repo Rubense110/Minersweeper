@@ -37,6 +37,25 @@ class PipelineSearchSpaceTest(unittest.TestCase):
         self.assertIn(decoded["preprocessing"]["key"], space.preprocessing_keys)
         self.assertIn(decoded["miner"]["key"], space.miner_keys)
 
+    def test_decode_without_preprocessing_when_all_excluded(self):
+        space = PipelineSearchSpace(
+            excluded_miners=("split",),
+            excluded_preprocessings=(
+                "matrix_filter",
+                "repair_log_filter",
+                "variant_filter",
+                "projection_filter",
+            ),
+        )
+        values = [(var.min_val + var.max_val) / 2 for var in space.variables]
+        decoded = space.decode(values)
+
+        self.assertNotIn("preprocessing", decoded)
+        self.assertEqual(decoded["preprocessings"], [])
+        self.assertIn("miner", decoded)
+        self.assertNotIn("preprocessing::selected", space.index_by_key)
+        self.assertEqual(space.preprocessing_keys, [])
+
     def test_hybrid_ilp_lp_filter_gating_none(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
         values = [var.min_val for var in space.variables]

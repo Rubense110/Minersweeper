@@ -2,7 +2,8 @@ package com.minersweeper.javaservice.evaluation.conformance;
 
 public enum ConformanceMode {
     ALIGNMENT("alignment"),
-    REPLAY("replay");
+    REPLAY("replay"),
+    REPLAY_TOKEN("replay-token");
 
     private final String key;
 
@@ -16,6 +17,14 @@ public enum ConformanceMode {
 
     public boolean isAlignment() {
         return this == ALIGNMENT;
+    }
+
+    public boolean isReplay() {
+        return this == REPLAY;
+    }
+
+    public boolean isReplayToken() {
+        return this == REPLAY_TOKEN;
     }
 
     public static ConformanceMode resolve(String raw) {

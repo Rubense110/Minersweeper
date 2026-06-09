@@ -665,6 +665,7 @@ class OptimizationJobManager:
         required_metrics = collect_required_metrics(metrics, constraints)
         conformance_mode = payload.get("conformance_mode")
         excluded_miners = payload.get("excluded_miners", ["ilp"])
+        excluded_preprocessings = payload.get("excluded_preprocessings", [])
 
         requested_n_workers = payload.get("n_workers", 1)
         normalized_n_workers = _normalize_n_workers(requested_n_workers)
@@ -704,6 +705,7 @@ class OptimizationJobManager:
                 "required_metrics": required_metrics,
                 "conformance_mode": conformance_mode,
                 "excluded_miners": excluded_miners,
+                "excluded_preprocessings": excluded_preprocessings,
                 "discover": discover_cfg,
             },
             "result": None,
@@ -988,6 +990,7 @@ class OptimizationJobManager:
             service_timeout_seconds=self.java_service_timeout_seconds,
             conformance_mode=config.get("conformance_mode"),
             excluded_miners=tuple(config.get("excluded_miners") or ()),
+            excluded_preprocessings=tuple(config.get("excluded_preprocessings") or ()),
             execution_control=control,
         )
         with self._lock:

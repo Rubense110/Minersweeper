@@ -3,9 +3,11 @@ package com.minersweeper.javaservice.app.validation;
 import com.minersweeper.javaservice.api.dto.ArtifactBulkRequest;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import java.util.Arrays;
+import java.util.Collections;
 import org.junit.Test;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -76,6 +78,16 @@ public class RequestValidatorTest {
     }
 
     @Test
+    public void pipelineRequestAcceptsReplayTokenMode() {
+        PipelineRequest request = buildValidPipelineRequest("fitness", "precision", "generalisation");
+        request.conformance_mode = "replay-token";
+
+        RequestValidator.validatePipelineRequest(request);
+
+        assertTrue("replay-token".equals(request.conformance_mode));
+    }
+
+    @Test
     public void pipelineRequestAcceptsPreprocessingChain() {
         PipelineRequest request = buildValidPipelineRequest("fitness");
         request.pipeline.preprocessing = null;
@@ -102,6 +114,19 @@ public class RequestValidatorTest {
         assertTrue("variant_filter".equals(request.pipeline.preprocessing.key));
         assertNotNull(request.pipeline.preprocessings.get(0).parameters);
         assertNotNull(request.pipeline.preprocessings.get(1).parameters);
+    }
+
+    @Test
+    public void pipelineRequestAcceptsNoPreprocessing() {
+        PipelineRequest request = buildValidPipelineRequest("fitness");
+        request.pipeline.preprocessing = null;
+        request.pipeline.preprocessings = Collections.emptyList();
+
+        RequestValidator.validatePipelineRequest(request);
+
+        assertNull(request.pipeline.preprocessing);
+        assertNotNull(request.pipeline.preprocessings);
+        assertTrue(request.pipeline.preprocessings.isEmpty());
     }
 
     @Test
