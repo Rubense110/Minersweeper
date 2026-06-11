@@ -89,7 +89,7 @@ class FakeManager:
         if experiment_id == "missing":
             raise KeyError(experiment_id)
         if experiment_id == "empty":
-            raise api.ModelSelectionUnavailable("experiment has no valid solutions for weighted model selection")
+            raise api.ModelSelectionUnavailable("experiment has no valid solutions for ASF model selection")
         self.last_model_selection = {
             "experiment_id": experiment_id,
             "weights": weights,
@@ -99,7 +99,7 @@ class FakeManager:
         return {
             "experiment_id": experiment_id,
             "scope": scope,
-            "selection_method": "weighted_sum",
+            "selection_method": "asf",
             "metrics": ["fitness", "precision"],
             "slider_weights": {"fitness": 80, "precision": 20},
             "normalized_weights": {"fitness": 0.8, "precision": 0.2},
@@ -107,7 +107,9 @@ class FakeManager:
             "feasible_only": feasible_only,
             "selected_solution_id": 7,
             "selected_solution": {"solution_id": 7, "objectives": [-0.91, -0.55], "is_pareto": True},
-            "scalarized_objective": -0.838,
+            "scalarized_objective": 0.25,
+            "approx_ideal": [-0.91, -0.55],
+            "approx_nadir": [-0.8, -0.3],
         }
 
     def get_experiment_export(self, experiment_id):
