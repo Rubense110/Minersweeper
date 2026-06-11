@@ -293,7 +293,7 @@ Main API capabilities include:
 For local non-container debugging, the service can still be started directly with:
 
 ```bash
-python src/optimization-service/src/api.py
+python -m api
 ```
 
 ### Mining service
