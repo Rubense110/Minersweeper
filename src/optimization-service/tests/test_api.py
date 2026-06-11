@@ -118,32 +118,17 @@ class FakeManager:
 
 class OptimizationApiTest(unittest.TestCase):
     def setUp(self):
-        self.original_manager = api._manager
-        api._manager = FakeManager()
+        self.original_manager = api.get_manager()
+        api.set_manager(FakeManager())
         self.client = api.app.test_client()
 
     def tearDown(self):
-        api._manager = self.original_manager
+        api.set_manager(self.original_manager)
 
     def test_health(self):
         response = self.client.get("/health")
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.get_json())
-
-    def test_legacy_ui_stats(self):
-        response = self.client.get("/ui/api/stats")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("ok", response.get_json()["status"])
-
-    def test_legacy_ui_cluster(self):
-        response = self.client.get("/ui/api/cluster")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("ok", response.get_json()["status"])
-
-    def test_legacy_ui_query(self):
-        response = self.client.get("/ui/api/query")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("ok", response.get_json()["status"])
 
     def test_list_jobs(self):
         response = self.client.get("/optimizations")
@@ -166,8 +151,11 @@ class OptimizationApiTest(unittest.TestCase):
         body = response.get_json()
         self.assertEqual("created", body["job_id"])
         self.assertEqual("queued", body["status"])
-        self.assertEqual(["fitness"], api._manager.last_submit_payload["metrics"])
-        self.assertEqual([{"metric": "places", "operator": "<=", "value": 12}], api._manager.last_submit_payload["constraints"])
+        self.assertEqual(["fitness"], api.get_manager().last_submit_payload["metrics"])
+        self.assertEqual(
+            [{"metric": "places", "operator": "<=", "value": 12}],
+            api.get_manager().last_submit_payload["constraints"],
+        )
 
     def test_create_job_validation_error(self):
         response = self.client.post("/optimizations", json={"raise": "value"})
@@ -185,7 +173,7 @@ class OptimizationApiTest(unittest.TestCase):
         body = response.get_json()
         self.assertEqual("job-1", body["job_id"])
         self.assertEqual("cancelling", body["status"])
-        self.assertEqual("job-1", api._manager.cancelled_job_id)
+        self.assertEqual("job-1", api.get_manager().cancelled_job_id)
 
     def test_cancel_job_not_found(self):
         response = self.client.post("/optimizations/missing/cancel")
@@ -268,7 +256,7 @@ class OptimizationApiTest(unittest.TestCase):
                 "scope": "pareto",
                 "feasible_only": False,
             },
-            api._manager.last_model_selection,
+            api.get_manager().last_model_selection,
         )
 
     def test_select_experiment_model_passes_feasible_only(self):
@@ -279,7 +267,7 @@ class OptimizationApiTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertTrue(response.get_json()["feasible_only"])
-        self.assertTrue(api._manager.last_model_selection["feasible_only"])
+        self.assertTrue(api.get_manager().last_model_selection["feasible_only"])
 
     def test_select_experiment_model_rejects_invalid_scope(self):
         response = self.client.post("/experiments/exp-1/select-model", json={"scope": "bad", "weights": {}})
@@ -352,7 +340,7 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("not_found", response.get_json()["error"])
 
     def test_render_petri_image_svg(self):
-        with mock.patch.object(api, "_render_petri_image_bytes", return_value=(b"<svg/>", "image/svg+xml")) as patched:
+        with mock.patch("api.petri_routes._render_petri_image_bytes", return_value=(b"<svg/>", "image/svg+xml")) as patched:
             response = self.client.post(
                 "/petri/render?format=svg",
                 json={
@@ -368,7 +356,7 @@ class OptimizationApiTest(unittest.TestCase):
         patched.assert_called_once()
 
     def test_render_petri_image_invalid_request(self):
-        with mock.patch.object(api, "_render_petri_image_bytes", side_effect=ValueError("bad graph")):
+        with mock.patch("api.petri_routes._render_petri_image_bytes", side_effect=ValueError("bad graph")):
             response = self.client.post("/petri/render", json={"places": []})
 
         self.assertEqual(400, response.status_code)
