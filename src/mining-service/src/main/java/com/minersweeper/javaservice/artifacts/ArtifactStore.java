@@ -2,7 +2,6 @@ package com.minersweeper.javaservice.artifacts;
 
 import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
-import com.minersweeper.javaservice.api.dto.ExperimentFingerprintsResponse;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -89,35 +88,6 @@ public class ArtifactStore {
             }
             response.artifacts.add(entry);
         }
-        return response;
-    }
-
-    public ExperimentFingerprintsResponse readFingerprints(String experimentId) throws IOException {
-        ExperimentFingerprintsResponse response = new ExperimentFingerprintsResponse();
-        response.experiment_id = experimentId;
-
-        Path experimentDir = pathForExperiment(experimentId);
-        if (!Files.exists(experimentDir)) {
-            return response;
-        }
-
-        List<Path> metadataPaths = new ArrayList<Path>();
-        try (Stream<Path> stream = Files.list(experimentDir)) {
-            stream
-                .filter(path -> path.getFileName().toString().endsWith(".json"))
-                .sorted()
-                .forEach(metadataPaths::add);
-        }
-
-        for (Path metadataPath : metadataPaths) {
-            StoredArtifactMetadata metadata = mapper.readValue(metadataPath.toFile(), StoredArtifactMetadata.class);
-            ExperimentFingerprintsResponse.FingerprintEntry entry =
-                new ExperimentFingerprintsResponse.FingerprintEntry();
-            entry.evaluation_id = metadata.evaluation_id;
-            entry.fingerprint = metadata.fingerprint;
-            response.fingerprints.add(entry);
-        }
-
         return response;
     }
 

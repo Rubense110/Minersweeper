@@ -41,7 +41,6 @@ public class PromService {
         post("/artifacts/bulk", (req, res) -> HTTP_HANDLERS.handleArtifactsBulk(req, res));
         post("/experiments/:experimentId/cancel", (req, res) -> HTTP_HANDLERS.handleCancel(req, res));
         post("/experiments/:experimentId/cleanup", (req, res) -> HTTP_HANDLERS.handleCleanup(req, res));
-        get("/experiments/:experimentId/fingerprints", (req, res) -> HTTP_HANDLERS.handleExperimentFingerprints(req, res));
     }
 
     private static String env(String key, String fallback) {
