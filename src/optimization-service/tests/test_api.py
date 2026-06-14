@@ -50,18 +50,6 @@ class FakeManager:
             raise RuntimeError("job not completed")
         return {"job_id": job_id, "scope": scope, "count": 1, "solutions": [{"is_pareto": True}]}
 
-    def get_artifacts(self, job_id, scope, include_pnml):
-        if job_id == "missing":
-            raise KeyError(job_id)
-        if job_id == "pending":
-            raise RuntimeError("job not completed")
-        return {
-            "job_id": job_id,
-            "scope": scope,
-            "include_pnml": include_pnml,
-            "artifacts": [{"evaluation_id": "ev-1"}],
-        }
-
     def subscribe_events(self, job_id):
         if job_id == "missing":
             raise KeyError(job_id)
@@ -331,20 +319,6 @@ class OptimizationApiTest(unittest.TestCase):
 
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])
-
-    def test_get_artifacts_defaults(self):
-        response = self.client.get("/optimizations/job-1/artifacts")
-        self.assertEqual(200, response.status_code)
-        body = response.get_json()
-        self.assertTrue(body["include_pnml"])
-        self.assertEqual("pareto", body["scope"])
-
-    def test_get_artifacts_scope_all_without_pnml(self):
-        response = self.client.get("/optimizations/job-1/artifacts?scope=all&include_pnml=false")
-        self.assertEqual(200, response.status_code)
-        body = response.get_json()
-        self.assertEqual("all", body["scope"])
-        self.assertFalse(body["include_pnml"])
 
     def test_get_progress(self):
         response = self.client.get("/optimizations/job-1/progress")

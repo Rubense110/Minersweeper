@@ -193,31 +193,6 @@ def _components() -> Dict[str, Any]:
                 },
                 "additionalProperties": True,
             },
-            "Artifact": {
-                "type": "object",
-                "properties": {
-                    "evaluation_id": {"type": "string"},
-                    "experiment_id": {"type": "string"},
-                    "fingerprint": {"type": "string"},
-                    "log_path": {"type": "string"},
-                    "created_at_epoch_ms": {"type": "integer"},
-                    "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
-                    "pipeline": {"type": "object", "additionalProperties": True},
-                    "pnml": {"type": "string", "nullable": True},
-                },
-                "additionalProperties": True,
-            },
-            "ArtifactsResponse": {
-                "type": "object",
-                "required": ["artifacts"],
-                "properties": {
-                    "job_id": {"type": "string", "format": "uuid"},
-                    "scope": {"type": "string"},
-                    "include_pnml": {"type": "boolean"},
-                    "artifacts": {"type": "array", "items": _schema_ref("Artifact")},
-                },
-                "additionalProperties": True,
-            },
             "Experiment": {
                 "type": "object",
                 "properties": {
@@ -503,40 +478,6 @@ def _paths() -> Dict[str, Any]:
                         "content": _json_content("SolutionsResponse"),
                     },
                     **_error_responses("400", "404", "409"),
-                },
-            }
-        },
-        "/optimizations/{job_id}/artifacts": {
-            "get": {
-                "tags": ["jobs"],
-                "summary": "Get job artifacts",
-                "operationId": "getOptimizationArtifacts",
-                "parameters": [
-                    {
-                        "name": "job_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "format": "uuid"},
-                    },
-                    {
-                        "name": "scope",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "string", "enum": ["pareto", "all"], "default": "pareto"},
-                    },
-                    {
-                        "name": "include_pnml",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "boolean", "default": True},
-                    },
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Artifacts for a completed job",
-                        "content": _json_content("ArtifactsResponse"),
-                    },
-                    **_error_responses("400", "404", "409", "500"),
                 },
             }
         },

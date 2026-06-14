@@ -107,20 +107,3 @@ def get_solutions(job_id: str) -> Any:
     except RuntimeError as exc:
         return jsonify({"error": "invalid_state", "message": str(exc)}), 409
 
-
-@bp.get("/optimizations/<job_id>/artifacts")
-def get_artifacts(job_id: str) -> Any:
-    scope = (request.args.get("scope") or "pareto").strip().lower()
-    include_pnml = _to_bool(request.args.get("include_pnml"), default=True)
-
-    if scope not in {"pareto", "all"}:
-        return jsonify({"error": "invalid_request", "message": "scope must be 'pareto' or 'all'"}), 400
-
-    try:
-        return jsonify(get_manager().get_artifacts(job_id, scope=scope, include_pnml=include_pnml))
-    except KeyError:
-        return jsonify({"error": "not_found", "message": f"job '{job_id}' not found"}), 404
-    except RuntimeError as exc:
-        return jsonify({"error": "invalid_state", "message": str(exc)}), 409
-    except Exception as exc:
-        return jsonify({"error": "artifact_fetch_failed", "message": str(exc)}), 500

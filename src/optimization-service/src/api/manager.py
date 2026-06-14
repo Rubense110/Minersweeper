@@ -248,52 +248,6 @@ class OptimizationJobManager:
             "solutions": solutions,
         }
 
-    def get_artifacts(self, job_id: str, scope: str, include_pnml: bool) -> Dict[str, Any]:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if not job:
-                raise KeyError(job_id)
-            if job["status"] != "completed":
-                raise RuntimeError(f"job '{job_id}' is not completed")
-            request_data = dict(job["request"])
-            result = job["result"] or {}
-
-        scope_key = "pareto_solutions" if scope == "pareto" else "all_solutions"
-        eval_ids: List[str] = []
-        seen = set()
-        for solution in result.get(scope_key, []):
-            evaluation_id = solution.get("evaluation_id")
-            if not evaluation_id or evaluation_id in seen:
-                continue
-            seen.add(evaluation_id)
-            eval_ids.append(evaluation_id)
-
-        if not eval_ids:
-            return {
-                "job_id": job_id,
-                "scope": scope,
-                "include_pnml": include_pnml,
-                "artifacts": [],
-            }
-
-        client = ProMServiceClient(
-            base_url=request_data["service_url"],
-            experiment_id=request_data["execution_name"],
-            timeout_seconds=self.java_service_timeout_seconds,
-        )
-        artifacts = client.fetch_artifacts(
-            evaluation_ids=eval_ids,
-            include_pnml=include_pnml,
-            experiment_id=request_data["execution_name"],
-        )
-
-        return {
-            "job_id": job_id,
-            "scope": scope,
-            "include_pnml": include_pnml,
-            "artifacts": artifacts,
-        }
-
     def subscribe_events(self, job_id: str) -> Tuple[queue.Queue, List[Dict[str, Any]]]:
         return subscribe_events(self, job_id)
 
