@@ -13,6 +13,7 @@ from .common import LOGGER, _QuietRequestHandler, _java_service_timeout_seconds,
 from .experiment_routes import bp as experiment_bp
 from .job_routes import bp as job_bp
 from .manager import OptimizationJobManager
+from .openapi import bp as openapi_bp
 from .petri_routes import bp as petri_bp
 from .serialization import _count_failed_solutions, _serialize_solution
 from .system_routes import bp as system_bp
@@ -20,6 +21,7 @@ from .system_routes import bp as system_bp
 
 app = Flask(__name__)
 CORS(app)
+app.register_blueprint(openapi_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(petri_bp)
 app.register_blueprint(job_bp)

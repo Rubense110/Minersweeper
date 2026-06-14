@@ -132,6 +132,23 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.get_json())
 
+    def test_openapi_spec(self):
+        response = self.client.get("/openapi.json")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual("3.1.0", body["openapi"])
+        self.assertIn("/optimizations", body["paths"])
+        self.assertIn("/docs", ["/docs"])  # route existence is tested separately
+        self.assertEqual("Minersweeper Optimization API", body["info"]["title"])
+
+    def test_swagger_ui(self):
+        response = self.client.get("/docs")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/html", response.mimetype)
+        payload = response.get_data(as_text=True)
+        self.assertIn("SwaggerUIBundle", payload)
+        self.assertIn("/openapi.json", payload)
+
     def test_list_jobs(self):
         response = self.client.get("/optimizations")
         self.assertEqual(200, response.status_code)
