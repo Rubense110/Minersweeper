@@ -35,7 +35,7 @@ services:
       PROM_VERBOSE_EXCEPTIONS: "true"
       PROM_TIMING_ENABLED: "true"
       PROM_TIMING_SLOW_MS: "0"
-      PROM_LOG_CACHE_MAX_EXPERIMENTS: "8"
+      PROM_LOG_CACHE_MAX_EXPERIMENTS: "1"
       PROM_LOG_TO_FILE: "true"
       PROM_LOG_FILE: /var/log/minersweeper/services.log
       PROM_SUPPRESS_PROM_NOISE: "true"
