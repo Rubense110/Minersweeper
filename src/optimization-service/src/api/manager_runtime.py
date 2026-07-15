@@ -7,6 +7,7 @@ from execution_control import JobCancelled
 from java_service_client import ProMServiceClient
 
 from .common import LOGGER, _utc_now_iso
+from .evaluation_trace import append_evaluation_trace
 from .manager_state import publish_event, public_progress, update_progress
 from .serialization import _count_failed_solutions, _non_dominated_evaluation_ids, _pipeline_for_log, _serialize_solution
 
@@ -148,6 +149,10 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
     def on_evaluation(event: Dict[str, Any]) -> None:
         evaluations_done = int(event.get("evaluations_done") or 0)
         update_progress(manager, job_id, evaluations_done)
+        try:
+            append_evaluation_trace(job_id=job_id, config=config, event=event)
+        except Exception:
+            LOGGER.warning("evaluation trace write failed job_id=%s", job_id, exc_info=True)
 
         should_log_progress = (
             evaluations_done == 1

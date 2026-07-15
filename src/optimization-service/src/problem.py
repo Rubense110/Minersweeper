@@ -90,6 +90,12 @@ class PipelineOptimizationProblem(FloatProblem):
                 has_error=bool(cached.get("evaluation_error")),
                 evaluation_error=cached.get("evaluation_error"),
                 pipeline=cached.get("pipeline"),
+                metrics=cached.get("metrics"),
+                runtime_ms=0,
+                cached_runtime_ms=cached.get("runtime_ms"),
+                evaluation_id=cached.get("evaluation_id"),
+                experiment_id=cached.get("experiment_id"),
+                fingerprint=cached.get("fingerprint"),
             )
             return solution
 
@@ -200,6 +206,12 @@ class PipelineOptimizationProblem(FloatProblem):
             has_error=bool(evaluation_error),
             evaluation_error=evaluation_error,
             pipeline=decoded_pipeline,
+            metrics=metric_values,
+            runtime_ms=runtime_ms,
+            cached_runtime_ms=None,
+            evaluation_id=evaluation_id,
+            experiment_id=experiment_id,
+            fingerprint=fingerprint,
         )
         return solution
 
@@ -209,6 +221,12 @@ class PipelineOptimizationProblem(FloatProblem):
         has_error: bool,
         evaluation_error: str | None = None,
         pipeline: Dict[str, Any] | None = None,
+        metrics: Dict[str, Any] | None = None,
+        runtime_ms: int | None = None,
+        cached_runtime_ms: int | None = None,
+        evaluation_id: str | None = None,
+        experiment_id: str | None = None,
+        fingerprint: str | None = None,
     ) -> None:
         if self.on_evaluation is None:
             return
@@ -223,6 +241,13 @@ class PipelineOptimizationProblem(FloatProblem):
                     "has_error": has_error,
                     "evaluation_error": evaluation_error,
                     "pipeline": pipeline or {},
+                    "metrics": metrics or {},
+                    "runtime_ms": runtime_ms,
+                    "cached_runtime_ms": cached_runtime_ms,
+                    "evaluation_id": evaluation_id,
+                    "experiment_id": experiment_id,
+                    "fingerprint": fingerprint,
+                    "solution_cache_size": len(self.evaluation_cache),
                 }
             )
         except Exception:

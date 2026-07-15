@@ -72,6 +72,7 @@ services:
       OPT_LOG_FILE: /var/log/minersweeper/services.log
       OPT_LOG_MAX_BYTES: 0
       OPT_LOG_BACKUP_COUNT: 0
+      OPT_EVALUATION_TRACE_FILE: /var/log/minersweeper/evaluation_metrics.jsonl
       PYTHONUNBUFFERED: 1
       PYTHONPATH: /app/src/optimization-service/src
     ports:
