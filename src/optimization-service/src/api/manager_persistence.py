@@ -106,8 +106,6 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
             "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
             "is_pareto": bool(solution.get("is_pareto")),
-            "constraint_violations": solution.get("constraint_violations", []),
-            "is_feasible": bool(solution.get("is_feasible", True)),
             "places": places,
             "transitions": transitions,
             "arcs": arcs,
@@ -137,7 +135,6 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
         "log_path": request_data.get("log_path") or "",
         "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
-        "constraints": result.get("constraints") or request_data.get("constraints") or [],
         "workers": int(discover.get("n_workers") or 1),
     }
 

@@ -35,11 +35,10 @@ def run_job(manager: Any, job_id: str) -> None:
         return
 
     LOGGER.info(
-        "job running job_id=%s execution=%s metrics=%s constraints=%s conformance_mode=%s service_url=%s",
+        "job running job_id=%s execution=%s metrics=%s conformance_mode=%s service_url=%s",
         job_id,
         request_data.get("execution_name"),
         request_data.get("metrics"),
-        manager._summarize_constraints(request_data.get("constraints") or []) or "-",
         request_data.get("conformance_mode"),
         request_data.get("service_url"),
     )
@@ -195,7 +194,6 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         execution_name=config["execution_name"],
         log=config["log_path"],
         metrics=config.get("metrics"),
-        constraints=config.get("constraints"),
         service_url=config["service_url"],
         service_timeout_seconds=manager.java_service_timeout_seconds,
         conformance_mode=config.get("conformance_mode"),
@@ -241,14 +239,12 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
     return {
         "execution_name": config["execution_name"],
         "metrics_order": list(miner.metrics_list),
-        "constraints": list(miner.constraints),
         "counts": {
             "all_solutions": len(all_solutions),
             "pareto_solutions": len(pareto_solutions),
             "snapshot_solutions": sum(len(snapshot.get("solutions") or []) for snapshot in population_snapshots),
             "snapshots": len(population_snapshots),
             "failed_solutions": _count_failed_solutions(all_solutions, progress_state["error_count"]),
-            "feasible_solutions": sum(1 for item in all_solutions if item.get("is_feasible", True)),
         },
         "pareto_evaluation_ids": list(pareto_ids),
         "all_solutions": all_solutions,

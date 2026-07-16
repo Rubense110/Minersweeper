@@ -229,28 +229,6 @@ class ProMServiceClientTest(unittest.TestCase):
                 metrics=["fitness"],
             )
 
-    @patch("java_service_client.LOGGER")
-    @patch("java_service_client.requests.post")
-    def test_evaluation_dispatch_log_includes_constraints_summary(self, mock_post, mock_logger):
-        response = Mock()
-        response.json.return_value = {"metrics": {"fitness": 0.9}}
-        response.raise_for_status.return_value = None
-        mock_post.return_value = response
-
-        client = ProMServiceClient(
-            base_url="http://service",
-            experiment_id="exp-1",
-            constraints=[{"metric": "cycl_complx", "operator": "<=", "value": 5.0}],
-        )
-        client.evaluate_pipeline(
-            log_path="dummy.xes",
-            pipeline={"miner": {}, "preprocessing": {}},
-            metrics=["fitness"],
-        )
-
-        message = mock_logger.info.call_args.args[0]
-        self.assertIn("constraints=%s", message)
-        self.assertEqual("cycl_complx<=5.0", mock_logger.info.call_args.args[4])
 
 
 if __name__ == "__main__":

@@ -85,7 +85,6 @@ def select_weighted_model(
     solutions: List[Dict[str, Any]],
     raw_weights: Dict[str, Any] | None,
     scope: str,
-    feasible_only: bool = False,
 ) -> Dict[str, Any]:
     metrics = [str(item) for item in list(experiment.get("metrics") or []) if str(item).strip()]
     slider_weights, normalized_weights = normalize_slider_weights(metrics, raw_weights)
@@ -93,8 +92,6 @@ def select_weighted_model(
     valid_candidates: List[Dict[str, Any]] = []
     objective_vectors: List[List[float]] = []
     for solution in solutions:
-        if feasible_only and not bool(solution.get("is_feasible", True)):
-            continue
         objective_vector = _coerce_objective_vector(list(solution.get("objectives") or []), metrics)
         if objective_vector is None:
             continue
@@ -102,8 +99,6 @@ def select_weighted_model(
         objective_vectors.append(objective_vector)
 
     if not valid_candidates:
-        if feasible_only:
-            raise ModelSelectionUnavailable("experiment has no feasible valid solutions for ASF model selection")
         raise ModelSelectionUnavailable("experiment has no valid solutions for ASF model selection")
 
     objective_matrix = np.asarray(objective_vectors, dtype=float)
@@ -124,7 +119,6 @@ def select_weighted_model(
         "metrics": metrics,
         "slider_weights": slider_weights,
         "normalized_weights": normalized_weights,
-        "feasible_only": bool(feasible_only),
         "candidate_count": len(valid_candidates),
         "selected_solution_id": best_solution.get("solution_id"),
         "selected_solution": best_solution,

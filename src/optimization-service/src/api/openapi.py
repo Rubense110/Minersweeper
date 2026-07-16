@@ -44,15 +44,6 @@ def _components() -> Dict[str, Any]:
                     }
                 },
             },
-            "Constraint": {
-                "type": "object",
-                "required": ["metric", "operator", "value"],
-                "properties": {
-                    "metric": {"type": "string", "example": "places"},
-                    "operator": {"type": "string", "example": "<="},
-                    "value": {"type": "number", "example": 12},
-                },
-            },
             "OptimizationRequest": {
                 "type": "object",
                 "required": ["log_path"],
@@ -64,10 +55,6 @@ def _components() -> Dict[str, Any]:
                         "type": "array",
                         "items": {"type": "string"},
                         "example": ["fitness", "precision", "simplicity", "generalisation"],
-                    },
-                    "constraints": {
-                        "type": "array",
-                        "items": _schema_ref("Constraint"),
                     },
                     "conformance_mode": {
                         "type": "string",
@@ -103,7 +90,6 @@ def _components() -> Dict[str, Any]:
                     "log_path": {"type": "string"},
                     "service_url": {"type": "string"},
                     "metrics": {"type": "array", "items": {"type": "string"}},
-                    "constraints": {"type": "array", "items": _schema_ref("Constraint")},
                     "required_metrics": {"type": "array", "items": {"type": "string"}},
                     "conformance_mode": {"type": "string", "nullable": True},
                     "excluded_miners": {"type": "array", "items": {"type": "string"}},
@@ -169,12 +155,8 @@ def _components() -> Dict[str, Any]:
                         "additionalProperties": {"type": "number"},
                         "example": {"fitness": -0.91, "precision": -0.55},
                     },
-                    "constraints": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                    "constraint_violations": {"type": "array", "items": {"type": "number"}, "example": [0.0, -1.0]},
-                    "is_feasible": {"type": "boolean", "example": True},
                     "runtime_ms": {"type": "integer", "nullable": True, "example": 321},
                     "objectives": {"type": "array", "items": {"type": "number"}, "example": [-0.91, -0.55]},
-                    "constraint_values": {"type": "array", "items": {"type": "number"}},
                     "variables": {"type": "array", "items": {}},
                     "is_pareto": {"type": "boolean", "example": True},
                     "evaluation_error": {"type": "string", "nullable": True},
@@ -205,7 +187,6 @@ def _components() -> Dict[str, Any]:
                     "workers": {"type": "integer"},
                     "log_path": {"type": "string"},
                     "metrics": {"type": "array", "items": {"type": "string"}},
-                    "constraints": {"type": "array", "items": _schema_ref("Constraint")},
                     "miners": {"type": "array", "items": {"type": "string"}},
                     "preprocessing": {"type": "array", "items": {"type": "string"}},
                 },
@@ -222,7 +203,6 @@ def _components() -> Dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "scope": {"type": "string", "enum": ["pareto", "all"], "default": "pareto"},
-                    "feasible_only": {"type": "boolean", "default": False},
                     "weights": {
                         "type": "object",
                         "additionalProperties": {"type": "number"},
@@ -249,7 +229,6 @@ def _components() -> Dict[str, Any]:
                         "example": {"fitness": 0.8, "precision": 0.2},
                     },
                     "candidate_count": {"type": "integer", "example": 2},
-                    "feasible_only": {"type": "boolean", "example": False},
                     "selected_solution_id": {"type": "integer", "example": 7},
                     "selected_solution": _schema_ref("Solution"),
                     "scalarized_objective": {"type": "number", "example": 0.25},

@@ -34,7 +34,6 @@ class ManagerPersistenceTest(unittest.TestCase):
                 "service_url": "http://remote-service",
                 "log_path": "/data/log.xes",
                 "metrics": ["fitness"],
-                "constraints": [],
                 "discover": {"max_evaluations": 100, "population_size": 20, "n_workers": 8},
             },
             "result": {
@@ -42,7 +41,6 @@ class ManagerPersistenceTest(unittest.TestCase):
                 "population_snapshots": [],
                 "catalogs": {"miners": ["inductive"], "preprocessing": ["variant_filter"]},
                 "metrics_order": ["fitness"],
-                "constraints": [],
             },
             "_control": ExecutionControl(),
         }
@@ -71,7 +69,6 @@ class ManagerPersistenceTest(unittest.TestCase):
                 "service_url": "http://remote-service",
                 "log_path": "/data/log.xes",
                 "metrics": ["fitness"],
-                "constraints": [],
                 "discover": {"max_evaluations": 100, "population_size": 20, "n_workers": 8},
             },
             "result": {
@@ -79,7 +76,6 @@ class ManagerPersistenceTest(unittest.TestCase):
                 "population_snapshots": [],
                 "catalogs": {"miners": [], "preprocessing": []},
                 "metrics_order": ["fitness"],
-                "constraints": [],
             },
             "_control": ExecutionControl(),
         }

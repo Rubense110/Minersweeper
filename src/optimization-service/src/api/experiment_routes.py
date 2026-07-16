@@ -6,7 +6,6 @@ from flask import Blueprint, Response, jsonify, request
 
 from model_selection import ModelSelectionUnavailable
 
-from .common import _to_bool
 from .dependencies import get_manager
 
 
@@ -43,8 +42,6 @@ def select_experiment_model(experiment_id: str) -> Any:
     scope = str(payload.get("scope") or "pareto").strip().lower()
     if scope not in {"pareto", "all"}:
         return jsonify({"error": "invalid_request", "message": "scope must be 'pareto' or 'all'"}), 400
-    feasible_only = _to_bool(payload.get("feasible_only"), default=False)
-
     weights = payload.get("weights")
     if weights is None:
         weights = {}
@@ -57,7 +54,6 @@ def select_experiment_model(experiment_id: str) -> Any:
                 experiment_id=experiment_id,
                 weights=weights,
                 scope=scope,
-                feasible_only=feasible_only,
             )
         )
     except KeyError:
