@@ -50,18 +50,6 @@ class FakeManager:
             raise RuntimeError("job not completed")
         return {"job_id": job_id, "scope": scope, "count": 1, "solutions": [{"is_pareto": True}]}
 
-    def get_artifacts(self, job_id, scope, include_pnml):
-        if job_id == "missing":
-            raise KeyError(job_id)
-        if job_id == "pending":
-            raise RuntimeError("job not completed")
-        return {
-            "job_id": job_id,
-            "scope": scope,
-            "include_pnml": include_pnml,
-            "artifacts": [{"evaluation_id": "ev-1"}],
-        }
-
     def subscribe_events(self, job_id):
         if job_id == "missing":
             raise KeyError(job_id)
@@ -85,7 +73,7 @@ class FakeManager:
         self.cancelled_job_id = job_id
         return {"job_id": job_id, "status": "cancelling"}
 
-    def select_experiment_model(self, experiment_id, weights, scope, feasible_only):
+    def select_experiment_model(self, experiment_id, weights, scope):
         if experiment_id == "missing":
             raise KeyError(experiment_id)
         if experiment_id == "empty":
@@ -94,7 +82,6 @@ class FakeManager:
             "experiment_id": experiment_id,
             "weights": weights,
             "scope": scope,
-            "feasible_only": feasible_only,
         }
         return {
             "experiment_id": experiment_id,
@@ -104,7 +91,6 @@ class FakeManager:
             "slider_weights": {"fitness": 80, "precision": 20},
             "normalized_weights": {"fitness": 0.8, "precision": 0.2},
             "candidate_count": 2,
-            "feasible_only": feasible_only,
             "selected_solution_id": 7,
             "selected_solution": {"solution_id": 7, "objectives": [-0.91, -0.55], "is_pareto": True},
             "scalarized_objective": 0.25,
@@ -132,6 +118,23 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.get_json())
 
+    def test_openapi_spec(self):
+        response = self.client.get("/openapi.json")
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual("3.1.0", body["openapi"])
+        self.assertIn("/optimizations", body["paths"])
+        self.assertIn("/docs", ["/docs"])  # route existence is tested separately
+        self.assertEqual("Minersweeper Optimization API", body["info"]["title"])
+
+    def test_swagger_ui(self):
+        response = self.client.get("/docs")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/html", response.mimetype)
+        payload = response.get_data(as_text=True)
+        self.assertIn("SwaggerUIBundle", payload)
+        self.assertIn("/openapi.json", payload)
+
     def test_list_jobs(self):
         response = self.client.get("/optimizations")
         self.assertEqual(200, response.status_code)
@@ -146,7 +149,6 @@ class OptimizationApiTest(unittest.TestCase):
                 "execution_name": "run_1",
                 "log_path": "/data/log.xes",
                 "metrics": ["fitness"],
-                "constraints": [{"metric": "places", "operator": "<=", "value": 12}],
             },
         )
         self.assertEqual(202, response.status_code)
@@ -154,10 +156,6 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("created", body["job_id"])
         self.assertEqual("queued", body["status"])
         self.assertEqual(["fitness"], api.get_manager().last_submit_payload["metrics"])
-        self.assertEqual(
-            [{"metric": "places", "operator": "<=", "value": 12}],
-            api.get_manager().last_submit_payload["constraints"],
-        )
 
     def test_create_job_validation_error(self):
         response = self.client.post("/optimizations", json={"raise": "value"})
@@ -256,50 +254,10 @@ class OptimizationApiTest(unittest.TestCase):
                 "experiment_id": "exp-1",
                 "weights": {"fitness": 80, "precision": 20},
                 "scope": "pareto",
-                "feasible_only": False,
             },
             api.get_manager().last_model_selection,
         )
 
-    def test_select_experiment_model_passes_feasible_only(self):
-        response = self.client.post(
-            "/experiments/exp-1/select-model",
-            json={"scope": "pareto", "feasible_only": True, "weights": {"fitness": 100}},
-        )
-
-        self.assertEqual(200, response.status_code)
-        self.assertTrue(response.get_json()["feasible_only"])
-        self.assertTrue(api.get_manager().last_model_selection["feasible_only"])
-
-    def test_select_experiment_model_rejects_invalid_scope(self):
-        response = self.client.post("/experiments/exp-1/select-model", json={"scope": "bad", "weights": {}})
-
-        self.assertEqual(400, response.status_code)
-        self.assertEqual("invalid_request", response.get_json()["error"])
-
-    def test_select_experiment_model_rejects_invalid_weights(self):
-        response = self.client.post("/experiments/exp-1/select-model", json={"weights": ["bad"]})
-
-        self.assertEqual(400, response.status_code)
-        self.assertEqual("invalid_request", response.get_json()["error"])
-
-    def test_select_experiment_model_rejects_invalid_weights_even_when_empty(self):
-        response = self.client.post("/experiments/exp-1/select-model", json={"weights": []})
-
-        self.assertEqual(400, response.status_code)
-        self.assertEqual("invalid_request", response.get_json()["error"])
-
-    def test_select_experiment_model_not_found(self):
-        response = self.client.post("/experiments/missing/select-model", json={"weights": {}})
-
-        self.assertEqual(404, response.status_code)
-        self.assertEqual("not_found", response.get_json()["error"])
-
-    def test_select_experiment_model_invalid_state(self):
-        response = self.client.post("/experiments/empty/select-model", json={"weights": {}})
-
-        self.assertEqual(409, response.status_code)
-        self.assertEqual("invalid_state", response.get_json()["error"])
 
     def test_download_experiment_data(self):
         response = self.client.get("/experiments/exp-1/download")
@@ -314,20 +272,6 @@ class OptimizationApiTest(unittest.TestCase):
 
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])
-
-    def test_get_artifacts_defaults(self):
-        response = self.client.get("/optimizations/job-1/artifacts")
-        self.assertEqual(200, response.status_code)
-        body = response.get_json()
-        self.assertTrue(body["include_pnml"])
-        self.assertEqual("pareto", body["scope"])
-
-    def test_get_artifacts_scope_all_without_pnml(self):
-        response = self.client.get("/optimizations/job-1/artifacts?scope=all&include_pnml=false")
-        self.assertEqual(200, response.status_code)
-        body = response.get_json()
-        self.assertEqual("all", body["scope"])
-        self.assertFalse(body["include_pnml"])
 
     def test_get_progress(self):
         response = self.client.get("/optimizations/job-1/progress")

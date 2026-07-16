@@ -151,18 +151,6 @@ h4 {
   gap: 14px;
 }
 
-.constraint-list {
-  display: grid;
-  gap: 10px;
-}
-
-.constraint-row {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1.4fr) 120px minmax(0, 1fr) auto;
-  align-items: end;
-}
-
 .inline-toggle {
   display: inline-flex;
   align-items: center;
@@ -936,10 +924,6 @@ button:disabled {
     grid-auto-flow: row;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
-  }
-
-  .constraint-row {
-    grid-template-columns: 1fr;
   }
 
   .pipeline-summary {

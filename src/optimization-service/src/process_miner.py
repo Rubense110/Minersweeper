@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from constraints import collect_required_metrics
 from execution_control import ExecutionControl
 from java_service_client import ProMServiceClient
 from optimizer import PipelineNSGAIIIOptimizer
@@ -25,7 +24,6 @@ class OptimizedProcessMiner:
         execution_name: str,
         log: str,
         metrics: Optional[List[str]] = None,
-        constraints: Optional[List[Dict[str, Any]]] = None,
         service_url: Optional[str] = None,
         service_timeout_seconds: int = 300,
         conformance_mode: Optional[str] = None,
@@ -36,8 +34,7 @@ class OptimizedProcessMiner:
         self.execution_name = execution_name
         self.log_path = log
         self.metrics_list = metrics or ["fitness", "precision", "simplicity", "generalisation"]
-        self.constraints = list(constraints or [])
-        self.required_metrics = collect_required_metrics(self.metrics_list, self.constraints)
+        self.required_metrics = list(self.metrics_list)
         self.service_url = service_url
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
         self.conformance_mode = (conformance_mode or "").strip() or None
@@ -77,14 +74,12 @@ class OptimizedProcessMiner:
             timeout_seconds=self.service_timeout_seconds,
             conformance_mode=self.conformance_mode,
             excluded_miners=self.excluded_miners,
-            constraints=self.constraints,
         )
 
         self.problem = PipelineOptimizationProblem(
             log_path=self.log_path,
             metrics_list=self.metrics_list,
             required_metrics=self.required_metrics,
-            constraints=self.constraints,
             search_space=self.search_space,
             evaluator=self.service_client.evaluate_pipeline,
             maximize_metrics=[True] * len(self.metrics_list),

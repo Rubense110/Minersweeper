@@ -108,12 +108,6 @@ export async function getSolutions(jobId, scope = 'pareto') {
   return request(`/optimizations/${jobId}/solutions?scope=${encodeURIComponent(scope)}`)
 }
 
-export async function getArtifacts(jobId, scope = 'pareto', includePnml = true) {
-  return request(
-    `/optimizations/${jobId}/artifacts?scope=${encodeURIComponent(scope)}&include_pnml=${includePnml ? 'true' : 'false'}`
-  )
-}
-
 export async function renderPetriImage(payload, format = 'svg') {
   const response = await fetch(`${API_BASE}/petri/render?format=${encodeURIComponent(format)}`, {
     method: 'POST',

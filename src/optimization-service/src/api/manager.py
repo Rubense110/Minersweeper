@@ -6,7 +6,6 @@ import time
 import uuid
 from typing import Any, Dict, List, Tuple
 
-from constraints import collect_required_metrics, normalize_constraints, normalize_metric_names, summarize_constraints
 from execution_control import ExecutionControl, JobCancelled
 from job_store import JobStore
 from java_service_client import ProMServiceClient
@@ -27,7 +26,6 @@ class OptimizationJobManager:
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._lock = threading.Lock()
-        self._summarize_constraints = summarize_constraints
 
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if payload is None:
@@ -41,9 +39,8 @@ class OptimizationJobManager:
         if not service_url:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
-        metrics = normalize_metric_names(payload.get("metrics") or ["fitness", "precision", "simplicity", "generalisation"])
-        constraints = normalize_constraints(payload.get("constraints"))
-        required_metrics = collect_required_metrics(metrics, constraints)
+        metrics = _normalize_metric_names(payload.get("metrics") or ["fitness", "precision", "simplicity", "generalisation"])
+        required_metrics = list(metrics)
         conformance_mode = payload.get("conformance_mode")
         excluded_miners = payload.get("excluded_miners", ["ilp"])
 
@@ -81,7 +78,6 @@ class OptimizationJobManager:
                 "log_path": log_path,
                 "service_url": service_url,
                 "metrics": metrics,
-                "constraints": constraints,
                 "required_metrics": required_metrics,
                 "conformance_mode": conformance_mode,
                 "excluded_miners": excluded_miners,
@@ -101,12 +97,11 @@ class OptimizationJobManager:
         worker = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
         worker.start()
         LOGGER.info(
-            "job queued job_id=%s execution=%s log_path=%s metrics=%s constraints=%s max_evaluations=%s population_size=%s n_workers=%s",
+            "job queued job_id=%s execution=%s log_path=%s metrics=%s max_evaluations=%s population_size=%s n_workers=%s",
             job_id,
             execution_name,
             log_path,
             ",".join(metrics),
-            summarize_constraints(constraints) or "-",
             discover_cfg["max_evaluations"],
             discover_cfg["population_size"],
             discover_cfg["n_workers"],
@@ -212,7 +207,6 @@ class OptimizationJobManager:
         experiment_id: str,
         weights: Dict[str, Any] | None,
         scope: str,
-        feasible_only: bool,
     ) -> Dict[str, Any]:
         experiment = self.job_store.get_experiment(experiment_id)
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
@@ -221,7 +215,6 @@ class OptimizationJobManager:
             solutions=solutions,
             raw_weights=weights,
             scope=scope,
-            feasible_only=feasible_only,
         )
 
     def get_experiment_export(self, experiment_id: str) -> Tuple[bytes, str]:
@@ -248,52 +241,6 @@ class OptimizationJobManager:
             "solutions": solutions,
         }
 
-    def get_artifacts(self, job_id: str, scope: str, include_pnml: bool) -> Dict[str, Any]:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if not job:
-                raise KeyError(job_id)
-            if job["status"] != "completed":
-                raise RuntimeError(f"job '{job_id}' is not completed")
-            request_data = dict(job["request"])
-            result = job["result"] or {}
-
-        scope_key = "pareto_solutions" if scope == "pareto" else "all_solutions"
-        eval_ids: List[str] = []
-        seen = set()
-        for solution in result.get(scope_key, []):
-            evaluation_id = solution.get("evaluation_id")
-            if not evaluation_id or evaluation_id in seen:
-                continue
-            seen.add(evaluation_id)
-            eval_ids.append(evaluation_id)
-
-        if not eval_ids:
-            return {
-                "job_id": job_id,
-                "scope": scope,
-                "include_pnml": include_pnml,
-                "artifacts": [],
-            }
-
-        client = ProMServiceClient(
-            base_url=request_data["service_url"],
-            experiment_id=request_data["execution_name"],
-            timeout_seconds=self.java_service_timeout_seconds,
-        )
-        artifacts = client.fetch_artifacts(
-            evaluation_ids=eval_ids,
-            include_pnml=include_pnml,
-            experiment_id=request_data["execution_name"],
-        )
-
-        return {
-            "job_id": job_id,
-            "scope": scope,
-            "include_pnml": include_pnml,
-            "artifacts": artifacts,
-        }
-
     def subscribe_events(self, job_id: str) -> Tuple[queue.Queue, List[Dict[str, Any]]]:
         return subscribe_events(self, job_id)
 
@@ -313,3 +260,19 @@ class OptimizationJobManager:
     @staticmethod
     def _public_progress(job: Dict[str, Any]) -> Dict[str, Any]:
         return public_progress(job)
+
+
+def _normalize_metric_names(raw_metrics: Any) -> List[str]:
+    if not isinstance(raw_metrics, list):
+        raise ValueError("metrics must be a list")
+    metrics: List[str] = []
+    seen = set()
+    for item in raw_metrics:
+        name = str(item).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        metrics.append(name)
+    if not metrics:
+        raise ValueError("metrics must contain at least one metric")
+    return metrics

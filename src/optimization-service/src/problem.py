@@ -7,7 +7,6 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
-from constraints import evaluate_constraints, is_feasible_constraint_values
 from execution_control import JobCancelled
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
@@ -27,7 +26,6 @@ class PipelineOptimizationProblem(FloatProblem):
         log_path: str,
         metrics_list: List[str],
         required_metrics: List[str],
-        constraints: List[Dict[str, Any]],
         search_space: PipelineSearchSpace,
         evaluator: Callable[[str, Dict[str, Any], List[str]], Dict[str, Any]],
         maximize_metrics: Sequence[bool] | None = None,
@@ -41,7 +39,6 @@ class PipelineOptimizationProblem(FloatProblem):
         self.log_path = log_path
         self.metrics_list = metrics_list
         self.required_metrics = list(required_metrics or metrics_list)
-        self.constraints = list(constraints or [])
         self.search_space = search_space
         self.evaluator = evaluator
         self.use_cache = use_cache
@@ -68,13 +65,9 @@ class PipelineOptimizationProblem(FloatProblem):
         if cache_hit:
             cached = self.evaluation_cache[cache_key]
             solution.objectives = cached["objectives"]
-            solution.constraints = cached["constraints"]
             solution.attributes["pipeline"] = cached["pipeline"]
             solution.attributes["metrics"] = cached["metrics"]
             solution.attributes["objective_metrics"] = cached["objective_metrics"]
-            solution.attributes["constraint_violations"] = cached["constraint_violations"]
-            solution.attributes["is_feasible"] = cached["is_feasible"]
-            solution.attributes["constraints"] = cached["rendered_constraints"]
             if cached.get("runtime_ms") is not None:
                 solution.attributes["runtime_ms"] = cached["runtime_ms"]
             if cached.get("evaluation_error"):
@@ -90,6 +83,12 @@ class PipelineOptimizationProblem(FloatProblem):
                 has_error=bool(cached.get("evaluation_error")),
                 evaluation_error=cached.get("evaluation_error"),
                 pipeline=cached.get("pipeline"),
+                metrics=cached.get("metrics"),
+                runtime_ms=0,
+                cached_runtime_ms=cached.get("runtime_ms"),
+                evaluation_id=cached.get("evaluation_id"),
+                experiment_id=cached.get("experiment_id"),
+                fingerprint=cached.get("fingerprint"),
             )
             return solution
 
@@ -157,19 +156,10 @@ class PipelineOptimizationProblem(FloatProblem):
             objective_metrics[metric_name] = value
             objectives.append(-value if maximize else value)
 
-        constraint_values = evaluate_constraints(metric_values, self.constraints)
-        constraint_violations = [float(min(0.0, value)) for value in constraint_values]
-        is_feasible = is_feasible_constraint_values(constraint_values)
-        rendered_constraints = [dict(item) for item in self.constraints]
-
         solution.objectives = objectives
-        solution.constraints = constraint_values
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
         solution.attributes["objective_metrics"] = objective_metrics
-        solution.attributes["constraint_violations"] = constraint_violations
-        solution.attributes["is_feasible"] = is_feasible
-        solution.attributes["constraints"] = rendered_constraints
         solution.attributes["runtime_ms"] = runtime_ms
         if evaluation_error is not None:
             solution.attributes["evaluation_error"] = evaluation_error
@@ -182,13 +172,9 @@ class PipelineOptimizationProblem(FloatProblem):
         if self.use_cache:
             self.evaluation_cache[cache_key] = {
                 "objectives": objectives,
-                "constraints": constraint_values,
                 "pipeline": decoded_pipeline,
                 "metrics": metric_values,
                 "objective_metrics": objective_metrics,
-                "constraint_violations": constraint_violations,
-                "is_feasible": is_feasible,
-                "rendered_constraints": rendered_constraints,
                 "runtime_ms": runtime_ms,
                 "evaluation_id": evaluation_id,
                 "experiment_id": experiment_id,
@@ -200,6 +186,12 @@ class PipelineOptimizationProblem(FloatProblem):
             has_error=bool(evaluation_error),
             evaluation_error=evaluation_error,
             pipeline=decoded_pipeline,
+            metrics=metric_values,
+            runtime_ms=runtime_ms,
+            cached_runtime_ms=None,
+            evaluation_id=evaluation_id,
+            experiment_id=experiment_id,
+            fingerprint=fingerprint,
         )
         return solution
 
@@ -209,6 +201,12 @@ class PipelineOptimizationProblem(FloatProblem):
         has_error: bool,
         evaluation_error: str | None = None,
         pipeline: Dict[str, Any] | None = None,
+        metrics: Dict[str, Any] | None = None,
+        runtime_ms: int | None = None,
+        cached_runtime_ms: int | None = None,
+        evaluation_id: str | None = None,
+        experiment_id: str | None = None,
+        fingerprint: str | None = None,
     ) -> None:
         if self.on_evaluation is None:
             return
@@ -223,6 +221,13 @@ class PipelineOptimizationProblem(FloatProblem):
                     "has_error": has_error,
                     "evaluation_error": evaluation_error,
                     "pipeline": pipeline or {},
+                    "metrics": metrics or {},
+                    "runtime_ms": runtime_ms,
+                    "cached_runtime_ms": cached_runtime_ms,
+                    "evaluation_id": evaluation_id,
+                    "experiment_id": experiment_id,
+                    "fingerprint": fingerprint,
+                    "solution_cache_size": len(self.evaluation_cache),
                 }
             )
         except Exception:
@@ -233,7 +238,7 @@ class PipelineOptimizationProblem(FloatProblem):
         return len(self.metrics_list)
 
     def number_of_constraints(self) -> int:
-        return len(self.constraints)
+        return 0
 
     def name(self) -> str:
         return "Pipeline Optimization Problem"

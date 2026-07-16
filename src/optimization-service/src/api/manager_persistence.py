@@ -5,9 +5,31 @@ from typing import Any, Dict, List
 
 from java_service_client import ProMServiceClient
 
-from .common import _parse_utc_iso, _to_int_or_none
+from .common import LOGGER, _parse_utc_iso, _to_int_or_none
 from .petri import _petri_from_pnml
 from .serialization import _compact_pipeline_for_storage
+
+
+def _cleanup_persisted_experiment_artifacts(manager: Any, request_data: Dict[str, Any], job_id: str) -> None:
+    execution_name = str(request_data.get("execution_name") or "").strip()
+    service_url = str(request_data.get("service_url") or manager.default_service_url).strip()
+    if not execution_name or not service_url:
+        return
+
+    client = ProMServiceClient(
+        base_url=service_url,
+        experiment_id=execution_name,
+        timeout_seconds=manager.java_service_timeout_seconds,
+    )
+    try:
+        client.cleanup_experiment(experiment_id=execution_name)
+    except Exception:
+        LOGGER.warning(
+            "job artifact cleanup failed job_id=%s execution=%s",
+            job_id,
+            execution_name,
+            exc_info=True,
+        )
 
 
 def persist_completed_experiment(manager: Any, job_id: str) -> None:
@@ -84,8 +106,6 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
             "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
             "is_pareto": bool(solution.get("is_pareto")),
-            "constraint_violations": solution.get("constraint_violations", []),
-            "is_feasible": bool(solution.get("is_feasible", True)),
             "places": places,
             "transitions": transitions,
             "arcs": arcs,
@@ -115,9 +135,9 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
         "log_path": request_data.get("log_path") or "",
         "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
-        "constraints": result.get("constraints") or request_data.get("constraints") or [],
         "workers": int(discover.get("n_workers") or 1),
     }
 
     control.raise_if_cancel_requested()
     manager.job_store.save_completed_experiment(experiment_data, parsed_solutions, parsed_snapshot_solutions)
+    _cleanup_persisted_experiment_artifacts(manager, request_data, job_id)

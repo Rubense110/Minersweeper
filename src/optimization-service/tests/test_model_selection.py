@@ -84,27 +84,13 @@ class ModelSelectionTest(unittest.TestCase):
                 scope="pareto",
             )
 
-    def test_select_weighted_model_can_filter_to_feasible_only(self):
-        payload = select_weighted_model(
-            experiment={"experiment_id": "exp-1", "metrics": ["fitness", "precision"]},
-            solutions=[
-                {"solution_id": 1, "objectives": [-0.9, -0.9], "is_feasible": False},
-                {"solution_id": 2, "objectives": [-0.8, -0.8], "is_feasible": True},
-            ],
-            raw_weights={"fitness": 50, "precision": 50},
-            scope="pareto",
-            feasible_only=True,
-        )
-
-        self.assertTrue(payload["feasible_only"])
-        self.assertEqual(2, payload["selected_solution_id"])
 
     def test_select_weighted_model_tolerates_zero_slider_weight_for_asf(self):
         payload = select_weighted_model(
             experiment={"experiment_id": "exp-1", "metrics": ["fitness", "precision"]},
             solutions=[
-                {"solution_id": 1, "objectives": [-0.9, -0.5], "is_feasible": True},
-                {"solution_id": 2, "objectives": [-0.6, -0.9], "is_feasible": True},
+                {"solution_id": 1, "objectives": [-0.9, -0.5]},
+                {"solution_id": 2, "objectives": [-0.6, -0.9]},
             ],
             raw_weights={"fitness": 100, "precision": 0},
             scope="pareto",

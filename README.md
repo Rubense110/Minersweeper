@@ -218,6 +218,16 @@ Default service endpoints:
 - frontend: `http://localhost:5173`
 - optimization service: `http://localhost:8080`
 - mining service: `http://localhost:7070`
+
+OpenAPI documentation for the optimization service:
+
+- OpenAPI spec: `http://localhost:8080/openapi.json`
+- Swagger UI: `http://localhost:8080/docs`
+
+OpenAPI documentation for the mining service:
+
+- OpenAPI spec: `http://localhost:7070/openapi.json`
+- Swagger UI: `http://localhost:7070/docs`
 - PostgreSQL: `localhost:5432`
 
 ### Recommended Usage

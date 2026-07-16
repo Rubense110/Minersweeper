@@ -1,5 +1,6 @@
 package com.minersweeper.javaservice.app;
 
+import com.minersweeper.javaservice.app.http.OpenApiDocs;
 import com.minersweeper.javaservice.app.http.PromHttpHandlers;
 import com.minersweeper.javaservice.app.logging.UnknownExtensionLogFilter;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
@@ -36,12 +37,19 @@ public class PromService {
             res.type("application/json");
             return "{\"status\":\"ok\"}";
         });
+        get("/openapi.json", (req, res) -> {
+            res.type("application/json");
+            return MAPPER.writeValueAsString(OpenApiDocs.buildSpec(serverUrlFor(req.url(), "/openapi.json")));
+        });
+        get("/docs", (req, res) -> {
+            res.type("text/html");
+            return OpenApiDocs.swaggerUiHtml("/openapi.json");
+        });
 
         post("/pipeline", (req, res) -> HTTP_HANDLERS.handlePipeline(req, res));
         post("/artifacts/bulk", (req, res) -> HTTP_HANDLERS.handleArtifactsBulk(req, res));
         post("/experiments/:experimentId/cancel", (req, res) -> HTTP_HANDLERS.handleCancel(req, res));
         post("/experiments/:experimentId/cleanup", (req, res) -> HTTP_HANDLERS.handleCleanup(req, res));
-        get("/experiments/:experimentId/fingerprints", (req, res) -> HTTP_HANDLERS.handleExperimentFingerprints(req, res));
     }
 
     private static String env(String key, String fallback) {
@@ -54,6 +62,17 @@ public class PromService {
             ARTIFACT_STORE,
             Paths.get(env("LOGS_ROOT", "event_logs"))
         );
+    }
+
+    private static String serverUrlFor(String requestUrl, String suffix) {
+        if (requestUrl == null) {
+            return "/";
+        }
+        String normalizedSuffix = suffix == null ? "" : suffix;
+        if (!normalizedSuffix.isEmpty() && requestUrl.endsWith(normalizedSuffix)) {
+            return requestUrl.substring(0, requestUrl.length() - normalizedSuffix.length());
+        }
+        return requestUrl;
     }
 
 }

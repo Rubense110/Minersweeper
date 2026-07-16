@@ -29,11 +29,15 @@ __pycache__/*
 /src/optimization-service/reports/*
 /logs/*.log
 /logs/*.jsonl
+/logs/*.out
 /logs/worker_matrix/
 /event_logs/*.xes
 /known_issues.md
 /docker-compose.override.yml
 /tools/run_all_logs.py
+/study
+/Analysis
+/tfm-exp
 
 # Frontend build/runtime artifacts
 /src/frontend-service/node_modules/

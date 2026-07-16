@@ -35,7 +35,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
             maximize_metrics=[True, True, True, True],
@@ -68,7 +67,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
         )
@@ -89,8 +87,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
                 log_path="dummy.xes",
                 metrics_list=["fitness"],
                 required_metrics=["fitness"],
-                constraints=[],
-                search_space=space,
+                    search_space=space,
                 evaluator=evaluator,
                 maximize_metrics=[True, False],
             )
@@ -116,7 +113,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
         )
@@ -140,7 +136,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
         )
@@ -169,7 +164,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
             maximize_metrics=[True, True, True, True],
@@ -192,7 +186,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             log_path="dummy.xes",
             metrics_list=["fitness", "precision", "simplicity", "generalisation"],
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
-            constraints=[],
             search_space=space,
             evaluator=evaluator,
         )
@@ -200,33 +193,6 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         with self.assertRaises(JobCancelled):
             problem.evaluate(problem.create_solution())
 
-    def test_constraints_are_evaluated_and_stored(self):
-        space = PipelineSearchSpace(excluded_miners=("split",))
-
-        def evaluator(_log, _pipeline, _metrics):
-            return {
-                "metrics": {
-                    "fitness": 0.9,
-                    "precision": 0.8,
-                    "places": 15.0,
-                }
-            }
-
-        problem = PipelineOptimizationProblem(
-            log_path="dummy.xes",
-            metrics_list=["fitness", "precision"],
-            required_metrics=["fitness", "precision", "places"],
-            constraints=[{"metric": "places", "operator": "<=", "value": 12.0}],
-            search_space=space,
-            evaluator=evaluator,
-        )
-
-        evaluated = problem.evaluate(problem.create_solution())
-        self.assertEqual([-0.9, -0.8], evaluated.objectives)
-        self.assertEqual(1, len(evaluated.constraints))
-        self.assertLess(evaluated.constraints[0], 0.0)
-        self.assertFalse(evaluated.attributes["is_feasible"])
-        self.assertEqual({"fitness": 0.9, "precision": 0.8, "places": 15.0}, evaluated.attributes["metrics"])
 
 
 if __name__ == "__main__":
