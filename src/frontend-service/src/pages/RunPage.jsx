@@ -72,6 +72,7 @@ export default function RunPage() {
   const [maxEvaluations, setMaxEvaluations] = useState(100)
   const [populationSize, setPopulationSize] = useState(20)
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
+  const [seed, setSeed] = useState('')
   const [conformanceMode, setConformanceMode] = useState('replay')
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
   const [submitting, setSubmitting] = useState(false)
@@ -151,6 +152,17 @@ export default function RunPage() {
       if (!CONFORMANCE_MODE_OPTIONS.some((option) => option.value === conformanceMode)) {
         throw new Error('Invalid conformance mode')
       }
+      const normalizedSeed = String(seed).trim()
+      let parsedSeed = null
+      if (normalizedSeed) {
+        if (!/^\d+$/.test(normalizedSeed)) {
+          throw new Error('Seed must be a non-negative integer')
+        }
+        parsedSeed = Number.parseInt(normalizedSeed, 10)
+        if (!Number.isSafeInteger(parsedSeed)) {
+          throw new Error('Seed must be a safe integer')
+        }
+      }
       const job = await createOptimization({
         execution_name: executionName.trim() || `run_${Date.now()}`,
         log_path: toRelativeLogPath(logPath),
@@ -159,6 +171,7 @@ export default function RunPage() {
         max_evaluations: parsedMaxEvaluations,
         population_size: parsedPopulationSize,
         n_workers: normalizeWorkers(parsedWorkers),
+        ...(parsedSeed === null ? {} : { seed: parsedSeed }),
         excluded_miners: ['ilp', 'hybrid_ilp'],
       })
       navigate(`/results/${job.job_id}`)
@@ -217,6 +230,18 @@ export default function RunPage() {
                 onChange={setConformanceMode}
                 options={CONFORMANCE_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                 value={conformanceMode}
+              />
+            </label>
+
+            <label>
+              Seed
+              <input
+                inputMode="numeric"
+                onChange={(event) => setSeed(event.target.value)}
+                pattern="[0-9]*"
+                placeholder="Auto"
+                type="text"
+                value={seed}
               />
             </label>
           </div>

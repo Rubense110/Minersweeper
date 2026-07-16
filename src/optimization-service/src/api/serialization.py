@@ -115,6 +115,7 @@ def _build_experiment_export_archive(
         "max_evals",
         "pop_size",
         "workers",
+        "seed",
         "log_path",
         "metrics",
         "miners",

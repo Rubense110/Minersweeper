@@ -7,6 +7,7 @@ import math
 from typing import Any, Dict, List
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -37,6 +38,7 @@ class Experiment(Base):
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     max_evals: Mapped[int] = mapped_column(Integer, nullable=False)
     pop_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seed: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     miners: Mapped[Any] = mapped_column(JSON, nullable=False)
     preprocessing: Mapped[Any] = mapped_column(JSON, nullable=False)
     log_path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -124,6 +126,9 @@ class JobStore:
         with self.engine.begin() as connection:
             if "experiments" in table_names:
                 experiment_columns = {column["name"] for column in inspector.get_columns("experiments")}
+                if "seed" not in experiment_columns:
+                    connection.execute(text("ALTER TABLE experiments ADD COLUMN seed BIGINT"))
+
             if "solutions" in table_names:
                 solution_columns = {column["name"] for column in inspector.get_columns("solutions")}
                 if "runtime_ms" not in solution_columns:
@@ -179,6 +184,7 @@ class JobStore:
                     end_at=experiment_data["end_at"],
                     max_evals=int(experiment_data["max_evals"]),
                     pop_size=experiment_data.get("pop_size"),
+                    seed=self._to_int_or_none(experiment_data.get("seed")),
                     miners=experiment_data.get("miners", []),
                     preprocessing=experiment_data.get("preprocessing", []),
                     log_path=str(experiment_data["log_path"]),
@@ -238,6 +244,7 @@ class JobStore:
             "end_at": experiment.end_at.isoformat() if experiment.end_at else None,
             "max_evals": int(experiment.max_evals),
             "pop_size": experiment.pop_size,
+            "seed": experiment.seed,
             "miners": experiment.miners or [],
             "preprocessing": experiment.preprocessing or [],
             "log_path": experiment.log_path,

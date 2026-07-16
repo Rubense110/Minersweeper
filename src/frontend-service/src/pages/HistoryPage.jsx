@@ -23,6 +23,7 @@ function normalizeDbExperiment(item) {
     maxEvaluations: item.max_evals ?? '-',
     populationSize: item.pop_size ?? '-',
     workers: item.workers ?? '-',
+    seed: item.seed ?? '-',
     createdAt: item.start_at,
     finishedAt: item.end_at,
     counts: item.counts || { all_solutions: 0, pareto_solutions: 0 },
@@ -41,6 +42,7 @@ function normalizeLiveJob(item) {
     maxEvaluations: discover.max_evaluations ?? '-',
     populationSize: discover.population_size ?? '-',
     workers: discover.n_workers ?? '-',
+    seed: discover.seed ?? '-',
     createdAt: item.created_at,
     finishedAt: item.finished_at,
     counts,
@@ -135,7 +137,7 @@ export default function HistoryPage() {
               </p>
               <p>
                 <strong>Evaluations:</strong> {item.maxEvaluations} | <strong>Population:</strong> {item.populationSize} |{' '}
-                <strong>Workers:</strong> {item.workers}
+                <strong>Workers:</strong> {item.workers} | <strong>Seed:</strong> {item.seed}
               </p>
               <p>
                 <strong>Solutions:</strong> {item.counts.all_solutions ?? 0} (pareto: {item.counts.pareto_solutions ?? 0})

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import random
 import threading
 import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple
@@ -31,6 +32,7 @@ class PipelineOptimizationProblem(FloatProblem):
         maximize_metrics: Sequence[bool] | None = None,
         use_cache: bool = True,
         on_evaluation: Callable[[Dict[str, Any]], None] | None = None,
+        rng: random.Random | None = None,
     ):
         super().__init__()
         if not metrics_list:
@@ -44,6 +46,7 @@ class PipelineOptimizationProblem(FloatProblem):
         self.use_cache = use_cache
         self.evaluation_cache: Dict[Tuple[float, ...], Dict[str, Any]] = {}
         self.on_evaluation = on_evaluation
+        self.rng = rng or random.Random()
         self._evaluations_done = 0
         self._eval_lock = threading.Lock()
 
@@ -55,6 +58,19 @@ class PipelineOptimizationProblem(FloatProblem):
         self.upper_bound = self.search_space.upper_bounds()
         self.obj_directions = [self.MINIMIZE] * len(metrics_list)
         self.obj_labels = metrics_list
+
+    def create_solution(self) -> FloatSolution:
+        solution = FloatSolution(
+            self.lower_bound,
+            self.upper_bound,
+            self.number_of_objectives(),
+            self.number_of_constraints(),
+        )
+        solution.variables = [
+            self.rng.uniform(self.lower_bound[index], self.upper_bound[index])
+            for index in range(self.number_of_variables())
+        ]
+        return solution
 
     def evaluate(self, solution: FloatSolution) -> FloatSolution:
         if hasattr(self.evaluator, "raise_if_cancel_requested"):

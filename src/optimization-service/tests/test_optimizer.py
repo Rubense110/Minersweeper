@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 import unittest
 
 from jmetal.util.evaluator import SequentialEvaluator
@@ -15,7 +16,7 @@ from problem import PipelineOptimizationProblem
 
 
 class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
-    def _build_problem(self):
+    def _build_problem(self, seed=None):
         space = PipelineSearchSpace(excluded_miners=("split",))
 
         def evaluator(_log, pipeline, _metrics):
@@ -34,6 +35,7 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
             required_metrics=["fitness", "precision", "simplicity", "generalisation"],
             search_space=space,
             evaluator=evaluator,
+            rng=random.Random(seed) if seed is not None else None,
         )
 
     def test_optimizer_runs_and_returns_non_dominated(self):
@@ -82,6 +84,25 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         self.assertEqual([1, 2], [snapshot["snapshot_index"] for snapshot in snapshots])
         self.assertEqual([4, 8], [snapshot["evaluations_done"] for snapshot in snapshots])
         self.assertTrue(all(len(snapshot["solutions"]) == 4 for snapshot in snapshots))
+
+    def test_seeded_optimizer_reproduces_final_population(self):
+        def run_once():
+            problem = self._build_problem(seed=42)
+            optimizer = PipelineNSGAIIIOptimizer(
+                problem=problem,
+                max_evaluations=8,
+                population_size=4,
+                n_partitions=1,
+                seed=42,
+                rng=problem.rng,
+            )
+            optimizer.run()
+            return [
+                [round(value, 10) for value in solution.variables]
+                for solution in optimizer.get_result()
+            ]
+
+        self.assertEqual(run_once(), run_once())
 
 
 if __name__ == "__main__":

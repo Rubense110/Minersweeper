@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from execution_control import ExecutionControl
@@ -30,6 +31,7 @@ class OptimizedProcessMiner:
         excluded_miners: Optional[Sequence[str]] = ("ilp",),
         excluded_preprocessings: Optional[Sequence[str]] = None,
         execution_control: Optional[ExecutionControl] = None,
+        seed: int | None = None,
     ):
         self.execution_name = execution_name
         self.log_path = log
@@ -41,6 +43,8 @@ class OptimizedProcessMiner:
         self.excluded_miners = tuple(excluded_miners or ())
         self.excluded_preprocessings = tuple(excluded_preprocessings or ())
         self.execution_control = execution_control or ExecutionControl()
+        self.seed = seed
+        self.rng = random.Random(seed)
 
         self.search_space: Optional[PipelineSearchSpace] = None
         self.problem: Optional[PipelineOptimizationProblem] = None
@@ -84,6 +88,7 @@ class OptimizedProcessMiner:
             evaluator=self.service_client.evaluate_pipeline,
             maximize_metrics=[True] * len(self.metrics_list),
             on_evaluation=progress_callback,
+            rng=self.rng,
         )
 
         self.optimizer = PipelineNSGAIIIOptimizer(
@@ -93,6 +98,8 @@ class OptimizedProcessMiner:
             n_partitions=n_partitions,
             n_workers=n_workers,
             execution_control=self.execution_control,
+            seed=self.seed,
+            rng=self.rng,
         )
         self.optimizer.run()
         self.result = self.optimizer.get_result()

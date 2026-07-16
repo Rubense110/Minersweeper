@@ -63,6 +63,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             service_url="http://service",
             excluded_miners=("split", "ilp"),
             excluded_preprocessings=("repair_log_filter",),
+            seed=123,
         )
         result = miner.discover(max_evaluations=50, population_size=20, n_partitions=3, n_workers=4)
 
@@ -91,6 +92,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         self.assertEqual(kwargs["maximize_metrics"], [True, True, True, True])
         self.assertIs(kwargs["search_space"], mock_space)
         self.assertIs(kwargs["evaluator"], mock_client.evaluate_pipeline)
+        self.assertIs(kwargs["rng"], miner.rng)
 
         mock_optimizer_cls.assert_called_once_with(
             problem=mock_problem,
@@ -99,6 +101,8 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             n_partitions=3,
             n_workers=4,
             execution_control=ANY,
+            seed=123,
+            rng=miner.rng,
         )
         mock_optimizer.run.assert_called_once()
 

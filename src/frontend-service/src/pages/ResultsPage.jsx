@@ -333,6 +333,7 @@ export default function ResultsPage() {
             max_evaluations: experimentPayload.max_evals,
             population_size: experimentPayload.pop_size,
             n_workers: experimentPayload.workers,
+            seed: experimentPayload.seed,
           },
         },
       })
@@ -829,6 +830,9 @@ export default function ResultsPage() {
               {Array.isArray(job.request?.metrics) && job.request.metrics.length
                 ? job.request.metrics.join(', ')
                 : 'default'}
+            </p>
+            <p>
+              <strong>Seed:</strong> {job.request?.discover?.seed ?? '-'}
             </p>
 
             <p>

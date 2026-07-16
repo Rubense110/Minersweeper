@@ -9,6 +9,7 @@ if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
 import api
+from api.manager import MAX_SAFE_SEED, _normalize_seed
 
 
 class FakeManager:
@@ -104,6 +105,23 @@ class FakeManager:
         return (b"zip-data", "experiment_exp-1_run.zip")
 
 
+class SeedNormalizationTest(unittest.TestCase):
+    def test_normalize_seed_accepts_non_negative_integer(self):
+        self.assertEqual(123, _normalize_seed("123"))
+
+    def test_normalize_seed_generates_value_when_missing(self):
+        with mock.patch("api.manager.secrets.randbits", return_value=987654321):
+            self.assertEqual(987654321, _normalize_seed(None))
+
+    def test_normalize_seed_rejects_invalid_values(self):
+        with self.assertRaises(ValueError):
+            _normalize_seed(-1)
+        with self.assertRaises(ValueError):
+            _normalize_seed("abc")
+        with self.assertRaises(ValueError):
+            _normalize_seed(MAX_SAFE_SEED + 1)
+
+
 class OptimizationApiTest(unittest.TestCase):
     def setUp(self):
         self.original_manager = api.get_manager()
@@ -149,6 +167,7 @@ class OptimizationApiTest(unittest.TestCase):
                 "execution_name": "run_1",
                 "log_path": "/data/log.xes",
                 "metrics": ["fitness"],
+                "seed": 12345,
             },
         )
         self.assertEqual(202, response.status_code)
@@ -156,6 +175,7 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("created", body["job_id"])
         self.assertEqual("queued", body["status"])
         self.assertEqual(["fitness"], api.get_manager().last_submit_payload["metrics"])
+        self.assertEqual(12345, api.get_manager().last_submit_payload["seed"])
 
     def test_create_job_validation_error(self):
         response = self.client.post("/optimizations", json={"raise": "value"})

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import random
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List
 
@@ -9,11 +11,134 @@ from execution_control import ExecutionControl, JobCancelled
 from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
 from jmetal.operator.crossover import SBXCrossover
 from jmetal.operator.mutation import PolynomialMutation
+from jmetal.util.comparator import MultiComparator
+from jmetal.util.density_estimator import CrowdingDistanceDensityEstimator
 from jmetal.util.evaluator import Evaluator, SequentialEvaluator
 from jmetal.util.ranking import FastNonDominatedRanking
 from jmetal.util.termination_criterion import StoppingByEvaluations
 
 from problem import PipelineOptimizationProblem
+
+
+class SeededBinaryTournamentSelection:
+    def __init__(self, rng: random.Random):
+        self.rng = rng
+        self.comparator = MultiComparator(
+            [FastNonDominatedRanking.get_comparator(), CrowdingDistanceDensityEstimator.get_comparator()]
+        )
+
+    def execute(self, front: List[Any]) -> Any:
+        if not front:
+            raise ValueError("The front is empty")
+        if len(front) == 1:
+            return front[0]
+        idx1, idx2 = self.rng.sample(range(len(front)), 2)
+        solution1 = front[idx1]
+        solution2 = front[idx2]
+        comparison = self.comparator.compare(solution1, solution2)
+        if comparison == -1:
+            return solution1
+        if comparison == 1:
+            return solution2
+        return solution1 if self.rng.random() < 0.5 else solution2
+
+    def get_name(self) -> str:
+        return "Seeded binary tournament selection"
+
+
+class SeededPolynomialMutation(PolynomialMutation):
+    def __init__(self, probability: float, distribution_index: float, rng: random.Random):
+        super().__init__(probability=probability, distribution_index=distribution_index)
+        self.rng = rng
+
+    def execute(self, solution):
+        for i in range(len(solution.variables)):
+            if self.rng.random() <= self.probability:
+                y = solution.variables[i]
+                yl, yu = solution.lower_bound[i], solution.upper_bound[i]
+                if yl == yu:
+                    y = yl
+                else:
+                    delta1 = (y - yl) / (yu - yl)
+                    delta2 = (yu - y) / (yu - yl)
+                    rnd = self.rng.random()
+                    mut_pow = 1.0 / (self.distribution_index + 1.0)
+                    if rnd <= 0.5:
+                        xy = 1.0 - delta1
+                        val = 2.0 * rnd + (1.0 - 2.0 * rnd) * pow(xy, self.distribution_index + 1.0)
+                        deltaq = pow(val, mut_pow) - 1.0
+                    else:
+                        xy = 1.0 - delta2
+                        val = 2.0 * (1.0 - rnd) + 2.0 * (rnd - 0.5) * pow(xy, self.distribution_index + 1.0)
+                        deltaq = 1.0 - pow(val, mut_pow)
+                    y += deltaq * (yu - yl)
+                    y = max(yl, min(y, yu))
+                    solution.variables[i] = y
+        return solution
+
+
+class SeededSBXCrossover(SBXCrossover):
+    __EPS = 1.0e-14
+
+    def __init__(self, probability: float, distribution_index: float, rng: random.Random):
+        super().__init__(probability=probability, distribution_index=distribution_index)
+        self.rng = rng
+
+    def execute(self, parents: List[Any]) -> List[Any]:
+        if len(parents) != 2:
+            raise ValueError("The number of parents is not two: {}".format(len(parents)))
+
+        offspring = copy.deepcopy(parents)
+        if self.rng.random() <= self.probability:
+            for i in range(len(parents[0].variables)):
+                value_x1, value_x2 = parents[0].variables[i], parents[1].variables[i]
+                if self.rng.random() <= 0.5 and abs(value_x1 - value_x2) > self.__EPS:
+                    if value_x1 < value_x2:
+                        y1, y2 = value_x1, value_x2
+                    else:
+                        y1, y2 = value_x2, value_x1
+
+                    try:
+                        lb1, ub1 = parents[0].lower_bound[i], parents[0].upper_bound[i]
+                        beta1 = 1.0 + (2.0 * (y1 - lb1) / (y2 - y1))
+                        alpha1 = 2.0 - pow(beta1, -(self.distribution_index + 1.0))
+                        rand_val = self.rng.random()
+                        if rand_val <= (1.0 / alpha1):
+                            betaq1 = pow(rand_val * alpha1, 1.0 / (self.distribution_index + 1.0))
+                        else:
+                            betaq1 = pow(1.0 / (2.0 - rand_val * alpha1), 1.0 / (self.distribution_index + 1.0))
+                        c1 = 0.5 * (y1 + y2 - betaq1 * (y2 - y1))
+
+                        lb2, ub2 = parents[1].lower_bound[i], parents[1].upper_bound[i]
+                        beta2 = 1.0 + (2.0 * (ub2 - y2) / (y2 - y1))
+                        alpha2 = 2.0 - pow(beta2, -(self.distribution_index + 1.0))
+                        if rand_val <= (1.0 / alpha2):
+                            betaq2 = pow(rand_val * alpha2, 1.0 / (self.distribution_index + 1.0))
+                        else:
+                            betaq2 = pow(1.0 / (2.0 - rand_val * alpha2), 1.0 / (self.distribution_index + 1.0))
+                        c2 = 0.5 * (y1 + y2 + betaq2 * (y2 - y1))
+                    except (ValueError, ZeroDivisionError):
+                        c1, c2 = y1, y2
+                        lb1, ub1 = parents[0].lower_bound[i], parents[0].upper_bound[i]
+                        lb2, ub2 = parents[1].lower_bound[i], parents[1].upper_bound[i]
+
+                    if isinstance(c1, complex):
+                        c1 = c1.real
+                    if isinstance(c2, complex):
+                        c2 = c2.real
+                    c1 = max(lb1, min(c1, ub1))
+                    c2 = max(lb2, min(c2, ub2))
+
+                    if self.rng.random() <= 0.5:
+                        offspring[0].variables[i] = c2
+                        offspring[1].variables[i] = c1
+                    else:
+                        offspring[0].variables[i] = c1
+                        offspring[1].variables[i] = c2
+                else:
+                    offspring[0].variables[i] = value_x1
+                    offspring[1].variables[i] = value_x2
+        return offspring
 
 
 class ThreadPoolEvaluator(Evaluator):
@@ -103,11 +228,15 @@ class PipelineNSGAIIIOptimizer:
         n_workers: int = 1,
         execution_control: ExecutionControl | None = None,
         snapshot_callback: Callable[[Dict[str, Any]], None] | None = None,
+        seed: int | None = None,
+        rng: random.Random | None = None,
     ):
         self.problem = problem
         self.execution_control = execution_control
         self.snapshot_callback = snapshot_callback
         self.population_snapshots: List[Dict[str, Any]] = []
+        self.seed = seed
+        self.rng = rng or random.Random(seed)
 
         n_obj = self.problem.number_of_objectives()
         if n_partitions is None:
@@ -132,14 +261,17 @@ class PipelineNSGAIIIOptimizer:
             reference_directions=self.reference_directions,
             problem=self.problem,
             population_size=population_size,
-            mutation=PolynomialMutation(
+            mutation=SeededPolynomialMutation(
                 probability=mutation_probability,
                 distribution_index=mutation_distribution_index,
+                rng=self.rng,
             ),
-            crossover=SBXCrossover(
+            crossover=SeededSBXCrossover(
                 probability=crossover_probability,
                 distribution_index=crossover_distribution_index,
+                rng=self.rng,
             ),
+            selection=SeededBinaryTournamentSelection(self.rng),
             termination_criterion=StoppingByEvaluations(max_evaluations=max_evaluations),
             population_evaluator=population_evaluator,
             execution_control=execution_control,

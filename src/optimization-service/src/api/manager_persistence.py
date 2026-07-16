@@ -131,6 +131,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "end_at": _parse_utc_iso(finished_at) or datetime.now(timezone.utc),
         "max_evals": int(discover.get("max_evaluations") or 0),
         "pop_size": _to_int_or_none(discover.get("population_size")),
+        "seed": _to_int_or_none(discover.get("seed")),
         "miners": (result.get("catalogs") or {}).get("miners", []),
         "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
         "log_path": request_data.get("log_path") or "",

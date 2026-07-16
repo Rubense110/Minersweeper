@@ -36,6 +36,7 @@ def append_evaluation_trace(
         "workers": discover.get("n_workers"),
         "max_evaluations": discover.get("max_evaluations"),
         "population_size": discover.get("population_size"),
+        "seed": discover.get("seed"),
         "conformance_mode": config.get("conformance_mode"),
         "evaluations_done": event.get("evaluations_done"),
         "cache_hit": bool(event.get("cache_hit")),

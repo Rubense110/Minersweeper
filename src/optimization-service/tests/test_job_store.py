@@ -29,6 +29,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "end_at": datetime.now(timezone.utc),
                 "max_evals": 10,
                 "pop_size": 5,
+                "seed": 123456789,
                 "miners": ["inductive"],
                 "preprocessing": ["matrix_filter"],
                 "log_path": "/data/logs/log.xes",
@@ -55,6 +56,9 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 persisted = session.query(Solution).one()
                 self.assertEqual(245, persisted.runtime_ms)
                 self.assertEqual({"fitness": 0.9, "places": 8.0}, persisted.metrics)
+
+            experiment = store.get_experiment("exp-1")
+            self.assertEqual(123456789, experiment["seed"])
 
     def test_init_adds_runtime_ms_column_for_existing_schema(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -98,6 +102,8 @@ class JobStoreRuntimeTest(unittest.TestCase):
             columns = {column["name"] for column in inspect(store.engine).get_columns("solutions")}
             self.assertIn("runtime_ms", columns)
             self.assertIn("metrics", columns)
+            experiment_columns = {column["name"] for column in inspect(store.engine).get_columns("experiments")}
+            self.assertIn("seed", experiment_columns)
 
     def test_save_completed_experiment_sanitizes_non_finite_json_values(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

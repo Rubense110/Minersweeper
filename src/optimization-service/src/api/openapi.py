@@ -70,6 +70,7 @@ def _components() -> Dict[str, Any]:
                     "population_size": {"type": "integer", "example": 100},
                     "n_partitions": {"type": "integer", "nullable": True, "example": 4},
                     "n_workers": {"type": "integer", "example": 2},
+                    "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "example": 123456789},
                 },
             },
             "JobProgress": {
@@ -100,6 +101,7 @@ def _components() -> Dict[str, Any]:
                             "population_size": {"type": "integer"},
                             "n_partitions": {"type": "integer", "nullable": True},
                             "n_workers": {"type": "integer"},
+                            "seed": {"type": "integer", "nullable": True},
                         },
                         "additionalProperties": True,
                     },
@@ -185,6 +187,7 @@ def _components() -> Dict[str, Any]:
                     "max_evals": {"type": "integer"},
                     "pop_size": {"type": "integer", "nullable": True},
                     "workers": {"type": "integer"},
+                    "seed": {"type": "integer", "nullable": True},
                     "log_path": {"type": "string"},
                     "metrics": {"type": "array", "items": {"type": "string"}},
                     "miners": {"type": "array", "items": {"type": "string"}},
