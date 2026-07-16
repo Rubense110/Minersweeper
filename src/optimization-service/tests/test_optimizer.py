@@ -3,6 +3,7 @@ import sys
 import random
 import unittest
 
+from jmetal.core.solution import FloatSolution
 from jmetal.util.evaluator import SequentialEvaluator
 
 
@@ -10,7 +11,7 @@ SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src
 if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
-from optimizer import PipelineNSGAIIIOptimizer, ThreadPoolEvaluator
+from optimizer import PipelineNSGAIIIOptimizer, SeededPolynomialMutation, SeededSBXCrossover, ThreadPoolEvaluator
 from pipeline_space import PipelineSearchSpace
 from problem import PipelineOptimizationProblem
 
@@ -84,6 +85,26 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         self.assertEqual([1, 2], [snapshot["snapshot_index"] for snapshot in snapshots])
         self.assertEqual([4, 8], [snapshot["evaluations_done"] for snapshot in snapshots])
         self.assertTrue(all(len(snapshot["solutions"]) == 4 for snapshot in snapshots))
+
+
+    def test_seeded_variation_operators_modify_solution_variables(self):
+        parent1 = FloatSolution([0.0, 0.0], [1.0, 1.0], 2, 0)
+        parent2 = FloatSolution([0.0, 0.0], [1.0, 1.0], 2, 0)
+        parent1.variables = [0.2, 0.8]
+        parent2.variables = [0.8, 0.2]
+
+        crossover = SeededSBXCrossover(probability=1.0, distribution_index=20.0, rng=random.Random(7))
+        offspring = crossover.execute([parent1, parent2])
+
+        self.assertNotEqual(parent1.variables, offspring[0].variables)
+        self.assertNotEqual(parent2.variables, offspring[1].variables)
+
+        mutation_target = FloatSolution([0.0, 0.0], [1.0, 1.0], 2, 0)
+        mutation_target.variables = [0.5, 0.5]
+        mutation = SeededPolynomialMutation(probability=1.0, distribution_index=20.0, rng=random.Random(11))
+        mutation.execute(mutation_target)
+
+        self.assertNotEqual([0.5, 0.5], mutation_target.variables)
 
     def test_seeded_optimizer_reproduces_final_population(self):
         def run_once():

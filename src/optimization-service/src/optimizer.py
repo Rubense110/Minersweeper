@@ -52,9 +52,10 @@ class SeededPolynomialMutation(PolynomialMutation):
         self.rng = rng
 
     def execute(self, solution):
-        for i in range(len(solution.variables)):
+        variables = getattr(solution, "_variables", solution.variables)
+        for i in range(len(variables)):
             if self.rng.random() <= self.probability:
-                y = solution.variables[i]
+                y = variables[i]
                 yl, yu = solution.lower_bound[i], solution.upper_bound[i]
                 if yl == yu:
                     y = yl
@@ -73,7 +74,7 @@ class SeededPolynomialMutation(PolynomialMutation):
                         deltaq = 1.0 - pow(val, mut_pow)
                     y += deltaq * (yu - yl)
                     y = max(yl, min(y, yu))
-                    solution.variables[i] = y
+                    variables[i] = y
         return solution
 
 
@@ -90,8 +91,12 @@ class SeededSBXCrossover(SBXCrossover):
 
         offspring = copy.deepcopy(parents)
         if self.rng.random() <= self.probability:
-            for i in range(len(parents[0].variables)):
-                value_x1, value_x2 = parents[0].variables[i], parents[1].variables[i]
+            parent0_variables = getattr(parents[0], "_variables", parents[0].variables)
+            parent1_variables = getattr(parents[1], "_variables", parents[1].variables)
+            offspring0_variables = getattr(offspring[0], "_variables", offspring[0].variables)
+            offspring1_variables = getattr(offspring[1], "_variables", offspring[1].variables)
+            for i in range(len(parent0_variables)):
+                value_x1, value_x2 = parent0_variables[i], parent1_variables[i]
                 if self.rng.random() <= 0.5 and abs(value_x1 - value_x2) > self.__EPS:
                     if value_x1 < value_x2:
                         y1, y2 = value_x1, value_x2
@@ -130,14 +135,14 @@ class SeededSBXCrossover(SBXCrossover):
                     c2 = max(lb2, min(c2, ub2))
 
                     if self.rng.random() <= 0.5:
-                        offspring[0].variables[i] = c2
-                        offspring[1].variables[i] = c1
+                        offspring0_variables[i] = c2
+                        offspring1_variables[i] = c1
                     else:
-                        offspring[0].variables[i] = c1
-                        offspring[1].variables[i] = c2
+                        offspring0_variables[i] = c1
+                        offspring1_variables[i] = c2
                 else:
-                    offspring[0].variables[i] = value_x1
-                    offspring[1].variables[i] = value_x2
+                    offspring0_variables[i] = value_x1
+                    offspring1_variables[i] = value_x2
         return offspring
 
 
