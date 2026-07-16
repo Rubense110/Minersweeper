@@ -88,6 +88,7 @@ public final class OpenApiDocs {
         paths.put("/pipeline", pipelinePath());
         paths.put("/artifacts/bulk", artifactsBulkPath());
         paths.put("/experiments/{experimentId}/cancel", cancelPath());
+        paths.put("/experiments/{experimentId}/evaluations/{requestId}/cancel", evaluationCancelPath());
         paths.put("/experiments/{experimentId}/cleanup", cleanupPath());
         return paths;
     }
@@ -154,6 +155,21 @@ public final class OpenApiDocs {
         return singleMethod("post", operation);
     }
 
+    private static Map<String, Object> evaluationCancelPath() {
+        Map<String, Object> operation = new LinkedHashMap<String, Object>();
+        operation.put("tags", Arrays.<Object>asList("experiments"));
+        operation.put("summary", "Request cancellation of one evaluation");
+        operation.put("operationId", "cancelEvaluation");
+        operation.put("parameters", Arrays.<Object>asList(experimentIdParameter(), requestIdParameter()));
+
+        Map<String, Object> responseMap = new LinkedHashMap<String, Object>();
+        responseMap.put("200", response(200, "Cancellation request accepted", schemaRef("EvaluationCancelResponse")));
+        responseMap.put("400", errorResponse("Invalid experiment or request id"));
+        responseMap.put("500", errorResponse("Cancellation request failed"));
+        operation.put("responses", responseMap);
+        return singleMethod("post", operation);
+    }
+
     private static Map<String, Object> cleanupPath() {
         Map<String, Object> operation = new LinkedHashMap<String, Object>();
         operation.put("tags", Arrays.<Object>asList("experiments"));
@@ -179,6 +195,16 @@ public final class OpenApiDocs {
         return parameter;
     }
 
+    private static Map<String, Object> requestIdParameter() {
+        Map<String, Object> parameter = new LinkedHashMap<String, Object>();
+        parameter.put("name", "requestId");
+        parameter.put("in", "path");
+        parameter.put("required", Boolean.TRUE);
+        parameter.put("description", "Client-side evaluation request identifier.");
+        parameter.put("schema", scalarSchema("string"));
+        return parameter;
+    }
+
     private static Map<String, Object> components() {
         Map<String, Object> components = new LinkedHashMap<String, Object>();
         Map<String, Object> schemas = new LinkedHashMap<String, Object>();
@@ -190,6 +216,7 @@ public final class OpenApiDocs {
         schemas.put("ArtifactBulkResponse", artifactBulkResponseSchema());
         schemas.put("ArtifactEntry", artifactEntrySchema());
         schemas.put("ExperimentCancelResponse", experimentCancelResponseSchema());
+        schemas.put("EvaluationCancelResponse", evaluationCancelResponseSchema());
         schemas.put("ExperimentCleanupResponse", experimentCleanupResponseSchema());
         schemas.put("PipelineConfig", pipelineConfigSchema());
         schemas.put("PreprocessingConfig", preprocessingConfigSchema());
@@ -222,6 +249,7 @@ public final class OpenApiDocs {
             "properties",
             properties(
                 property("experiment_id", scalarSchema("string")),
+                property("request_id", scalarSchema("string")),
                 property("log_path", scalarSchema("string")),
                 property("conformance_mode", stringEnumSchema("alignment", "replay", "replay-token")),
                 property("pipeline", schemaRef("PipelineConfig")),
@@ -303,6 +331,19 @@ public final class OpenApiDocs {
             "properties",
             properties(
                 property("experiment_id", scalarSchema("string")),
+                property("cancel_requested", scalarSchema("boolean"))
+            )
+        );
+        return schema;
+    }
+
+    private static Map<String, Object> evaluationCancelResponseSchema() {
+        Map<String, Object> schema = objectSchema("experiment_id", "request_id", "cancel_requested");
+        schema.put(
+            "properties",
+            properties(
+                property("experiment_id", scalarSchema("string")),
+                property("request_id", scalarSchema("string")),
                 property("cancel_requested", scalarSchema("boolean"))
             )
         );

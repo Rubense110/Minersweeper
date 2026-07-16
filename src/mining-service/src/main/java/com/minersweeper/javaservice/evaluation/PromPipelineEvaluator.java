@@ -69,19 +69,20 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         String failureType = "";
 
         String experimentId = TextUtils.safe(request == null ? null : request.experiment_id);
+        String requestId = TextUtils.safe(request == null ? null : request.request_id);
         String requestedMetrics = joinMetrics(request);
-            String pipelineSummary = summarizePipeline(request);
-            ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
-            timing.putField("conformance_mode", conformanceMode.key());
+        String pipelineSummary = summarizePipeline(request);
+        ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
+        timing.putField("conformance_mode", conformanceMode.key());
 
-        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId)) {
-            executionRegistry.throwIfCancellationRequested(experimentId);
+        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId, requestId)) {
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             long logLoadStartNs = TimingTrace.nowNs();
             LogLoader.LogAccess logAccess = logLoader.loadForExperiment(request.experiment_id, request.log_path);
             XLog log = logAccess.log();
             timing.putField("log_cache", logAccess.cacheHit() ? "hit" : "miss");
             timing.markFromStart("log_load_ms", logLoadStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long contextStartNs = TimingTrace.nowNs();
             PluginContext context = createContext();
@@ -90,12 +91,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             long preprocessStartNs = TimingTrace.nowNs();
             XLog processedLog = preprocessingPipeline.apply(context, log, request);
             timing.markFromStart("preprocess_ms", preprocessStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long discoverStartNs = TimingTrace.nowNs();
             DiscoveryArtifact discovered = discoverModel(context, processedLog, request);
             timing.markFromStart("discover_ms", discoverStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long metricsStartNs = TimingTrace.nowNs();
             Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
@@ -108,10 +109,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 conformanceMode,
                 timing,
                 executionRegistry,
-                experimentId
+                experimentId,
+                requestId
             );
             timing.markFromStart("metrics_ms", metricsStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
             for (String metricName : request.metrics) {
@@ -127,12 +129,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("fingerprint_ms", fingerprintStartNs);
 
             long artifactStoreStartNs = TimingTrace.nowNs();
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             EvaluationResult result = artifactStore.store(request, selectedMetrics, discovered.getPnml(), fingerprint);
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
             return result;
         } catch (Exception error) {
-            Exception effectiveError = normalizeCancellationFailure(experimentId, error);
+            Exception effectiveError = normalizeCancellationFailure(experimentId, requestId, error);
             failed = true;
             failureType = effectiveError.getClass().getSimpleName();
             throw effectiveError;
@@ -155,17 +157,22 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     @Override
+    public void cancelEvaluation(String experimentId, String requestId) {
+        executionRegistry.requestCancelEvaluation(experimentId, requestId);
+    }
+
+    @Override
     public void cleanupExperiment(String experimentId) throws Exception {
         executionRegistry.cleanupExperiment(experimentId);
         logLoader.evictExperiment(experimentId);
     }
 
-    private Exception normalizeCancellationFailure(String experimentId, Exception error) {
+    private Exception normalizeCancellationFailure(String experimentId, String requestId, Exception error) {
         if (error instanceof ExperimentCancelledException) {
             clearInterruptedStatus();
             return error;
         }
-        if (!executionRegistry.isCancellationRequested(experimentId)) {
+        if (!executionRegistry.isCancellationRequested(experimentId, requestId)) {
             return error;
         }
         if (!Thread.currentThread().isInterrupted() && !isInterruptedFailure(error)) {

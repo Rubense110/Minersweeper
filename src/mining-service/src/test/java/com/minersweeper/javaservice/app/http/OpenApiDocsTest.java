@@ -20,6 +20,7 @@ public class OpenApiDocsTest {
         assertTrue(paths.containsKey("/pipeline"));
         assertTrue(paths.containsKey("/artifacts/bulk"));
         assertTrue(paths.containsKey("/experiments/{experimentId}/cancel"));
+        assertTrue(paths.containsKey("/experiments/{experimentId}/evaluations/{requestId}/cancel"));
         assertTrue(paths.containsKey("/experiments/{experimentId}/cleanup"));
     }
 

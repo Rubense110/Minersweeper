@@ -111,6 +111,29 @@ public final class PromHttpHandlers {
         }
     }
 
+    public Object handleEvaluationCancel(spark.Request req, spark.Response res) throws Exception {
+        String experimentId = req.params(":experimentId");
+        String requestId = req.params(":requestId");
+        try {
+            RequestValidator.validateExperimentIdPath(experimentId);
+            RequestValidator.validateRequestIdPath(requestId);
+        } catch (BadRequestException e) {
+            return HttpResponses.respondError(res, 400, "invalid_request", e.getMessage());
+        }
+
+        try {
+            pipelineEvaluator.cancelEvaluation(experimentId, requestId);
+            Map<String, Object> response = new LinkedHashMap<String, Object>();
+            response.put("experiment_id", experimentId);
+            response.put("request_id", requestId);
+            response.put("cancel_requested", Boolean.TRUE);
+            return HttpResponses.respondJson(res, 200, response, mapper);
+        } catch (Exception e) {
+            ServerErrorLogger.log("evaluation_cancel_failed", e, verboseExceptions);
+            return HttpResponses.respondError(res, 500, "evaluation_cancel_failed", HttpResponses.buildErrorMessage(e));
+        }
+    }
+
     public Object handleCleanup(spark.Request req, spark.Response res) throws Exception {
         String experimentId = req.params(":experimentId");
         try {

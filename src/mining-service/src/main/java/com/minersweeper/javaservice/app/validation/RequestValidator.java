@@ -114,6 +114,12 @@ public final class RequestValidator {
         }
     }
 
+    public static void validateRequestIdPath(String requestId) {
+        if (isBlank(requestId)) {
+            throw new BadRequestException("requestId path parameter is required");
+        }
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
     }

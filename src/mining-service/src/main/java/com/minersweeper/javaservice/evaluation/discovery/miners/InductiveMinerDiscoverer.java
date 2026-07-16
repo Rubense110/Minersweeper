@@ -70,7 +70,7 @@ public final class InductiveMinerDiscoverer implements MinerDiscoverer {
             @Override
             public boolean isCancelled() {
                 return executionRegistry != null
-                    && executionRegistry.isCancellationRequested(request.experiment_id);
+                    && executionRegistry.isCancellationRequested(request.experiment_id, request.request_id);
             }
         };
 

@@ -122,4 +122,49 @@ public class ExperimentExecutionRegistryTest {
 
         assertTrue(interrupted[0]);
     }
+    @Test
+    public void requestCancelEvaluationInterruptsOnlyMatchingThread() throws Exception {
+        final ExperimentExecutionRegistry registry = new ExperimentExecutionRegistry();
+        final boolean[] firstInterrupted = new boolean[] { false };
+        final boolean[] secondInterrupted = new boolean[] { false };
+
+        Thread first = interruptibleEvaluationThread(registry, "run_eval", "req_1", firstInterrupted);
+        Thread second = interruptibleEvaluationThread(registry, "run_eval", "req_2", secondInterrupted);
+        first.start();
+        second.start();
+        Thread.sleep(50L);
+
+        registry.requestCancelEvaluation("run_eval", "req_1");
+        first.join(1000L);
+        Thread.sleep(50L);
+
+        assertTrue(firstInterrupted[0]);
+        assertTrue(!secondInterrupted[0]);
+        registry.requestCancel("run_eval");
+        second.join(1000L);
+    }
+
+    private static Thread interruptibleEvaluationThread(
+        final ExperimentExecutionRegistry registry,
+        final String experimentId,
+        final String requestId,
+        final boolean[] interrupted
+    ) {
+        return new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try (ExperimentExecutionRegistry.EvaluationLease ignored = registry.registerEvaluation(experimentId, requestId)) {
+                    try {
+                        while (!Thread.currentThread().isInterrupted()) {
+                            Thread.sleep(10L);
+                        }
+                    } catch (InterruptedException expected) {
+                        interrupted[0] = true;
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
+        });
+    }
+
 }

@@ -5,6 +5,7 @@ import java.util.Map;
 
 public class PipelineRequest {
     public String experiment_id;
+    public String request_id;
     public String log_path;
     public String conformance_mode;
     public PipelineConfig pipeline;
