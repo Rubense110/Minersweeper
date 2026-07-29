@@ -496,7 +496,38 @@ def _paths() -> Dict[str, Any]:
                     },
                     **_error_responses("404"),
                 },
-            }
+            },
+            "delete": {
+                "tags": ["experiments"],
+                "summary": "Delete one persisted experiment",
+                "operationId": "deleteExperiment",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Experiment deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["experiment_id", "deleted"],
+                                    "properties": {
+                                        "experiment_id": {"type": "string"},
+                                        "deleted": {"type": "boolean"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    **_error_responses("404"),
+                },
+            },
         },
         "/experiments/{experiment_id}/solutions": {
             "get": {

@@ -228,12 +228,14 @@ class JobStore:
                         )
                     )
 
-    def delete_experiment(self, experiment_id: str) -> None:
+    def delete_experiment(self, experiment_id: str) -> bool:
         with self._session_factory() as session:
             with session.begin():
                 existing = session.get(Experiment, experiment_id)
-                if existing is not None:
-                    session.delete(existing)
+                if existing is None:
+                    return False
+                session.delete(existing)
+                return True
 
     @staticmethod
     def _serialize_experiment(experiment: Experiment) -> Dict[str, Any]:

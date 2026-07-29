@@ -59,6 +59,12 @@ export async function getExperiment(experimentId) {
   return request(`/experiments/${encodeURIComponent(experimentId)}`)
 }
 
+export async function deleteExperiment(experimentId) {
+  return request(`/experiments/${encodeURIComponent(experimentId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function getExperimentSolutions(experimentId, scope = 'all') {
   return request(`/experiments/${encodeURIComponent(experimentId)}/solutions?scope=${encodeURIComponent(scope)}`)
 }

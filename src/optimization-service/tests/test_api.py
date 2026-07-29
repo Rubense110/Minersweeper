@@ -17,6 +17,7 @@ class FakeManager:
         self.last_submit_payload = None
         self.listeners = []
         self.cancelled_job_id = None
+        self.deleted_experiment_id = None
         self.last_model_selection = None
 
     def list_jobs(self):
@@ -103,6 +104,12 @@ class FakeManager:
         if experiment_id == "missing":
             raise KeyError(experiment_id)
         return (b"zip-data", "experiment_exp-1_run.zip")
+
+    def delete_experiment(self, experiment_id):
+        if experiment_id == "missing":
+            raise KeyError(experiment_id)
+        self.deleted_experiment_id = experiment_id
+        return {"experiment_id": experiment_id, "deleted": True}
 
 
 class SeedNormalizationTest(unittest.TestCase):
@@ -289,6 +296,19 @@ class OptimizationApiTest(unittest.TestCase):
 
     def test_download_experiment_data_not_found(self):
         response = self.client.get("/experiments/missing/download")
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_delete_experiment(self):
+        response = self.client.delete("/experiments/exp-1")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"experiment_id": "exp-1", "deleted": True}, response.get_json())
+        self.assertEqual("exp-1", api.get_manager().deleted_experiment_id)
+
+    def test_delete_experiment_not_found(self):
+        response = self.client.delete("/experiments/missing")
 
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])

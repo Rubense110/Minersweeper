@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cancelOptimization, listExperiments, listOptimizations } from '../api'
+import { cancelOptimization, deleteExperiment, listExperiments, listOptimizations } from '../api'
 
 function isCancelableStatus(status) {
   return status === 'queued' || status === 'running'
@@ -55,6 +55,7 @@ export default function HistoryPage() {
   const [source, setSource] = useState('db')
   const [error, setError] = useState('')
   const [cancellingId, setCancellingId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
 
   useEffect(() => {
     let active = true
@@ -110,6 +111,22 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleDelete(item) {
+    const confirmed = window.confirm(`Delete experiment "${item.name}" and all its stored solutions?`)
+    if (!confirmed) return
+
+    setError('')
+    setDeletingId(item.id)
+    try {
+      await deleteExperiment(item.id)
+      setItems((previous) => previous.filter((entry) => entry.id !== item.id))
+    } catch (deleteError) {
+      setError(deleteError.message || 'Could not delete experiment')
+    } finally {
+      setDeletingId('')
+    }
+  }
+
   return (
     <main className="page">
       <section className="card">
@@ -158,6 +175,16 @@ export default function HistoryPage() {
                     type="button"
                   >
                     {cancellingId === item.id ? 'Cancelling...' : 'Cancel'}
+                  </button>
+                ) : null}
+                {source === 'db' ? (
+                  <button
+                    className="link-button danger"
+                    disabled={deletingId === item.id}
+                    onClick={() => handleDelete(item)}
+                    type="button"
+                  >
+                    {deletingId === item.id ? 'Deleting...' : 'Delete'}
                   </button>
                 ) : null}
               </div>

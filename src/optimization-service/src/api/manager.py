@@ -200,6 +200,16 @@ class OptimizationJobManager:
     def get_experiment(self, experiment_id: str) -> Dict[str, Any]:
         return self.job_store.get_experiment(experiment_id)
 
+    def delete_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        deleted = self.job_store.delete_experiment(experiment_id)
+        if not deleted:
+            raise KeyError(experiment_id)
+        with self._lock:
+            job = self._jobs.get(experiment_id)
+            if job is not None and str(job.get("status") or "") not in {"queued", "running", "cancelling"}:
+                self._jobs.pop(experiment_id, None)
+        return {"experiment_id": experiment_id, "deleted": True}
+
     def get_experiment_solutions(self, experiment_id: str, scope: str) -> Dict[str, Any]:
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
         return {
