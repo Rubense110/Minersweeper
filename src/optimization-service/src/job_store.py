@@ -77,6 +77,8 @@ class Solution(Base):
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
+    initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    final_markings: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
 
     experiment: Mapped[Experiment] = relationship(back_populates="solutions")
 
@@ -107,6 +109,8 @@ class SnapshotSolution(Base):
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
+    initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    final_markings: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
 
     experiment: Mapped[Experiment] = relationship(back_populates="snapshot_solutions")
 
@@ -135,11 +139,19 @@ class JobStore:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN runtime_ms INTEGER"))
                 if "metrics" not in solution_columns:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN metrics JSON NOT NULL DEFAULT '{}'"))
+                if "initial_marking" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN initial_marking JSON NOT NULL DEFAULT '[]'"))
+                if "final_markings" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN final_markings JSON NOT NULL DEFAULT '[]'"))
 
             if "snapshot_solutions" in table_names:
                 snapshot_columns = {column["name"] for column in inspector.get_columns("snapshot_solutions")}
                 if "metrics" not in snapshot_columns:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN metrics JSON NOT NULL DEFAULT '{}'"))
+                if "initial_marking" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN initial_marking JSON NOT NULL DEFAULT '[]'"))
+                if "final_markings" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN final_markings JSON NOT NULL DEFAULT '[]'"))
 
     @staticmethod
     def _to_int_or_none(value: Any) -> int | None:
@@ -206,6 +218,8 @@ class JobStore:
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
+                            initial_marking=self._sanitize_json(item.get("initial_marking", [])),
+                            final_markings=self._sanitize_json(item.get("final_markings", [])),
                         )
                     )
 
@@ -225,6 +239,8 @@ class JobStore:
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
+                            initial_marking=self._sanitize_json(item.get("initial_marking", [])),
+                            final_markings=self._sanitize_json(item.get("final_markings", [])),
                         )
                     )
 
@@ -268,6 +284,8 @@ class JobStore:
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
+            "initial_marking": solution.initial_marking or [],
+            "final_markings": solution.final_markings or [],
         }
 
     @staticmethod
@@ -287,6 +305,8 @@ class JobStore:
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
+            "initial_marking": solution.initial_marking or [],
+            "final_markings": solution.final_markings or [],
         }
 
     def list_experiments(self) -> List[Dict[str, Any]]:

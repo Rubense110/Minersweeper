@@ -34,6 +34,24 @@ public class ArtifactStore {
         String pnml,
         String fingerprint
     ) throws IOException {
+        return store(
+            request,
+            metrics,
+            pnml,
+            fingerprint,
+            new ArrayList<ArtifactBulkResponse.MarkingEntry>(),
+            new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
+        );
+    }
+
+    public EvaluationResult store(
+        PipelineRequest request,
+        java.util.Map<String, Double> metrics,
+        String pnml,
+        String fingerprint,
+        List<ArtifactBulkResponse.MarkingEntry> initialMarking,
+        List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings
+    ) throws IOException {
         String experimentId = request.experiment_id;
         String evaluationId = nextEvaluationId();
         Path experimentDir = ensureExperimentDir(experimentId);
@@ -53,6 +71,12 @@ public class ArtifactStore {
         metadata.created_at_epoch_ms = System.currentTimeMillis();
         metadata.metrics = metrics;
         metadata.pipeline = request.pipeline;
+        metadata.initial_marking = initialMarking == null
+            ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
+            : initialMarking;
+        metadata.final_markings = finalMarkings == null
+            ? new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
+            : finalMarkings;
         metadata.pnml_file = pnmlFile;
         mapper.writeValue(metadataPath.toFile(), metadata);
 
@@ -79,6 +103,12 @@ public class ArtifactStore {
             entry.created_at_epoch_ms = metadata.created_at_epoch_ms;
             entry.metrics = metadata.metrics;
             entry.pipeline = metadata.pipeline;
+            entry.initial_marking = metadata.initial_marking == null
+                ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
+                : metadata.initial_marking;
+            entry.final_markings = metadata.final_markings == null
+                ? new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
+                : metadata.final_markings;
             if (includePnml) {
                 Path pnmlPath = experimentDir.resolve(metadata.pnml_file);
                 if (!Files.exists(pnmlPath)) {

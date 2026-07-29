@@ -133,6 +133,8 @@ def _build_experiment_export_archive(
         "places",
         "transitions",
         "arcs",
+        "initial_marking",
+        "final_markings",
     ]
     snapshot_solution_fields = [
         "snapshot_solution_id",
@@ -149,6 +151,8 @@ def _build_experiment_export_archive(
         "places",
         "transitions",
         "arcs",
+        "initial_marking",
+        "final_markings",
     ]
 
     zip_buffer = io.BytesIO()

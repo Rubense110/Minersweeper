@@ -38,7 +38,16 @@ public class ArtifactStoreTest {
         metrics.put("simplicity", Double.valueOf(0.7));
         metrics.put("generalisation", Double.valueOf(0.5));
 
-        EvaluationResult evaluation = store.store(request, metrics, "<pnml/>", "fingerprint-1");
+        ArtifactBulkResponse.MarkingEntry initial = new ArtifactBulkResponse.MarkingEntry("p_start", 1);
+        ArtifactBulkResponse.MarkingEntry fin = new ArtifactBulkResponse.MarkingEntry("p_end", 1);
+        EvaluationResult evaluation = store.store(
+            request,
+            metrics,
+            "<pnml/>",
+            "fingerprint-1",
+            Arrays.asList(initial),
+            Arrays.asList(Arrays.asList(fin))
+        );
 
         ArtifactBulkResponse bulk = store.readBulk(
             "run_001",
@@ -56,6 +65,12 @@ public class ArtifactStoreTest {
         assertNotNull(entry.pipeline);
         assertNotNull(entry.metrics);
         assertEquals(Double.valueOf(0.8), entry.metrics.get("fitness"));
+        assertEquals(1, entry.initial_marking.size());
+        assertEquals("p_start", entry.initial_marking.get(0).place_id);
+        assertEquals(1, entry.initial_marking.get(0).tokens);
+        assertEquals(1, entry.final_markings.size());
+        assertEquals("p_end", entry.final_markings.get(0).get(0).place_id);
+        assertEquals(1, entry.final_markings.get(0).get(0).tokens);
         assertTrue(entry.pnml.contains("pnml"));
     }
 

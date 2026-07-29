@@ -102,6 +102,8 @@ class JobStoreRuntimeTest(unittest.TestCase):
             columns = {column["name"] for column in inspect(store.engine).get_columns("solutions")}
             self.assertIn("runtime_ms", columns)
             self.assertIn("metrics", columns)
+            self.assertIn("initial_marking", columns)
+            self.assertIn("final_markings", columns)
             experiment_columns = {column["name"] for column in inspect(store.engine).get_columns("experiments")}
             self.assertIn("seed", experiment_columns)
 
@@ -188,8 +190,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "runtime_ms": 200,
                     "is_pareto": True,
                     "places": [{"id": "p1"}],
-                    "transitions": [{"id": "t1"}],
+                    "transitions": [{"id": "t1", "is_invisible": False}],
                     "arcs": [{"source": "p1", "target": "t1"}],
+                    "initial_marking": [{"place_id": "p1", "tokens": 1}],
+                    "final_markings": [[{"place_id": "p2", "tokens": 1}]],
                 },
                 {
                     "snapshot_index": 1,
@@ -204,6 +208,8 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "places": [],
                     "transitions": [],
                     "arcs": [],
+                    "initial_marking": [],
+                    "final_markings": [],
                 },
             ]
 
@@ -216,12 +222,16 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 self.assertEqual(5, persisted[0].evaluations_done)
                 self.assertEqual(1, persisted[0].member_index)
                 self.assertEqual([{"id": "p1"}], persisted[0].places)
+                self.assertEqual([{"place_id": "p1", "tokens": 1}], persisted[0].initial_marking)
+                self.assertEqual([[{"place_id": "p2", "tokens": 1}]], persisted[0].final_markings)
                 self.assertFalse(persisted[1].is_pareto)
 
             exported = store.get_experiment_snapshot_solutions("exp-snap")
             self.assertEqual(2, len(exported))
             self.assertEqual(1, exported[0]["snapshot_index"])
             self.assertEqual(2, exported[1]["member_index"])
+            self.assertEqual([{"place_id": "p1", "tokens": 1}], exported[0]["initial_marking"])
+            self.assertEqual([[{"place_id": "p2", "tokens": 1}]], exported[0]["final_markings"])
 
 
 if __name__ == "__main__":

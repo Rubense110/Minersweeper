@@ -1,6 +1,9 @@
 package com.minersweeper.javaservice.evaluation.discovery;
 
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import org.processmining.acceptingpetrinet.models.AcceptingPetriNet;
 import org.processmining.framework.plugin.PluginContext;
@@ -19,6 +22,7 @@ public final class DiscoveryArtifactFactory {
         Petrinet net = null;
         Marking initial = null;
         Marking fin = null;
+        List<Marking> finals = new ArrayList<Marking>();
 
         if (resultArray == null) {
             throw new IllegalStateException("Miner returned null result");
@@ -37,6 +41,7 @@ public final class DiscoveryArtifactFactory {
                     initial = (Marking) item;
                 } else if (fin == null) {
                     fin = (Marking) item;
+                    finals.add(fin);
                 }
                 continue;
             }
@@ -44,9 +49,17 @@ public final class DiscoveryArtifactFactory {
                 AcceptingPetriNet apn = (AcceptingPetriNet) item;
                 net = apn.getNet();
                 initial = apn.getInitialMarking();
-                Set<Marking> finals = apn.getFinalMarkings();
-                if (finals != null && !finals.isEmpty()) {
-                    fin = finals.iterator().next();
+                Set<Marking> acceptingFinals = apn.getFinalMarkings();
+                if (acceptingFinals != null && !acceptingFinals.isEmpty()) {
+                    finals.clear();
+                    for (Marking acceptingFinal : acceptingFinals) {
+                        if (!isEmptyMarking(acceptingFinal)) {
+                            finals.add(acceptingFinal);
+                        }
+                    }
+                    if (!finals.isEmpty()) {
+                        fin = finals.get(0);
+                    }
                 }
             }
         }
@@ -55,10 +68,16 @@ public final class DiscoveryArtifactFactory {
             throw new IllegalStateException("Unable to extract Petri net from miner result");
         }
 
-        Marking initialMarking = initial != null ? initial : deriveInitialMarking(net);
-        Marking finalMarking = fin != null ? fin : deriveFinalMarking(net);
+        Marking initialMarking = isEmptyMarking(initial) ? deriveInitialMarking(net) : initial;
+        List<Marking> finalMarkings = finals.isEmpty()
+            ? Collections.singletonList(isEmptyMarking(fin) ? deriveFinalMarking(net) : fin)
+            : finals;
         String pnml = pmnlExporter.exportPnml(context, net);
-        return new DiscoveryArtifact(net, initialMarking, finalMarking, pnml);
+        return new DiscoveryArtifact(net, initialMarking, finalMarkings, pnml);
+    }
+
+    private static boolean isEmptyMarking(Marking marking) {
+        return marking == null || marking.isEmpty();
     }
 
     private Marking deriveInitialMarking(Petrinet net) {

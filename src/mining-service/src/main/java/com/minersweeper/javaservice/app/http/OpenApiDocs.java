@@ -215,6 +215,7 @@ public final class OpenApiDocs {
         schemas.put("ArtifactBulkRequest", artifactBulkRequestSchema());
         schemas.put("ArtifactBulkResponse", artifactBulkResponseSchema());
         schemas.put("ArtifactEntry", artifactEntrySchema());
+        schemas.put("MarkingEntry", markingEntrySchema());
         schemas.put("ExperimentCancelResponse", experimentCancelResponseSchema());
         schemas.put("EvaluationCancelResponse", evaluationCancelResponseSchema());
         schemas.put("ExperimentCleanupResponse", experimentCleanupResponseSchema());
@@ -319,7 +320,21 @@ public final class OpenApiDocs {
                 property("created_at_epoch_ms", scalarSchema("integer", "int64")),
                 property("metrics", numberMapSchema()),
                 property("pipeline", schemaRef("PipelineConfig")),
+                property("initial_marking", arraySchema(schemaRef("MarkingEntry"))),
+                property("final_markings", arraySchema(arraySchema(schemaRef("MarkingEntry")))),
                 property("pnml", scalarSchema("string"))
+            )
+        );
+        return schema;
+    }
+
+    private static Map<String, Object> markingEntrySchema() {
+        Map<String, Object> schema = objectSchema("place_id", "tokens");
+        schema.put(
+            "properties",
+            properties(
+                property("place_id", scalarSchema("string")),
+                property("tokens", scalarSchema("integer"))
             )
         );
         return schema;

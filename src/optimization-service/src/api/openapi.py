@@ -162,6 +162,28 @@ def _components() -> Dict[str, Any]:
                     "variables": {"type": "array", "items": {}},
                     "is_pareto": {"type": "boolean", "example": True},
                     "evaluation_error": {"type": "string", "nullable": True},
+                    "places": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "transitions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "is_invisible": {"type": "boolean"},
+                            },
+                            "additionalProperties": True,
+                        },
+                    },
+                    "arcs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "initial_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "final_markings": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object", "additionalProperties": True},
+                        },
+                    },
                 },
                 "additionalProperties": True,
             },
@@ -248,6 +270,13 @@ def _components() -> Dict[str, Any]:
                     "arcs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "initial_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "final_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "final_markings": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object", "additionalProperties": True},
+                        },
+                    },
                     "format": {"type": "string", "enum": ["svg", "png"], "default": "svg"},
                 },
                 "additionalProperties": True,

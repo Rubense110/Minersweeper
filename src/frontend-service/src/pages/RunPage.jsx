@@ -73,7 +73,7 @@ export default function RunPage() {
   const [populationSize, setPopulationSize] = useState(20)
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
   const [seed, setSeed] = useState('')
-  const [conformanceMode, setConformanceMode] = useState('replay')
+  const [conformanceMode, setConformanceMode] = useState('replay-token')
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
   const [submitting, setSubmitting] = useState(false)
   const [loadingLogs, setLoadingLogs] = useState(true)
