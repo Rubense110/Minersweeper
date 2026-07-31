@@ -199,6 +199,7 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         conformance_mode=config.get("conformance_mode"),
         excluded_miners=tuple(config.get("excluded_miners") or ()),
         execution_control=control,
+        seed=discover.get("seed"),
     )
     with manager._lock:
         job = manager._jobs.get(job_id)

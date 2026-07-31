@@ -22,6 +22,7 @@ public class PromPipelineEvaluatorCancellationTest {
         Method method = PromPipelineEvaluator.class.getDeclaredMethod(
             "normalizeCancellationFailure",
             String.class,
+            String.class,
             Exception.class
         );
         method.setAccessible(true);
@@ -32,6 +33,7 @@ public class PromPipelineEvaluatorCancellationTest {
         Exception normalized = (Exception) method.invoke(
             evaluator,
             "run_cancelled",
+            "req_1",
             new ClosedByInterruptException()
         );
 
@@ -47,12 +49,13 @@ public class PromPipelineEvaluatorCancellationTest {
         Method method = PromPipelineEvaluator.class.getDeclaredMethod(
             "normalizeCancellationFailure",
             String.class,
+            String.class,
             Exception.class
         );
         method.setAccessible(true);
 
         IllegalStateException error = new IllegalStateException("boom");
-        Exception normalized = (Exception) method.invoke(evaluator, "run_regular", error);
+        Exception normalized = (Exception) method.invoke(evaluator, "run_regular", "req_1", error);
 
         assertSame(error, normalized);
         assertFalse(Thread.currentThread().isInterrupted());

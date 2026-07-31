@@ -70,6 +70,7 @@ def _components() -> Dict[str, Any]:
                     "population_size": {"type": "integer", "example": 100},
                     "n_partitions": {"type": "integer", "nullable": True, "example": 4},
                     "n_workers": {"type": "integer", "example": 2},
+                    "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "example": 123456789},
                 },
             },
             "JobProgress": {
@@ -100,6 +101,7 @@ def _components() -> Dict[str, Any]:
                             "population_size": {"type": "integer"},
                             "n_partitions": {"type": "integer", "nullable": True},
                             "n_workers": {"type": "integer"},
+                            "seed": {"type": "integer", "nullable": True},
                         },
                         "additionalProperties": True,
                     },
@@ -160,6 +162,28 @@ def _components() -> Dict[str, Any]:
                     "variables": {"type": "array", "items": {}},
                     "is_pareto": {"type": "boolean", "example": True},
                     "evaluation_error": {"type": "string", "nullable": True},
+                    "places": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "transitions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "is_invisible": {"type": "boolean"},
+                            },
+                            "additionalProperties": True,
+                        },
+                    },
+                    "arcs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "initial_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "final_markings": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object", "additionalProperties": True},
+                        },
+                    },
                 },
                 "additionalProperties": True,
             },
@@ -185,6 +209,7 @@ def _components() -> Dict[str, Any]:
                     "max_evals": {"type": "integer"},
                     "pop_size": {"type": "integer", "nullable": True},
                     "workers": {"type": "integer"},
+                    "seed": {"type": "integer", "nullable": True},
                     "log_path": {"type": "string"},
                     "metrics": {"type": "array", "items": {"type": "string"}},
                     "miners": {"type": "array", "items": {"type": "string"}},
@@ -245,6 +270,13 @@ def _components() -> Dict[str, Any]:
                     "arcs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "initial_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "final_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "final_markings": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object", "additionalProperties": True},
+                        },
+                    },
                     "format": {"type": "string", "enum": ["svg", "png"], "default": "svg"},
                 },
                 "additionalProperties": True,
@@ -493,7 +525,38 @@ def _paths() -> Dict[str, Any]:
                     },
                     **_error_responses("404"),
                 },
-            }
+            },
+            "delete": {
+                "tags": ["experiments"],
+                "summary": "Delete one persisted experiment",
+                "operationId": "deleteExperiment",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Experiment deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["experiment_id", "deleted"],
+                                    "properties": {
+                                        "experiment_id": {"type": "string"},
+                                        "deleted": {"type": "boolean"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    **_error_responses("404"),
+                },
+            },
         },
         "/experiments/{experiment_id}/solutions": {
             "get": {

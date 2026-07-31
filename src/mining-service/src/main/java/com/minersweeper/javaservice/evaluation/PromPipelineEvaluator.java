@@ -2,6 +2,7 @@ package com.minersweeper.javaservice.evaluation;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
 import com.minersweeper.javaservice.api.dto.EvaluationResult;
+import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
 import com.minersweeper.javaservice.api.dto.PipelineRequest;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMetricsCalculator;
@@ -34,6 +35,8 @@ import org.deckfour.xes.model.XLog;
 import org.processmining.contexts.cli.CLIContext;
 import org.processmining.contexts.cli.CLIPluginContext;
 import org.processmining.framework.plugin.PluginContext;
+import org.processmining.models.graphbased.directed.petrinet.elements.Place;
+import org.processmining.models.semantics.petrinet.Marking;
 
 public class PromPipelineEvaluator implements PipelineEvaluator {
     private final ArtifactStore artifactStore;
@@ -69,19 +72,20 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         String failureType = "";
 
         String experimentId = TextUtils.safe(request == null ? null : request.experiment_id);
+        String requestId = TextUtils.safe(request == null ? null : request.request_id);
         String requestedMetrics = joinMetrics(request);
-            String pipelineSummary = summarizePipeline(request);
-            ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
-            timing.putField("conformance_mode", conformanceMode.key());
+        String pipelineSummary = summarizePipeline(request);
+        ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
+        timing.putField("conformance_mode", conformanceMode.key());
 
-        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId)) {
-            executionRegistry.throwIfCancellationRequested(experimentId);
+        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId, requestId)) {
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             long logLoadStartNs = TimingTrace.nowNs();
             LogLoader.LogAccess logAccess = logLoader.loadForExperiment(request.experiment_id, request.log_path);
             XLog log = logAccess.log();
             timing.putField("log_cache", logAccess.cacheHit() ? "hit" : "miss");
             timing.markFromStart("log_load_ms", logLoadStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long contextStartNs = TimingTrace.nowNs();
             PluginContext context = createContext();
@@ -90,12 +94,12 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             long preprocessStartNs = TimingTrace.nowNs();
             XLog processedLog = preprocessingPipeline.apply(context, log, request);
             timing.markFromStart("preprocess_ms", preprocessStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long discoverStartNs = TimingTrace.nowNs();
             DiscoveryArtifact discovered = discoverModel(context, processedLog, request);
             timing.markFromStart("discover_ms", discoverStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long metricsStartNs = TimingTrace.nowNs();
             Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
@@ -108,10 +112,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 conformanceMode,
                 timing,
                 executionRegistry,
-                experimentId
+                experimentId,
+                requestId
             );
             timing.markFromStart("metrics_ms", metricsStartNs);
-            executionRegistry.throwIfCancellationRequested(experimentId);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
             for (String metricName : request.metrics) {
@@ -127,12 +132,19 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("fingerprint_ms", fingerprintStartNs);
 
             long artifactStoreStartNs = TimingTrace.nowNs();
-            executionRegistry.throwIfCancellationRequested(experimentId);
-            EvaluationResult result = artifactStore.store(request, selectedMetrics, discovered.getPnml(), fingerprint);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
+            EvaluationResult result = artifactStore.store(
+                request,
+                selectedMetrics,
+                discovered.getPnml(),
+                fingerprint,
+                serializeMarking(discovered.getInitialMarking()),
+                serializeFinalMarkings(discovered.getFinalMarkings())
+            );
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
             return result;
         } catch (Exception error) {
-            Exception effectiveError = normalizeCancellationFailure(experimentId, error);
+            Exception effectiveError = normalizeCancellationFailure(experimentId, requestId, error);
             failed = true;
             failureType = effectiveError.getClass().getSimpleName();
             throw effectiveError;
@@ -155,17 +167,22 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     }
 
     @Override
+    public void cancelEvaluation(String experimentId, String requestId) {
+        executionRegistry.requestCancelEvaluation(experimentId, requestId);
+    }
+
+    @Override
     public void cleanupExperiment(String experimentId) throws Exception {
         executionRegistry.cleanupExperiment(experimentId);
         logLoader.evictExperiment(experimentId);
     }
 
-    private Exception normalizeCancellationFailure(String experimentId, Exception error) {
+    private Exception normalizeCancellationFailure(String experimentId, String requestId, Exception error) {
         if (error instanceof ExperimentCancelledException) {
             clearInterruptedStatus();
             return error;
         }
-        if (!executionRegistry.isCancellationRequested(experimentId)) {
+        if (!executionRegistry.isCancellationRequested(experimentId, requestId)) {
             return error;
         }
         if (!Thread.currentThread().isInterrupted() && !isInterruptedFailure(error)) {
@@ -193,6 +210,45 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private static void clearInterruptedStatus() {
         Thread.interrupted();
+    }
+
+    private static List<ArtifactBulkResponse.MarkingEntry> serializeMarking(Marking marking) {
+        List<ArtifactBulkResponse.MarkingEntry> entries = new ArrayList<ArtifactBulkResponse.MarkingEntry>();
+        if (marking == null) {
+            return entries;
+        }
+        for (Place place : marking.baseSet()) {
+            if (place == null || place.getId() == null) {
+                continue;
+            }
+            int tokens = marking.occurrences(place).intValue();
+            if (tokens <= 0) {
+                continue;
+            }
+            entries.add(new ArtifactBulkResponse.MarkingEntry(place.getId().toString(), tokens));
+        }
+        return entries;
+    }
+
+    private static List<List<ArtifactBulkResponse.MarkingEntry>> serializeFinalMarkings(Marking finalMarking) {
+        if (finalMarking == null) {
+            return Collections.emptyList();
+        }
+        return serializeFinalMarkings(Collections.singletonList(finalMarking));
+    }
+
+    private static List<List<ArtifactBulkResponse.MarkingEntry>> serializeFinalMarkings(List<Marking> markings) {
+        List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings = new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>();
+        if (markings == null) {
+            return finalMarkings;
+        }
+        for (Marking finalMarking : markings) {
+            List<ArtifactBulkResponse.MarkingEntry> marking = serializeMarking(finalMarking);
+            if (!marking.isEmpty()) {
+                finalMarkings.add(marking);
+            }
+        }
+        return finalMarkings;
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {

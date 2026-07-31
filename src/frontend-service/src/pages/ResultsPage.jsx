@@ -63,6 +63,8 @@ function mapDbSolution(item, index, metricsOrder) {
       places: Array.isArray(item.places) ? item.places : [],
       transitions: Array.isArray(item.transitions) ? item.transitions : [],
       arcs: Array.isArray(item.arcs) ? item.arcs : [],
+      initial_marking: Array.isArray(item.initial_marking) ? item.initial_marking : [],
+      final_markings: Array.isArray(item.final_markings) ? item.final_markings : [],
     },
   }
 }
@@ -333,6 +335,7 @@ export default function ResultsPage() {
             max_evaluations: experimentPayload.max_evals,
             population_size: experimentPayload.pop_size,
             n_workers: experimentPayload.workers,
+            seed: experimentPayload.seed,
           },
         },
       })
@@ -676,6 +679,8 @@ export default function ResultsPage() {
             places: selectedSolution.petri.places || [],
             transitions: selectedSolution.petri.transitions || [],
             arcs: selectedSolution.petri.arcs || [],
+            initial_marking: selectedSolution.petri.initial_marking || [],
+            final_markings: selectedSolution.petri.final_markings || [],
           },
           'svg'
         )
@@ -721,6 +726,8 @@ export default function ResultsPage() {
             places: weightedSelectedSolution.petri.places || [],
             transitions: weightedSelectedSolution.petri.transitions || [],
             arcs: weightedSelectedSolution.petri.arcs || [],
+            initial_marking: weightedSelectedSolution.petri.initial_marking || [],
+            final_markings: weightedSelectedSolution.petri.final_markings || [],
           },
           'svg'
         )
@@ -829,6 +836,9 @@ export default function ResultsPage() {
               {Array.isArray(job.request?.metrics) && job.request.metrics.length
                 ? job.request.metrics.join(', ')
                 : 'default'}
+            </p>
+            <p>
+              <strong>Seed:</strong> {job.request?.discover?.seed ?? '-'}
             </p>
 
             <p>

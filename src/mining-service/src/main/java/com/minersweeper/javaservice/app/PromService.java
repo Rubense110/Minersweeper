@@ -49,6 +49,7 @@ public class PromService {
         post("/pipeline", (req, res) -> HTTP_HANDLERS.handlePipeline(req, res));
         post("/artifacts/bulk", (req, res) -> HTTP_HANDLERS.handleArtifactsBulk(req, res));
         post("/experiments/:experimentId/cancel", (req, res) -> HTTP_HANDLERS.handleCancel(req, res));
+        post("/experiments/:experimentId/evaluations/:requestId/cancel", (req, res) -> HTTP_HANDLERS.handleEvaluationCancel(req, res));
         post("/experiments/:experimentId/cleanup", (req, res) -> HTTP_HANDLERS.handleCleanup(req, res));
     }
 

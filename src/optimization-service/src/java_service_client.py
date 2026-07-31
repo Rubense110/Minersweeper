@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
@@ -26,6 +27,7 @@ class ProMServiceClient:
         artifacts_bulk_endpoint: str = "/artifacts/bulk",
         cleanup_endpoint_template: str = "/experiments/{experiment_id}/cleanup",
         cancel_endpoint_template: str = "/experiments/{experiment_id}/cancel",
+        cancel_evaluation_endpoint_template: str = "/experiments/{experiment_id}/evaluations/{request_id}/cancel",
     ):
         self.base_url = base_url.rstrip("/")
         self.endpoint = endpoint
@@ -36,6 +38,7 @@ class ProMServiceClient:
         self.artifacts_bulk_endpoint = artifacts_bulk_endpoint
         self.cleanup_endpoint_template = cleanup_endpoint_template
         self.cancel_endpoint_template = cancel_endpoint_template
+        self.cancel_evaluation_endpoint_template = cancel_evaluation_endpoint_template
 
     @staticmethod
     def _to_service_metric(metric_name: str) -> str:
@@ -65,8 +68,10 @@ class ProMServiceClient:
     ) -> Dict[str, Any]:
         resolved_experiment_id = self._resolve_experiment_id(experiment_id)
         service_metrics = [self._to_service_metric(metric) for metric in metrics]
+        request_id = uuid.uuid4().hex
         payload = {
             "experiment_id": resolved_experiment_id,
+            "request_id": request_id,
             "log_path": log_path,
             "pipeline": pipeline,
             "metrics": service_metrics,
@@ -85,11 +90,15 @@ class ProMServiceClient:
             pipeline_text,
         )
 
-        response = requests.post(
-            f"{self.base_url}{self.endpoint}",
-            json=payload,
-            timeout=self.timeout_seconds,
-        )
+        try:
+            response = requests.post(
+                f"{self.base_url}{self.endpoint}",
+                json=payload,
+                timeout=self.timeout_seconds,
+            )
+        except requests.Timeout:
+            self._request_evaluation_cancel(resolved_experiment_id, request_id)
+            raise
         self._raise_for_status_with_details(response)
         body = response.json()
 
@@ -145,6 +154,30 @@ class ProMServiceClient:
         )
         self._raise_for_status_with_details(response)
         return response.json()
+
+    def cancel_evaluation(self, request_id: str, experiment_id: Optional[str] = None) -> Dict[str, Any]:
+        resolved_experiment_id = self._resolve_experiment_id(experiment_id)
+        endpoint = self.cancel_evaluation_endpoint_template.format(
+            experiment_id=resolved_experiment_id,
+            request_id=str(request_id),
+        )
+        response = requests.post(
+            f"{self.base_url}{endpoint}",
+            timeout=min(float(self.timeout_seconds), 10.0),
+        )
+        self._raise_for_status_with_details(response)
+        return response.json()
+
+    def _request_evaluation_cancel(self, experiment_id: str, request_id: str) -> None:
+        try:
+            self.cancel_evaluation(request_id=request_id, experiment_id=experiment_id)
+        except Exception:
+            LOGGER.warning(
+                "evaluation cancel request failed experiment_id=%s request_id=%s",
+                experiment_id,
+                request_id,
+                exc_info=True,
+            )
 
     @staticmethod
     def _raise_for_status_with_details(response: requests.Response) -> None:

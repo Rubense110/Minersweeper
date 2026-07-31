@@ -25,6 +25,14 @@ def get_experiment(experiment_id: str) -> Any:
         return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
 
 
+@bp.delete("/experiments/<experiment_id>")
+def delete_experiment(experiment_id: str) -> Any:
+    try:
+        return jsonify(get_manager().delete_experiment(experiment_id))
+    except KeyError:
+        return jsonify({"error": "not_found", "message": f"experiment '{experiment_id}' not found"}), 404
+
+
 @bp.get("/experiments/<experiment_id>/solutions")
 def get_experiment_solutions(experiment_id: str) -> Any:
     scope = (request.args.get("scope") or "all").strip().lower()

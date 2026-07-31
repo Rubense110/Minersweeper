@@ -16,6 +16,20 @@ public class ArtifactBulkResponse {
         public long created_at_epoch_ms;
         public Map<String, Double> metrics;
         public PipelineRequest.PipelineConfig pipeline;
+        public List<MarkingEntry> initial_marking;
+        public List<List<MarkingEntry>> final_markings;
         public String pnml;
+    }
+
+    public static class MarkingEntry {
+        public String place_id;
+        public int tokens;
+
+        public MarkingEntry() {}
+
+        public MarkingEntry(String place_id, int tokens) {
+            this.place_id = place_id;
+            this.tokens = tokens;
+        }
     }
 }

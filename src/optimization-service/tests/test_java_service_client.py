@@ -179,6 +179,42 @@ class ProMServiceClientTest(unittest.TestCase):
         self.assertEqual(len(artifacts), 2)
         self.assertEqual(artifacts[0]["evaluation_id"], "e-1")
 
+
+    @patch("java_service_client.uuid.uuid4")
+    @patch("java_service_client.requests.post")
+    def test_evaluate_pipeline_sends_request_id(self, mock_post, mock_uuid):
+        mock_uuid.return_value.hex = "req-1"
+        response = Mock()
+        response.json.return_value = {"metrics": {"fitness": 1.0}, "evaluation_id": "eval-1"}
+        response.raise_for_status.return_value = None
+        mock_post.return_value = response
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        client.evaluate_pipeline("dummy.xes", {"miner": {}, "preprocessing": {}}, ["fitness"])
+
+        self.assertEqual("req-1", mock_post.call_args.kwargs["json"]["request_id"])
+
+    @patch("java_service_client.uuid.uuid4")
+    @patch("java_service_client.requests.post")
+    def test_evaluate_pipeline_cancels_request_on_timeout(self, mock_post, mock_uuid):
+        mock_uuid.return_value.hex = "req-timeout"
+        timeout = requests.Timeout("slow")
+        cancel_response = Mock()
+        cancel_response.json.return_value = {
+            "experiment_id": "exp-1",
+            "request_id": "req-timeout",
+            "cancel_requested": True,
+        }
+        cancel_response.raise_for_status.return_value = None
+        mock_post.side_effect = [timeout, cancel_response]
+
+        client = ProMServiceClient(base_url="http://service", experiment_id="exp-1")
+        with self.assertRaises(requests.Timeout):
+            client.evaluate_pipeline("dummy.xes", {"miner": {}, "preprocessing": {}}, ["fitness"])
+
+        self.assertEqual(2, mock_post.call_count)
+        self.assertEqual("http://service/experiments/exp-1/evaluations/req-timeout/cancel", mock_post.call_args_list[1].args[0])
+
     @patch("java_service_client.requests.post")
     def test_cleanup_experiment_returns_json(self, mock_post):
         response = Mock()

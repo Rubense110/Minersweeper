@@ -20,8 +20,11 @@ function parseStoredPetri(petri) {
   const transitionNodes = Array.isArray(petri.transitions)
     ? petri.transitions.map((item, index) => {
         const id = item?.id || `transition-${index + 1}`
-        const label = item?.label || id
-        return { data: { id, label, kind: 'transition' } }
+        const isInvisible = item?.is_invisible === true
+        const label = isInvisible ? '' : item?.label || id
+        const data = { id, label, kind: 'transition' }
+        if (isInvisible) data.isInvisible = true
+        return { data }
       })
     : []
 
@@ -93,6 +96,14 @@ export default function PnmlViewer({ petri = null }) {
             color: '#111111',
             'text-valign': 'bottom',
             'text-margin-y': 8,
+          },
+        },
+        {
+          selector: 'node[isInvisible]',
+          style: {
+            'background-color': '#777777',
+            'border-width': 1,
+            'border-color': '#333333',
           },
         },
         {

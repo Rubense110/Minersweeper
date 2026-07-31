@@ -27,33 +27,95 @@ def _xml_node_label(element: ET.Element) -> str:
     return ""
 
 
-def _petri_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+def _xml_bool_descendant(element: ET.Element, names: set[str]) -> bool | None:
+    for child in element.iter():
+        if _local_xml_name(child.tag) not in names:
+            continue
+        text = (child.text or "").strip().lower()
+        if text in {"true", "1", "yes"}:
+            return True
+        if text in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _xml_marking_tokens(element: ET.Element) -> int:
+    for child in element.iter():
+        if _local_xml_name(child.tag) != "text":
+            continue
+        text = (child.text or "").strip()
+        if not text:
+            continue
+        try:
+            return max(0, int(text))
+        except ValueError:
+            continue
+    return 0
+
+
+def _marking_entry(place_id: str, tokens: int) -> Dict[str, Any] | None:
+    place_id = str(place_id or "").strip()
+    if not place_id or tokens <= 0:
+        return None
+    return {"place_id": place_id, "tokens": int(tokens)}
+
+
+def _is_invisible_transition(label: str, transition: ET.Element) -> bool:
+    explicit = _xml_bool_descendant(transition, {"invisible", "isinvisible"})
+    if explicit is not None:
+        return explicit
+    normalized = str(label or "").strip().lower()
+    return normalized in {"", "tau", "silent", "invisible"} or normalized.startswith("tau ")
+
+
+def _petri_from_pnml(
+    pnml_text: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[List[Dict[str, Any]]]]:
     if not pnml_text:
-        return [], [], []
+        return [], [], [], [], []
 
     try:
         root = ET.fromstring(pnml_text)
     except ET.ParseError:
-        return [], [], []
+        return [], [], [], [], []
 
     places: List[Dict[str, Any]] = []
     transitions: List[Dict[str, Any]] = []
     arcs: List[Dict[str, Any]] = []
+    initial_marking: List[Dict[str, Any]] = []
+    final_marking: List[Dict[str, Any]] = []
 
     for node in root.iter():
         tag = _local_xml_name(node.tag)
         if tag == "place":
+            place_id = (node.attrib.get("id") or "").strip()
+            initial_entries: List[Dict[str, Any]] = []
+            final_entries: List[Dict[str, Any]] = []
+            for child in node:
+                child_tag = _local_xml_name(child.tag).lower()
+                if child_tag == "initialmarking":
+                    entry = _marking_entry(place_id, _xml_marking_tokens(child))
+                    if entry:
+                        initial_entries.append(entry)
+                elif child_tag == "finalmarking":
+                    entry = _marking_entry(place_id, _xml_marking_tokens(child))
+                    if entry:
+                        final_entries.append(entry)
+            initial_marking.extend(initial_entries)
+            final_marking.extend(final_entries)
             places.append(
                 {
-                    "id": (node.attrib.get("id") or "").strip(),
+                    "id": place_id,
                     "label": _xml_node_label(node),
                 }
             )
         elif tag == "transition":
+            label = _xml_node_label(node)
             transitions.append(
                 {
                     "id": (node.attrib.get("id") or "").strip(),
-                    "label": _xml_node_label(node),
+                    "label": label,
+                    "is_invisible": _is_invisible_transition(label, node),
                 }
             )
         elif tag == "arc":
@@ -65,7 +127,23 @@ def _petri_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[st
                 }
             )
 
-    return places, transitions, arcs
+    place_ids = {str(place.get("id") or "").strip() for place in places}
+    source_ids = {str(arc.get("source") or "").strip() for arc in arcs}
+    target_ids = {str(arc.get("target") or "").strip() for arc in arcs}
+    if not initial_marking:
+        initial_marking = [
+            {"place_id": place_id, "tokens": 1}
+            for place_id in sorted(place_ids)
+            if place_id and place_id not in target_ids and place_id in source_ids
+        ]
+    if not final_marking:
+        final_marking = [
+            {"place_id": place_id, "tokens": 1}
+            for place_id in sorted(place_ids)
+            if place_id and place_id not in source_ids and place_id in target_ids
+        ]
+
+    return places, transitions, arcs, initial_marking, [final_marking] if final_marking else []
 
 
 def _ensure_pm4py_loaded() -> None:
@@ -96,7 +174,9 @@ def _extract_node_id(raw: Any, prefix: str, index: int) -> str:
     return f"{prefix}-{index + 1}"
 
 
-def _normalize_transition_label(value: Any) -> Optional[str]:
+def _normalize_transition_label(value: Any, is_invisible: Any = None) -> Optional[str]:
+    if isinstance(is_invisible, bool) and is_invisible:
+        return None
     text = str(value or "").strip()
     if not text:
         return None
@@ -136,7 +216,7 @@ def _build_petri_net_from_payload(
         transition_id = _extract_node_id(item.get("id"), "transition", index)
         if transition_id in transition_nodes:
             continue
-        transition_label = _normalize_transition_label(item.get("label"))
+        transition_label = _normalize_transition_label(item.get("label"), item.get("is_invisible"))
         transition = PetriNet.Transition(transition_id, transition_label)
         net.transitions.add(transition)
         transition_nodes[transition_id] = transition
@@ -182,7 +262,7 @@ def _marking_from_payload(payload: Any, place_nodes: Dict[str, Any]) -> Any:
         for item in payload:
             if not isinstance(item, dict):
                 continue
-            place_id = str(item.get("place") or item.get("id") or "").strip()
+            place_id = str(item.get("place_id") or item.get("place") or item.get("id") or "").strip()
             entries.append((place_id, item.get("tokens")))
     else:
         raise ValueError("marking must be an object or a list")
@@ -206,6 +286,17 @@ def _marking_from_payload(payload: Any, place_nodes: Dict[str, Any]) -> Any:
     return marking
 
 
+def _final_marking_payload(final_marking_payload: Any, final_markings_payload: Any) -> Any:
+    if isinstance(final_markings_payload, list):
+        for item in final_markings_payload:
+            if isinstance(item, list) and item:
+                return item
+            if isinstance(item, dict) and item:
+                return item
+        return []
+    return final_marking_payload
+
+
 def _render_petri_image_bytes(
     places_payload: Any,
     transitions_payload: Any,
@@ -213,6 +304,7 @@ def _render_petri_image_bytes(
     initial_marking_payload: Any,
     final_marking_payload: Any,
     output_format: str,
+    final_markings_payload: Any = None,
 ) -> Tuple[bytes, str]:
     _ensure_pm4py_loaded()
     from pm4py.visualization.petri_net import visualizer as pn_visualizer
@@ -223,7 +315,10 @@ def _render_petri_image_bytes(
 
     net, place_nodes = _build_petri_net_from_payload(places_payload, transitions_payload, arcs_payload)
     initial_marking = _marking_from_payload(initial_marking_payload, place_nodes)
-    final_marking = _marking_from_payload(final_marking_payload, place_nodes)
+    final_marking = _marking_from_payload(
+        _final_marking_payload(final_marking_payload, final_markings_payload),
+        place_nodes,
+    )
 
     variant = pn_visualizer.Variants.WO_DECORATION
     parameters = {variant.value.Parameters.FORMAT: normalized_format}

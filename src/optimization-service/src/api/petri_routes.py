@@ -22,6 +22,7 @@ def render_petri_net() -> Any:
             arcs_payload=payload.get("arcs"),
             initial_marking_payload=payload.get("initial_marking"),
             final_marking_payload=payload.get("final_marking"),
+            final_markings_payload=payload.get("final_markings"),
             output_format=output_format,
         )
         return Response(image_bytes, mimetype=mimetype, headers={"Cache-Control": "no-store"})

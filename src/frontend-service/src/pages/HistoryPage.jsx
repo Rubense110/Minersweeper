@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cancelOptimization, listExperiments, listOptimizations } from '../api'
+import { cancelOptimization, deleteExperiment, listExperiments, listOptimizations } from '../api'
 
 function isCancelableStatus(status) {
   return status === 'queued' || status === 'running'
@@ -23,6 +23,7 @@ function normalizeDbExperiment(item) {
     maxEvaluations: item.max_evals ?? '-',
     populationSize: item.pop_size ?? '-',
     workers: item.workers ?? '-',
+    seed: item.seed ?? '-',
     createdAt: item.start_at,
     finishedAt: item.end_at,
     counts: item.counts || { all_solutions: 0, pareto_solutions: 0 },
@@ -41,6 +42,7 @@ function normalizeLiveJob(item) {
     maxEvaluations: discover.max_evaluations ?? '-',
     populationSize: discover.population_size ?? '-',
     workers: discover.n_workers ?? '-',
+    seed: discover.seed ?? '-',
     createdAt: item.created_at,
     finishedAt: item.finished_at,
     counts,
@@ -53,6 +55,7 @@ export default function HistoryPage() {
   const [source, setSource] = useState('db')
   const [error, setError] = useState('')
   const [cancellingId, setCancellingId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
 
   useEffect(() => {
     let active = true
@@ -108,6 +111,22 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleDelete(item) {
+    const confirmed = window.confirm(`Delete experiment "${item.name}" and all its stored solutions?`)
+    if (!confirmed) return
+
+    setError('')
+    setDeletingId(item.id)
+    try {
+      await deleteExperiment(item.id)
+      setItems((previous) => previous.filter((entry) => entry.id !== item.id))
+    } catch (deleteError) {
+      setError(deleteError.message || 'Could not delete experiment')
+    } finally {
+      setDeletingId('')
+    }
+  }
+
   return (
     <main className="page">
       <section className="card">
@@ -135,7 +154,7 @@ export default function HistoryPage() {
               </p>
               <p>
                 <strong>Evaluations:</strong> {item.maxEvaluations} | <strong>Population:</strong> {item.populationSize} |{' '}
-                <strong>Workers:</strong> {item.workers}
+                <strong>Workers:</strong> {item.workers} | <strong>Seed:</strong> {item.seed}
               </p>
               <p>
                 <strong>Solutions:</strong> {item.counts.all_solutions ?? 0} (pareto: {item.counts.pareto_solutions ?? 0})
@@ -156,6 +175,16 @@ export default function HistoryPage() {
                     type="button"
                   >
                     {cancellingId === item.id ? 'Cancelling...' : 'Cancel'}
+                  </button>
+                ) : null}
+                {source === 'db' ? (
+                  <button
+                    className="link-button danger"
+                    disabled={deletingId === item.id}
+                    onClick={() => handleDelete(item)}
+                    type="button"
+                  >
+                    {deletingId === item.id ? 'Deleting...' : 'Delete'}
                   </button>
                 ) : null}
               </div>

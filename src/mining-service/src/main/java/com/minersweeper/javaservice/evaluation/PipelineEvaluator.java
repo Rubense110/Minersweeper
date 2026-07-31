@@ -11,6 +11,10 @@ public interface PipelineEvaluator {
         // Optional hook for evaluator-level cancellation.
     }
 
+    default void cancelEvaluation(String experimentId, String requestId) {
+        // Optional hook for evaluator-level single-evaluation cancellation.
+    }
+
     default void cleanupExperiment(String experimentId) throws Exception {
         // Optional hook for evaluator-level in-memory resources.
     }

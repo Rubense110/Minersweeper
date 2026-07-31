@@ -91,13 +91,19 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         places: List[Dict[str, Any]] = []
         transitions: List[Dict[str, Any]] = []
         arcs: List[Dict[str, Any]] = []
+        initial_marking: List[Dict[str, Any]] = []
+        final_markings: List[List[Dict[str, Any]]] = []
 
         evaluation_id = solution.get("evaluation_id")
         if evaluation_id:
             artifact = artifacts_by_evaluation_id.get(str(evaluation_id))
             if artifact:
                 pnml_text = str(artifact.get("pnml") or "")
-                places, transitions, arcs = _petri_from_pnml(pnml_text)
+                places, transitions, arcs, initial_marking, final_markings = _petri_from_pnml(pnml_text)
+                if isinstance(artifact.get("initial_marking"), list):
+                    initial_marking = list(artifact.get("initial_marking") or [])
+                if isinstance(artifact.get("final_markings"), list):
+                    final_markings = list(artifact.get("final_markings") or [])
 
         return {
             "variables": solution.get("variables", []),
@@ -109,6 +115,8 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "places": places,
             "transitions": transitions,
             "arcs": arcs,
+            "initial_marking": initial_marking,
+            "final_markings": final_markings,
         }
 
     for solution in all_solutions:
@@ -131,6 +139,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "end_at": _parse_utc_iso(finished_at) or datetime.now(timezone.utc),
         "max_evals": int(discover.get("max_evaluations") or 0),
         "pop_size": _to_int_or_none(discover.get("population_size")),
+        "seed": _to_int_or_none(discover.get("seed")),
         "miners": (result.get("catalogs") or {}).get("miners", []),
         "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
         "log_path": request_data.get("log_path") or "",

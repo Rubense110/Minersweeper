@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import secrets
 import threading
 import time
 import uuid
@@ -16,6 +17,9 @@ from .manager_persistence import persist_completed_experiment
 from .manager_runtime import cleanup_cancelled_experiment, execute_job, finalize_cancelled_job, request_java_experiment_cancel, run_job
 from .manager_state import publish_event, public_job, public_progress, subscribe_events, unsubscribe_events, update_progress
 from .serialization import _build_experiment_export_archive
+
+
+MAX_SAFE_SEED = 2**53 - 1
 
 
 class OptimizationJobManager:
@@ -43,6 +47,7 @@ class OptimizationJobManager:
         required_metrics = list(metrics)
         conformance_mode = payload.get("conformance_mode")
         excluded_miners = payload.get("excluded_miners", ["ilp"])
+        seed = _normalize_seed(payload.get("seed"))
 
         requested_n_workers = payload.get("n_workers", 1)
         normalized_n_workers = _normalize_n_workers(requested_n_workers)
@@ -51,6 +56,7 @@ class OptimizationJobManager:
             "population_size": payload.get("population_size", 100),
             "n_partitions": payload.get("n_partitions"),
             "n_workers": normalized_n_workers,
+            "seed": seed,
         }
         if normalized_n_workers != _to_int(requested_n_workers, 1):
             LOGGER.info(
@@ -97,7 +103,7 @@ class OptimizationJobManager:
         worker = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
         worker.start()
         LOGGER.info(
-            "job queued job_id=%s execution=%s log_path=%s metrics=%s max_evaluations=%s population_size=%s n_workers=%s",
+            "job queued job_id=%s execution=%s log_path=%s metrics=%s max_evaluations=%s population_size=%s n_workers=%s seed=%s",
             job_id,
             execution_name,
             log_path,
@@ -105,6 +111,7 @@ class OptimizationJobManager:
             discover_cfg["max_evaluations"],
             discover_cfg["population_size"],
             discover_cfg["n_workers"],
+            discover_cfg["seed"],
         )
         return self._public_job(job)
 
@@ -193,6 +200,16 @@ class OptimizationJobManager:
     def get_experiment(self, experiment_id: str) -> Dict[str, Any]:
         return self.job_store.get_experiment(experiment_id)
 
+    def delete_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        deleted = self.job_store.delete_experiment(experiment_id)
+        if not deleted:
+            raise KeyError(experiment_id)
+        with self._lock:
+            job = self._jobs.get(experiment_id)
+            if job is not None and str(job.get("status") or "") not in {"queued", "running", "cancelling"}:
+                self._jobs.pop(experiment_id, None)
+        return {"experiment_id": experiment_id, "deleted": True}
+
     def get_experiment_solutions(self, experiment_id: str, scope: str) -> Dict[str, Any]:
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope=scope)
         return {
@@ -276,3 +293,17 @@ def _normalize_metric_names(raw_metrics: Any) -> List[str]:
     if not metrics:
         raise ValueError("metrics must contain at least one metric")
     return metrics
+
+
+def _normalize_seed(value: Any) -> int:
+    if value is None or value == "":
+        return secrets.randbits(32)
+    try:
+        seed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("seed must be an integer") from None
+    if seed < 0:
+        raise ValueError("seed must be greater than or equal to 0")
+    if seed > MAX_SAFE_SEED:
+        raise ValueError(f"seed must be less than or equal to {MAX_SAFE_SEED}")
+    return seed

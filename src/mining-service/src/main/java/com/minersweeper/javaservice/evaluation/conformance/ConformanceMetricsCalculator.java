@@ -30,7 +30,8 @@ public class ConformanceMetricsCalculator {
         ConformanceMode conformanceMode,
         TimingTrace timing,
         ExperimentExecutionRegistry executionRegistry,
-        String experimentId
+        String experimentId,
+        String requestId
     ) throws Exception {
         if (requestedMetrics == null) {
             throw new IllegalArgumentException("requested metrics cannot be null");
@@ -54,7 +55,7 @@ public class ConformanceMetricsCalculator {
         Map<String, Double> metrics = new LinkedHashMap<String, Double>();
         for (String metricKey : canonicalRequestedMetrics) {
             if (executionRegistry != null) {
-                executionRegistry.throwIfCancellationRequested(experimentId);
+                executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             }
             ConformanceMetric metric = metricsByKey.get(metricKey);
             long metricStartNs = TimingTrace.nowNs();

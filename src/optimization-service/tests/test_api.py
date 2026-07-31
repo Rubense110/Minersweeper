@@ -9,6 +9,7 @@ if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
 import api
+from api.manager import MAX_SAFE_SEED, _normalize_seed
 
 
 class FakeManager:
@@ -16,6 +17,7 @@ class FakeManager:
         self.last_submit_payload = None
         self.listeners = []
         self.cancelled_job_id = None
+        self.deleted_experiment_id = None
         self.last_model_selection = None
 
     def list_jobs(self):
@@ -103,6 +105,29 @@ class FakeManager:
             raise KeyError(experiment_id)
         return (b"zip-data", "experiment_exp-1_run.zip")
 
+    def delete_experiment(self, experiment_id):
+        if experiment_id == "missing":
+            raise KeyError(experiment_id)
+        self.deleted_experiment_id = experiment_id
+        return {"experiment_id": experiment_id, "deleted": True}
+
+
+class SeedNormalizationTest(unittest.TestCase):
+    def test_normalize_seed_accepts_non_negative_integer(self):
+        self.assertEqual(123, _normalize_seed("123"))
+
+    def test_normalize_seed_generates_value_when_missing(self):
+        with mock.patch("api.manager.secrets.randbits", return_value=987654321):
+            self.assertEqual(987654321, _normalize_seed(None))
+
+    def test_normalize_seed_rejects_invalid_values(self):
+        with self.assertRaises(ValueError):
+            _normalize_seed(-1)
+        with self.assertRaises(ValueError):
+            _normalize_seed("abc")
+        with self.assertRaises(ValueError):
+            _normalize_seed(MAX_SAFE_SEED + 1)
+
 
 class OptimizationApiTest(unittest.TestCase):
     def setUp(self):
@@ -149,6 +174,7 @@ class OptimizationApiTest(unittest.TestCase):
                 "execution_name": "run_1",
                 "log_path": "/data/log.xes",
                 "metrics": ["fitness"],
+                "seed": 12345,
             },
         )
         self.assertEqual(202, response.status_code)
@@ -156,6 +182,7 @@ class OptimizationApiTest(unittest.TestCase):
         self.assertEqual("created", body["job_id"])
         self.assertEqual("queued", body["status"])
         self.assertEqual(["fitness"], api.get_manager().last_submit_payload["metrics"])
+        self.assertEqual(12345, api.get_manager().last_submit_payload["seed"])
 
     def test_create_job_validation_error(self):
         response = self.client.post("/optimizations", json={"raise": "value"})
@@ -269,6 +296,19 @@ class OptimizationApiTest(unittest.TestCase):
 
     def test_download_experiment_data_not_found(self):
         response = self.client.get("/experiments/missing/download")
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("not_found", response.get_json()["error"])
+
+    def test_delete_experiment(self):
+        response = self.client.delete("/experiments/exp-1")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"experiment_id": "exp-1", "deleted": True}, response.get_json())
+        self.assertEqual("exp-1", api.get_manager().deleted_experiment_id)
+
+    def test_delete_experiment_not_found(self):
+        response = self.client.delete("/experiments/missing")
 
         self.assertEqual(404, response.status_code)
         self.assertEqual("not_found", response.get_json()["error"])
