@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 from java_service_client import ProMServiceClient
 
 from .common import LOGGER, _parse_utc_iso, _to_int_or_none
-from .petri import _petri_from_pnml
+from .petri import _petri_from_pnml, _petri_from_v2_artifact
 from .serialization import _compact_pipeline_for_storage
 
 
@@ -92,18 +92,58 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         transitions: List[Dict[str, Any]] = []
         arcs: List[Dict[str, Any]] = []
         initial_marking: List[Dict[str, Any]] = []
+        final_marking: List[Dict[str, Any]] = []
         final_markings: List[List[Dict[str, Any]]] = []
+        model_schema_version = solution.get("model_schema_version")
+        visible_transition_count = solution.get("visible_transition_count")
+        is_feasible = solution.get("is_feasible")
+        constraint_violations = solution.get("constraint_violations", [])
 
         evaluation_id = solution.get("evaluation_id")
         if evaluation_id:
             artifact = artifacts_by_evaluation_id.get(str(evaluation_id))
             if artifact:
-                pnml_text = str(artifact.get("pnml") or "")
-                places, transitions, arcs, initial_marking, final_markings = _petri_from_pnml(pnml_text)
-                if isinstance(artifact.get("initial_marking"), list):
-                    initial_marking = list(artifact.get("initial_marking") or [])
-                if isinstance(artifact.get("final_markings"), list):
-                    final_markings = list(artifact.get("final_markings") or [])
+                artifact_schema_version = artifact.get("model_schema_version")
+                if (
+                    model_schema_version is not None
+                    and artifact_schema_version != model_schema_version
+                ):
+                    raise ValueError("solution and artifact model_schema_version do not match")
+                model_schema_version = artifact_schema_version
+                if model_schema_version == 2:
+                    (
+                        places,
+                        transitions,
+                        arcs,
+                        initial_marking,
+                        final_marking,
+                        final_markings,
+                    ) = _petri_from_v2_artifact(artifact)
+                    visible_transition_count = artifact.get("visible_transition_count")
+                    is_feasible = artifact.get("is_feasible")
+                    constraint_violations = artifact.get("constraint_violations")
+                    if not isinstance(visible_transition_count, int) or isinstance(visible_transition_count, bool):
+                        raise ValueError("v2 artifact is missing visible_transition_count")
+                    if not isinstance(is_feasible, bool) or not isinstance(constraint_violations, list):
+                        raise ValueError("v2 artifact is missing feasibility metadata")
+                    expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+                    if (
+                        is_feasible != (visible_transition_count > 0)
+                        or constraint_violations != expected_violations
+                    ):
+                        raise ValueError("v2 artifact has inconsistent feasibility metadata")
+                elif model_schema_version is None:
+                    pnml_text = str(artifact.get("pnml") or "")
+                    places, transitions, arcs, initial_marking, final_markings = _petri_from_pnml(pnml_text)
+                    if isinstance(artifact.get("initial_marking"), list):
+                        initial_marking = list(artifact.get("initial_marking") or [])
+                    if isinstance(artifact.get("final_markings"), list):
+                        final_markings = list(artifact.get("final_markings") or [])
+                    final_marking = final_markings[0] if final_markings else []
+                else:
+                    raise ValueError(f"unsupported model_schema_version: {model_schema_version}")
+            elif model_schema_version == 2:
+                raise ValueError("v2 solution is missing its semantic artifact")
 
         return {
             "variables": solution.get("variables", []),
@@ -111,11 +151,16 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "metrics": solution.get("metrics", {}),
             "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
             "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
-            "is_pareto": bool(solution.get("is_pareto")),
+            "is_pareto": bool(solution.get("is_pareto")) and is_feasible is not False,
             "places": places,
             "transitions": transitions,
             "arcs": arcs,
+            "model_schema_version": model_schema_version,
+            "visible_transition_count": visible_transition_count,
+            "is_feasible": is_feasible,
+            "constraint_violations": constraint_violations,
             "initial_marking": initial_marking,
+            "final_marking": final_marking,
             "final_markings": final_markings,
         }
 

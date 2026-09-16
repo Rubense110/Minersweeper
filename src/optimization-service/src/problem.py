@@ -22,6 +22,22 @@ class PipelineOptimizationProblem(FloatProblem):
     preprocessing + miner + active parameters.
     """
 
+    _EVALUATION_ATTRIBUTE_KEYS = (
+        "pipeline",
+        "metrics",
+        "objective_metrics",
+        "runtime_ms",
+        "evaluation_error",
+        "evaluation_id",
+        "experiment_id",
+        "fingerprint",
+        "model_schema_version",
+        "is_feasible",
+        "constraint_violations",
+        "visible_transition_count",
+        "is_pareto",
+    )
+
     def __init__(
         self,
         log_path: str,
@@ -73,6 +89,9 @@ class PipelineOptimizationProblem(FloatProblem):
         return solution
 
     def evaluate(self, solution: FloatSolution) -> FloatSolution:
+        self._clear_evaluation_state(solution)
+        solution.objectives = [0.0] * self.number_of_objectives()
+        solution.constraints = [0.0] * self.number_of_constraints()
         if hasattr(self.evaluator, "raise_if_cancel_requested"):
             self.evaluator.raise_if_cancel_requested()
 
@@ -80,7 +99,8 @@ class PipelineOptimizationProblem(FloatProblem):
         cache_hit = self.use_cache and cache_key in self.evaluation_cache
         if cache_hit:
             cached = self.evaluation_cache[cache_key]
-            solution.objectives = cached["objectives"]
+            solution.objectives = list(cached["objectives"])
+            solution.constraints = list(cached["constraints"])
             solution.attributes["pipeline"] = cached["pipeline"]
             solution.attributes["metrics"] = cached["metrics"]
             solution.attributes["objective_metrics"] = cached["objective_metrics"]
@@ -94,6 +114,12 @@ class PipelineOptimizationProblem(FloatProblem):
                 solution.attributes["experiment_id"] = cached["experiment_id"]
             if cached.get("fingerprint"):
                 solution.attributes["fingerprint"] = cached["fingerprint"]
+            if cached.get("model_schema_version") is not None:
+                solution.attributes["model_schema_version"] = cached["model_schema_version"]
+            if cached.get("is_feasible") is not None:
+                solution.attributes["is_feasible"] = cached["is_feasible"]
+                solution.attributes["constraint_violations"] = list(cached["constraint_violations"])
+                solution.attributes["visible_transition_count"] = cached["visible_transition_count"]
             self._notify_evaluation(
                 cache_hit=True,
                 has_error=bool(cached.get("evaluation_error")),
@@ -123,17 +149,25 @@ class PipelineOptimizationProblem(FloatProblem):
                 evaluation_id = evaluation_payload.get("evaluation_id")
                 experiment_id = evaluation_payload.get("experiment_id")
                 fingerprint = evaluation_payload.get("fingerprint")
+                model_schema_version = evaluation_payload.get("model_schema_version")
                 payload_runtime_ms = evaluation_payload.get("runtime_ms")
                 if payload_runtime_ms is not None:
                     try:
                         runtime_ms = int(payload_runtime_ms)
                     except (TypeError, ValueError):
                         pass
+                visible_transition_count = evaluation_payload.get("visible_transition_count")
+                is_feasible = evaluation_payload.get("is_feasible")
+                constraint_violations = evaluation_payload.get("constraint_violations")
             else:
                 metric_values = evaluation_payload
                 evaluation_id = None
                 experiment_id = None
                 fingerprint = None
+                model_schema_version = None
+                visible_transition_count = None
+                is_feasible = None
+                constraint_violations = None
             evaluation_error = None
         except JobCancelled:
             raise
@@ -146,7 +180,11 @@ class PipelineOptimizationProblem(FloatProblem):
             evaluation_id = None
             experiment_id = None
             fingerprint = None
+            model_schema_version = None
             evaluation_error = str(error)
+            visible_transition_count = None
+            is_feasible = None
+            constraint_violations = None
 
         if not isinstance(metric_values, dict):
             raise ValueError("evaluator returned an invalid metrics payload")
@@ -177,6 +215,33 @@ class PipelineOptimizationProblem(FloatProblem):
         solution.attributes["metrics"] = metric_values
         solution.attributes["objective_metrics"] = objective_metrics
         solution.attributes["runtime_ms"] = runtime_ms
+        if model_schema_version is not None:
+            if not isinstance(model_schema_version, int) or isinstance(model_schema_version, bool):
+                raise ValueError("evaluator returned an invalid model_schema_version")
+            if model_schema_version != 2:
+                raise ValueError(f"unsupported model_schema_version: {model_schema_version}")
+            solution.attributes["model_schema_version"] = model_schema_version
+            if not isinstance(is_feasible, bool):
+                raise ValueError("v2 evaluator response is missing feasibility metadata")
+
+        if isinstance(is_feasible, bool):
+            if not isinstance(visible_transition_count, int) or isinstance(visible_transition_count, bool):
+                raise ValueError("evaluator returned an invalid visible_transition_count")
+            if not isinstance(constraint_violations, list) or not all(
+                isinstance(item, str) for item in constraint_violations
+            ):
+                raise ValueError("evaluator returned invalid constraint_violations")
+            expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+            if constraint_violations != expected_violations:
+                raise ValueError("evaluator returned inconsistent feasibility metadata")
+            if is_feasible != (visible_transition_count > 0):
+                raise ValueError("evaluator returned inconsistent visible_transition_count")
+            solution.constraints[0] = 0.0 if is_feasible else -1.0
+            solution.attributes["is_feasible"] = is_feasible
+            solution.attributes["constraint_violations"] = constraint_violations
+            solution.attributes["visible_transition_count"] = visible_transition_count
+        else:
+            solution.constraints[0] = 0.0
         if evaluation_error is not None:
             solution.attributes["evaluation_error"] = evaluation_error
         if evaluation_id:
@@ -188,6 +253,7 @@ class PipelineOptimizationProblem(FloatProblem):
         if self.use_cache:
             self.evaluation_cache[cache_key] = {
                 "objectives": objectives,
+                "constraints": list(solution.constraints),
                 "pipeline": decoded_pipeline,
                 "metrics": metric_values,
                 "objective_metrics": objective_metrics,
@@ -195,7 +261,11 @@ class PipelineOptimizationProblem(FloatProblem):
                 "evaluation_id": evaluation_id,
                 "experiment_id": experiment_id,
                 "fingerprint": fingerprint,
+                "model_schema_version": solution.attributes.get("model_schema_version"),
                 "evaluation_error": evaluation_error,
+                "is_feasible": solution.attributes.get("is_feasible"),
+                "constraint_violations": solution.attributes.get("constraint_violations", []),
+                "visible_transition_count": solution.attributes.get("visible_transition_count"),
             }
         self._notify_evaluation(
             cache_hit=False,
@@ -210,6 +280,14 @@ class PipelineOptimizationProblem(FloatProblem):
             fingerprint=fingerprint,
         )
         return solution
+
+    @classmethod
+    def _clear_evaluation_state(cls, solution: FloatSolution) -> None:
+        attributes = getattr(solution, "attributes", None)
+        if attributes is None:
+            return
+        for key in cls._EVALUATION_ATTRIBUTE_KEYS:
+            attributes.pop(key, None)
 
     def _notify_evaluation(
         self,
@@ -254,7 +332,7 @@ class PipelineOptimizationProblem(FloatProblem):
         return len(self.metrics_list)
 
     def number_of_constraints(self) -> int:
-        return 0
+        return 1
 
     def name(self) -> str:
         return "Pipeline Optimization Problem"

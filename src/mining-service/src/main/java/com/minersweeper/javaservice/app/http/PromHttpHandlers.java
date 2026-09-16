@@ -52,7 +52,11 @@ public final class PromHttpHandlers {
                 evaluation.experiment_id,
                 evaluation.evaluation_id,
                 evaluation.fingerprint,
-                evaluation.metrics
+                evaluation.metrics,
+                evaluation.model_schema_version,
+                evaluation.visible_transition_count,
+                evaluation.is_feasible,
+                evaluation.constraint_violations
             );
             return HttpResponses.respondJson(res, 200, response, mapper);
         } catch (ExperimentCancelledException e) {

@@ -20,12 +20,13 @@ import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
 import com.minersweeper.javaservice.evaluation.preprocessing.PreprocessingPipeline;
+import com.minersweeper.javaservice.evaluation.serialization.PetriNetSemanticsSerializer;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
 import java.io.InterruptedIOException;
 import java.nio.channels.ClosedByInterruptException;
-import java.util.ArrayList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,8 +36,6 @@ import org.deckfour.xes.model.XLog;
 import org.processmining.contexts.cli.CLIContext;
 import org.processmining.contexts.cli.CLIPluginContext;
 import org.processmining.framework.plugin.PluginContext;
-import org.processmining.models.graphbased.directed.petrinet.elements.Place;
-import org.processmining.models.semantics.petrinet.Marking;
 
 public class PromPipelineEvaluator implements PipelineEvaluator {
     private final ArtifactStore artifactStore;
@@ -47,6 +46,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
     private final ConformanceMetricsCalculator conformanceMetricsCalculator = new ConformanceMetricsCalculator();
+    private final PetriNetSemanticsSerializer semanticsSerializer = new PetriNetSemanticsSerializer();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
         this(artifactStore, logsRoot, new ExperimentExecutionRegistry());
@@ -100,6 +100,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             DiscoveryArtifact discovered = discoverModel(context, processedLog, request);
             timing.markFromStart("discover_ms", discoverStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
+            int visibleTransitionCount = semanticsSerializer.countVisibleTransitions(discovered.getNet());
+            boolean isFeasible = visibleTransitionCount > 0;
+            List<String> constraintViolations = isFeasible
+                ? Collections.<String>emptyList()
+                : Collections.singletonList("NO_VISIBLE_TRANSITIONS");
 
             long metricsStartNs = TimingTrace.nowNs();
             Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
@@ -138,8 +143,14 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 selectedMetrics,
                 discovered.getPnml(),
                 fingerprint,
-                serializeMarking(discovered.getInitialMarking()),
-                serializeFinalMarkings(discovered.getFinalMarkings())
+                Integer.valueOf(2),
+                Integer.valueOf(visibleTransitionCount),
+                Boolean.valueOf(isFeasible),
+                constraintViolations,
+                semanticsSerializer.serializeMarking(discovered.getNet(), discovered.getPnml(), discovered.getInitialMarking()),
+                semanticsSerializer.serializeMarking(discovered.getNet(), discovered.getPnml(), discovered.getFinalMarking()),
+                semanticsSerializer.serializeFinalMarkings(discovered.getNet(), discovered.getPnml(), discovered.getFinalMarkings()),
+                semanticsSerializer.serializeTransitions(discovered.getNet(), discovered.getPnml())
             );
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
             return result;
@@ -210,45 +221,6 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
     private static void clearInterruptedStatus() {
         Thread.interrupted();
-    }
-
-    private static List<ArtifactBulkResponse.MarkingEntry> serializeMarking(Marking marking) {
-        List<ArtifactBulkResponse.MarkingEntry> entries = new ArrayList<ArtifactBulkResponse.MarkingEntry>();
-        if (marking == null) {
-            return entries;
-        }
-        for (Place place : marking.baseSet()) {
-            if (place == null || place.getId() == null) {
-                continue;
-            }
-            int tokens = marking.occurrences(place).intValue();
-            if (tokens <= 0) {
-                continue;
-            }
-            entries.add(new ArtifactBulkResponse.MarkingEntry(place.getId().toString(), tokens));
-        }
-        return entries;
-    }
-
-    private static List<List<ArtifactBulkResponse.MarkingEntry>> serializeFinalMarkings(Marking finalMarking) {
-        if (finalMarking == null) {
-            return Collections.emptyList();
-        }
-        return serializeFinalMarkings(Collections.singletonList(finalMarking));
-    }
-
-    private static List<List<ArtifactBulkResponse.MarkingEntry>> serializeFinalMarkings(List<Marking> markings) {
-        List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings = new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>();
-        if (markings == null) {
-            return finalMarkings;
-        }
-        for (Marking finalMarking : markings) {
-            List<ArtifactBulkResponse.MarkingEntry> marking = serializeMarking(finalMarking);
-            if (!marking.isEmpty()) {
-                finalMarkings.add(marking);
-            }
-        }
-        return finalMarkings;
     }
 
     private DiscoveryArtifact discoverModel(PluginContext context, XLog log, PipelineRequest request) throws Exception {

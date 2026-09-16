@@ -102,6 +102,43 @@ public class ArtifactStoreTest {
     }
 
     @Test
+    public void storesV2SemanticArtifactWithoutDroppingEmptyMarkings() throws Exception {
+        Path tmp = Files.createTempDirectory("artifact-store-v2");
+        ArtifactStore store = new ArtifactStore(tmp.toString());
+        PipelineRequest request = TestFixtures.buildRequest(
+            "run_v2", "/tmp/log.xes", TestFixtures.matrixFilter(), TestFixtures.inductiveImf(), TestFixtures.defaultMetrics()
+        );
+        ArtifactBulkResponse.MarkingEntry finalEntry = new ArtifactBulkResponse.MarkingEntry("p_end", 3);
+        ArtifactBulkResponse.TransitionEntry transition = new ArtifactBulkResponse.TransitionEntry("t1", "tau", false);
+        EvaluationResult evaluation = store.store(
+            request,
+            new LinkedHashMap<String, Double>(),
+            "<pnml/>",
+            "semantic-fingerprint",
+            Integer.valueOf(2),
+            Integer.valueOf(0),
+            Boolean.FALSE,
+            Arrays.asList("NO_VISIBLE_TRANSITIONS"),
+            Arrays.<ArtifactBulkResponse.MarkingEntry>asList(),
+            Arrays.asList(finalEntry),
+            Arrays.asList(Arrays.<ArtifactBulkResponse.MarkingEntry>asList(), Arrays.asList(finalEntry)),
+            Arrays.asList(transition)
+        );
+
+        ArtifactBulkResponse.ArtifactEntry entry = store.readBulk("run_v2", Arrays.asList(evaluation.evaluation_id), false).artifacts.get(0);
+        assertEquals(Integer.valueOf(2), evaluation.model_schema_version);
+        assertEquals(Integer.valueOf(2), entry.model_schema_version);
+        assertEquals(Integer.valueOf(0), entry.visible_transition_count);
+        assertFalse(entry.is_feasible.booleanValue());
+        assertEquals(Arrays.asList("NO_VISIBLE_TRANSITIONS"), entry.constraint_violations);
+        assertTrue(entry.initial_marking.isEmpty());
+        assertEquals(3, entry.final_marking.get(0).tokens);
+        assertTrue(entry.final_markings.get(0).isEmpty());
+        assertFalse(entry.transitions.get(0).invisible);
+        assertEquals("tau", entry.transitions.get(0).label);
+    }
+
+    @Test
     public void cleanupExperimentDeletesStoredFiles() throws Exception {
         Path tmp = Files.createTempDirectory("artifact-store-test-cleanup");
         ArtifactStore store = new ArtifactStore(tmp.toString());

@@ -10,6 +10,8 @@ if SERVICE_SRC not in sys.path:
 
 import api
 from api.manager import MAX_SAFE_SEED, _normalize_seed
+from api.serialization import _non_dominated_evaluation_ids
+from jmetal.core.solution import FloatSolution
 
 
 class FakeManager:
@@ -130,6 +132,20 @@ class SeedNormalizationTest(unittest.TestCase):
 
 
 class OptimizationApiTest(unittest.TestCase):
+    @staticmethod
+    def _solution(evaluation_id, objectives, constraint, is_feasible):
+        solution = FloatSolution([0.0], [1.0], len(objectives), 1)
+        solution.objectives = list(objectives)
+        solution.constraints = [constraint]
+        solution.attributes.update(
+            {
+                "evaluation_id": evaluation_id,
+                "is_feasible": is_feasible,
+                "metrics": {"fitness": -objectives[0]},
+            }
+        )
+        return solution
+
     def setUp(self):
         self.original_manager = api.get_manager()
         api.set_manager(FakeManager())
@@ -234,6 +250,36 @@ class OptimizationApiTest(unittest.TestCase):
         payload = api._serialize_solution(Sol(), pareto_ids=set())
         self.assertEqual("HTTPError: 500 Server Error", payload["evaluation_error"])
         self.assertEqual(321, payload["runtime_ms"])
+
+    def test_snapshot_pareto_uses_constraints_and_objectives(self):
+        first = self._solution("first", [-0.9, -0.2], 0.0, True)
+        second = self._solution("second", [-0.5, -0.5], 0.0, True)
+        third = self._solution("third", [-0.2, -0.9], 0.0, True)
+        dominated = [
+            self._solution(f"dominated-{index}", [-0.1, -0.1], 0.0, True)
+            for index in range(6)
+        ]
+        infeasible = self._solution("infeasible", [-1.0, -1.0], -1.0, False)
+        solutions = [first, second, third, *dominated, infeasible]
+
+        pareto_ids = _non_dominated_evaluation_ids(solutions)
+        serialized = [api._serialize_solution(solution, pareto_ids) for solution in solutions]
+
+        self.assertEqual({"first", "second", "third"}, pareto_ids)
+        self.assertEqual(
+            {"first", "second", "third"},
+            {item["evaluation_id"] for item in serialized if item["is_pareto"]},
+        )
+        infeasible_payload = next(item for item in serialized if item["evaluation_id"] == "infeasible")
+        self.assertFalse(infeasible_payload["is_pareto"])
+        self.assertEqual({"fitness": 1.0}, infeasible_payload["metrics"])
+
+    def test_serialization_never_marks_an_infeasible_solution_as_pareto(self):
+        solution = self._solution("infeasible", [-1.0], -1.0, False)
+
+        payload = api._serialize_solution(solution, pareto_ids={"infeasible"})
+
+        self.assertFalse(payload["is_pareto"])
 
     def test_count_failed_solutions_uses_observed_error_count(self):
         all_solutions = [

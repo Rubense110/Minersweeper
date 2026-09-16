@@ -109,6 +109,10 @@ class ProMServiceClient:
             "experiment_id": body.get("experiment_id", resolved_experiment_id),
             "evaluation_id": body.get("evaluation_id"),
             "fingerprint": body.get("fingerprint"),
+            "model_schema_version": body.get("model_schema_version"),
+            "visible_transition_count": body.get("visible_transition_count"),
+            "is_feasible": body.get("is_feasible"),
+            "constraint_violations": body.get("constraint_violations"),
         }
 
     def fetch_artifacts(

@@ -9,6 +9,7 @@ import org.processmining.models.semantics.petrinet.Marking;
 public final class DiscoveryArtifact {
     private final Petrinet net;
     private final Marking initialMarking;
+    private final Marking evaluationFinalMarking;
     private final List<Marking> finalMarkings;
     private final String pnml;
 
@@ -17,11 +18,15 @@ public final class DiscoveryArtifact {
     }
 
     public DiscoveryArtifact(Petrinet net, Marking initialMarking, List<Marking> finalMarkings, String pnml) {
+        if (net == null || initialMarking == null || finalMarkings == null || finalMarkings.isEmpty()) {
+            throw new IllegalArgumentException("Discovery artifact requires Petri-net semantics");
+        }
         this.net = net;
         this.initialMarking = initialMarking;
         this.finalMarkings = finalMarkings == null
             ? Collections.emptyList()
             : Collections.unmodifiableList(new ArrayList<Marking>(finalMarkings));
+        this.evaluationFinalMarking = this.finalMarkings.get(0);
         this.pnml = pnml;
     }
 
@@ -34,10 +39,7 @@ public final class DiscoveryArtifact {
     }
 
     public Marking getFinalMarking() {
-        if (finalMarkings.isEmpty()) {
-            return null;
-        }
-        return finalMarkings.get(0);
+        return evaluationFinalMarking;
     }
 
     public List<Marking> getFinalMarkings() {

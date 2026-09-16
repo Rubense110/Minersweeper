@@ -143,6 +143,43 @@ class ManagerPersistenceTest(unittest.TestCase):
         self.assertEqual([{"place_id": "real-start", "tokens": 1}], solutions[0]["initial_marking"])
         self.assertEqual([[{"place_id": "real-end", "tokens": 1}]], solutions[0]["final_markings"])
 
+    def test_persist_completed_experiment_keeps_v2_empty_markings_without_inference(self):
+        manager = _FakeManager()
+        manager._jobs["job-1"] = {
+            "job_id": "job-1",
+            "started_at": "2026-06-14T11:29:25.723111+00:00",
+            "finished_at": "2026-06-14T11:29:33.884817+00:00",
+            "request": {
+                "execution_name": "exp-1", "service_url": "http://remote-service", "log_path": "/data/log.xes",
+                "metrics": ["fitness"], "discover": {"max_evaluations": 1, "population_size": 1, "n_workers": 1},
+            },
+            "result": {
+                "all_solutions": [{"evaluation_id": "eval-1", "variables": [], "objectives": [], "metrics": {}, "pipeline": {}}],
+                "population_snapshots": [], "catalogs": {"miners": [], "preprocessing": []}, "metrics_order": ["fitness"],
+            },
+            "_control": ExecutionControl(),
+        }
+        artifact = {
+            "evaluation_id": "eval-1", "model_schema_version": 2,
+            "pnml": "<pnml><net><place id='source'/><place id='sink'/><transition id='t'/><arc id='a1' source='source' target='t'/><arc id='a2' source='t' target='sink'/></net></pnml>",
+            "initial_marking": [], "final_marking": [], "final_markings": [[]],
+            "transitions": [{"id": "t", "label": "tau", "invisible": False}],
+            "visible_transition_count": 1, "is_feasible": True, "constraint_violations": [],
+        }
+        with patch("api.manager_persistence.ProMServiceClient") as client_cls:
+            client_cls.return_value.fetch_artifacts.return_value = [artifact]
+            persist_completed_experiment(manager, "job-1")
+
+        _experiment_data, solutions, _snapshots = manager.job_store.save_completed_experiment.call_args.args
+        self.assertEqual(2, solutions[0]["model_schema_version"])
+        self.assertEqual([], solutions[0]["initial_marking"])
+        self.assertEqual([], solutions[0]["final_marking"])
+        self.assertEqual([[]], solutions[0]["final_markings"])
+        self.assertEqual({"id": "t", "label": "tau", "invisible": False}, solutions[0]["transitions"][0])
+        self.assertEqual(1, solutions[0]["visible_transition_count"])
+        self.assertTrue(solutions[0]["is_feasible"])
+        self.assertEqual([], solutions[0]["constraint_violations"])
+
 
 if __name__ == "__main__":
     unittest.main()

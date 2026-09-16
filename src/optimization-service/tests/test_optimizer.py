@@ -4,6 +4,7 @@ import random
 import unittest
 
 from jmetal.core.solution import FloatSolution
+from jmetal.util.comparator import DominanceWithConstraintsComparator
 from jmetal.util.evaluator import SequentialEvaluator
 
 
@@ -12,11 +13,21 @@ if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
 from optimizer import PipelineNSGAIIIOptimizer, SeededPolynomialMutation, SeededSBXCrossover, ThreadPoolEvaluator
+from pareto import feasible_non_dominated_evaluation_ids
 from pipeline_space import PipelineSearchSpace
 from problem import PipelineOptimizationProblem
 
 
 class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
+    @staticmethod
+    def _solution(evaluation_id, objectives, constraint, is_feasible):
+        solution = FloatSolution([0.0], [1.0], len(objectives), 1)
+        solution.objectives = list(objectives)
+        solution.constraints = [constraint]
+        solution.attributes["evaluation_id"] = evaluation_id
+        solution.attributes["is_feasible"] = is_feasible
+        return solution
+
     def _build_problem(self, seed=None):
         space = PipelineSearchSpace(excluded_miners=("split",))
 
@@ -53,6 +64,32 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         self.assertGreater(len(optimizer.get_result()), 0)
         self.assertIsNotNone(optimizer.get_non_dominated())
         self.assertGreater(len(optimizer.get_non_dominated()), 0)
+
+    def test_feasible_solution_dominates_infeasible_solution_with_better_objectives(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(), max_evaluations=4, n_partitions=1)
+        feasible = self._solution("feasible", [-0.8, -0.8, -0.8, -0.8], 0.0, True)
+        infeasible = self._solution("infeasible", [-1.0, -1.0, -1.0, -1.0], -1.0, False)
+
+        front = optimizer._calculate_non_dominated([feasible, infeasible])
+
+        self.assertIsInstance(optimizer.algorithm.dominance_comparator, DominanceWithConstraintsComparator)
+        self.assertEqual([feasible], front)
+        self.assertEqual({"feasible"}, feasible_non_dominated_evaluation_ids([feasible, infeasible]))
+
+    def test_feasible_front_keeps_mutually_non_dominated_solutions_and_excludes_infeasible(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(), max_evaluations=4, n_partitions=1)
+        first = self._solution("first", [-0.9, -0.3], 0.0, True)
+        second = self._solution("second", [-0.3, -0.9], 0.0, True)
+        infeasible = self._solution("infeasible", [-1.0, -1.0], -1.0, False)
+
+        self.assertEqual([first, second], optimizer._calculate_non_dominated([first, second, infeasible]))
+
+    def test_feasible_front_is_empty_when_every_solution_is_infeasible(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(), max_evaluations=4, n_partitions=1)
+        first = self._solution("first", [-1.0, -1.0], -1.0, False)
+        second = self._solution("second", [-0.5, -0.5], -1.0, False)
+
+        self.assertEqual([], optimizer._calculate_non_dominated([first, second]))
 
     def test_optimizer_uses_sequential_evaluator_by_default(self):
         problem = self._build_problem()

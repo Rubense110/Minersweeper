@@ -84,6 +84,20 @@ class ModelSelectionTest(unittest.TestCase):
                 scope="pareto",
             )
 
+    def test_select_weighted_model_excludes_explicitly_infeasible_v2_candidates(self):
+        payload = select_weighted_model(
+            experiment={"experiment_id": "exp-1", "metrics": ["fitness", "precision"]},
+            solutions=[
+                {"solution_id": 1, "objectives": [-0.8, -0.8], "is_feasible": True},
+                {"solution_id": 2, "objectives": [-1.0, -1.0], "is_feasible": False},
+            ],
+            raw_weights={"fitness": 50, "precision": 50},
+            scope="all",
+        )
+
+        self.assertEqual(1, payload["candidate_count"])
+        self.assertEqual(1, payload["selected_solution_id"])
+
 
     def test_select_weighted_model_tolerates_zero_slider_weight_for_asf(self):
         payload = select_weighted_model(

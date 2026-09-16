@@ -9,15 +9,23 @@ import com.minersweeper.javaservice.artifacts.ArtifactStore;
 import com.minersweeper.javaservice.evaluation.PromPipelineEvaluator;
 
 import java.io.File;
+import java.io.ByteArrayInputStream;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 public class PromPipelineEvaluatorRealTest {
     private static Path workDir;
@@ -65,12 +73,15 @@ public class PromPipelineEvaluatorRealTest {
             assertEquals(experimentId, result.experiment_id);
             assertNotNull(result.evaluation_id);
             assertTrue(result.fingerprint.contains(miner.key));
+            assertEquals(Integer.valueOf(2), result.model_schema_version);
             TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
 
             ArtifactBulkResponse bulk = store.readBulk(experimentId, Arrays.asList(result.evaluation_id), true);
             assertEquals(1, bulk.artifacts.size());
-            assertEquals(miner.key, bulk.artifacts.get(0).pipeline.miner.key);
-            assertTrue(bulk.artifacts.get(0).pnml.contains("pnml"));
+            ArtifactBulkResponse.ArtifactEntry artifact = bulk.artifacts.get(0);
+            assertEquals(miner.key, artifact.pipeline.miner.key);
+            assertTrue(artifact.pnml.contains("pnml"));
+            assertV2Semantics(artifact);
         }
     }
 
@@ -107,6 +118,80 @@ public class PromPipelineEvaluatorRealTest {
         }
         Path javaServiceDir = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
         return javaServiceDir.resolve("..").resolve("..").resolve("tools").resolve("prom-lite-1.4-all-platforms").normalize();
+    }
+
+    private static void assertV2Semantics(ArtifactBulkResponse.ArtifactEntry artifact) throws Exception {
+        assertEquals(Integer.valueOf(2), artifact.model_schema_version);
+        assertNotNull(artifact.initial_marking);
+        assertNotNull(artifact.final_marking);
+        assertNotNull(artifact.final_markings);
+        assertTrue("at least one real final marking is required", !artifact.final_markings.isEmpty());
+        assertMarkingsEqual(artifact.final_marking, artifact.final_markings.get(0));
+
+        Set<String> placeIds = pnmlNodeIds(artifact.pnml, "place");
+        assertMarking(artifact.initial_marking, placeIds);
+        assertMarking(artifact.final_marking, placeIds);
+        for (List<ArtifactBulkResponse.MarkingEntry> marking : artifact.final_markings) {
+            assertMarking(marking, placeIds);
+        }
+
+        assertNotNull(artifact.transitions);
+        Set<String> transitionIds = pnmlNodeIds(artifact.pnml, "transition");
+        assertEquals(transitionIds.size(), artifact.transitions.size());
+        int actualVisibleCount = 0;
+        for (ArtifactBulkResponse.TransitionEntry transition : artifact.transitions) {
+            assertTrue("transition ID must exist in PNML", transitionIds.contains(transition.id));
+            if (!transition.invisible) {
+                actualVisibleCount++;
+            }
+        }
+        assertEquals(Integer.valueOf(actualVisibleCount), artifact.visible_transition_count);
+        assertNotNull(artifact.is_feasible);
+        assertEquals(Boolean.valueOf(actualVisibleCount > 0), artifact.is_feasible);
+        assertNotNull(artifact.constraint_violations);
+        assertEquals(
+            actualVisibleCount > 0 ? Arrays.<String>asList() : Arrays.asList("NO_VISIBLE_TRANSITIONS"),
+            artifact.constraint_violations
+        );
+    }
+
+    private static void assertMarking(
+        List<ArtifactBulkResponse.MarkingEntry> marking,
+        Set<String> placeIds
+    ) {
+        assertNotNull(marking);
+        for (ArtifactBulkResponse.MarkingEntry entry : marking) {
+            assertTrue("marking place ID must exist in PNML", placeIds.contains(entry.place_id));
+            assertTrue("marking multiplicity must be positive", entry.tokens > 0);
+        }
+    }
+
+    private static void assertMarkingsEqual(
+        List<ArtifactBulkResponse.MarkingEntry> expected,
+        List<ArtifactBulkResponse.MarkingEntry> actual
+    ) {
+        assertEquals(expected.size(), actual.size());
+        for (int index = 0; index < expected.size(); index++) {
+            assertEquals(expected.get(index).place_id, actual.get(index).place_id);
+            assertEquals(expected.get(index).tokens, actual.get(index).tokens);
+        }
+    }
+
+    private static Set<String> pnmlNodeIds(String pnml, String nodeName) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        Document document = factory.newDocumentBuilder().parse(
+            new ByteArrayInputStream(pnml.getBytes(StandardCharsets.UTF_8))
+        );
+        NodeList nodes = document.getElementsByTagNameNS("*", nodeName);
+        if (nodes.getLength() == 0) {
+            nodes = document.getElementsByTagName(nodeName);
+        }
+        Set<String> ids = new HashSet<String>();
+        for (int index = 0; index < nodes.getLength(); index++) {
+            ids.add(((Element) nodes.item(index)).getAttribute("id"));
+        }
+        return ids;
     }
 
     private static Path findLpSolveNativeDir(Path promHome) throws Exception {

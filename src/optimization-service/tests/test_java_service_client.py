@@ -22,6 +22,10 @@ class ProMServiceClientTest(unittest.TestCase):
             "experiment_id": "exp-1",
             "evaluation_id": "eval-1",
             "fingerprint": "fp-1",
+            "model_schema_version": 2,
+            "visible_transition_count": 0,
+            "is_feasible": False,
+            "constraint_violations": ["NO_VISIBLE_TRANSITIONS"],
             "metrics": {
                 "fitness": 0.9,
                 "precision": 0.8,
@@ -47,6 +51,10 @@ class ProMServiceClientTest(unittest.TestCase):
         self.assertEqual(result["metrics"]["generalisation"], 0.6)
         self.assertEqual(result["evaluation_id"], "eval-1")
         self.assertEqual(result["fingerprint"], "fp-1")
+        self.assertEqual(2, result["model_schema_version"])
+        self.assertEqual(0, result["visible_transition_count"])
+        self.assertFalse(result["is_feasible"])
+        self.assertEqual(["NO_VISIBLE_TRANSITIONS"], result["constraint_violations"])
         mock_post.assert_called_once()
         sent_metrics = mock_post.call_args.kwargs["json"]["metrics"]
         self.assertEqual(

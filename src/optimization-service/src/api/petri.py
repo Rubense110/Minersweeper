@@ -146,6 +146,137 @@ def _petri_from_pnml(
     return places, transitions, arcs, initial_marking, [final_marking] if final_marking else []
 
 
+def _petri_structure_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Read only graph structure; semantic fields belong to the v2 artifact."""
+    if not pnml_text:
+        raise ValueError("v2 artifact is missing PNML")
+    try:
+        root = ET.fromstring(pnml_text)
+    except ET.ParseError as exc:
+        raise ValueError("v2 artifact contains invalid PNML") from exc
+
+    places: List[Dict[str, Any]] = []
+    transitions: List[Dict[str, Any]] = []
+    arcs: List[Dict[str, Any]] = []
+    for node in root.iter():
+        tag = _local_xml_name(node.tag)
+        if tag == "place":
+            places.append({"id": (node.attrib.get("id") or "").strip(), "label": _xml_node_label(node)})
+        elif tag == "transition":
+            transitions.append({"id": (node.attrib.get("id") or "").strip()})
+        elif tag == "arc":
+            arcs.append(
+                {
+                    "id": (node.attrib.get("id") or "").strip(),
+                    "source": (node.attrib.get("source") or "").strip(),
+                    "target": (node.attrib.get("target") or "").strip(),
+                }
+            )
+    return places, transitions, arcs
+
+
+def _validate_v2_marking(payload: Any, place_ids: set[str], field_name: str) -> List[Dict[str, Any]]:
+    if not isinstance(payload, list):
+        raise ValueError(f"v2 artifact field '{field_name}' must be a list")
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise ValueError(f"v2 artifact field '{field_name}' contains an invalid entry")
+        place_id = str(entry.get("place_id") or "").strip()
+        if not place_id or place_id not in place_ids or place_id in seen:
+            raise ValueError(f"v2 artifact field '{field_name}' references an invalid place")
+        tokens = entry.get("tokens")
+        if isinstance(tokens, bool):
+            raise ValueError(f"v2 artifact field '{field_name}' contains an invalid token count")
+        try:
+            tokens = int(tokens)
+        except (TypeError, ValueError):
+            raise ValueError(f"v2 artifact field '{field_name}' contains an invalid token count") from None
+        if tokens <= 0:
+            raise ValueError(f"v2 artifact field '{field_name}' contains a non-positive token count")
+        seen.add(place_id)
+        normalized.append({"place_id": place_id, "tokens": tokens})
+    return normalized
+
+
+def _petri_from_v2_artifact(artifact: Dict[str, Any]) -> Tuple[
+    List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[List[Dict[str, Any]]]
+]:
+    required = {
+        "initial_marking",
+        "final_marking",
+        "final_markings",
+        "transitions",
+        "visible_transition_count",
+        "is_feasible",
+        "constraint_violations",
+    }
+    missing = sorted(field for field in required if field not in artifact)
+    if missing:
+        raise ValueError("v2 artifact is missing semantic fields: " + ", ".join(missing))
+    places, pnml_transitions, arcs = _petri_structure_from_pnml(str(artifact.get("pnml") or ""))
+    place_ids = {str(place.get("id") or "").strip() for place in places}
+    initial_marking = _validate_v2_marking(artifact["initial_marking"], place_ids, "initial_marking")
+    final_marking = _validate_v2_marking(artifact["final_marking"], place_ids, "final_marking")
+    if not isinstance(artifact["final_markings"], list):
+        raise ValueError("v2 artifact field 'final_markings' must be a list")
+    final_markings = [
+        _validate_v2_marking(marking, place_ids, "final_markings") for marking in artifact["final_markings"]
+    ]
+    if not final_markings or final_markings[0] != final_marking:
+        raise ValueError("v2 artifact final_marking does not match the marking used for evaluation")
+
+    transitions_payload = artifact["transitions"]
+    if not isinstance(transitions_payload, list):
+        raise ValueError("v2 artifact field 'transitions' must be a list")
+    pnml_transition_ids = {str(transition.get("id") or "").strip() for transition in pnml_transitions}
+    transitions: List[Dict[str, Any]] = []
+    transition_ids = set()
+    for transition in transitions_payload:
+        if not isinstance(transition, dict) or not isinstance(transition.get("invisible"), bool):
+            raise ValueError("v2 artifact transition is missing boolean 'invisible'")
+        transition_id = str(transition.get("id") or "").strip()
+        if not transition_id or transition_id not in pnml_transition_ids or transition_id in transition_ids:
+            raise ValueError("v2 artifact transition does not match PNML")
+        transition_ids.add(transition_id)
+        transitions.append(
+            {
+                "id": transition_id,
+                "label": transition.get("label"),
+                "invisible": transition["invisible"],
+            }
+        )
+    if transition_ids != pnml_transition_ids:
+        raise ValueError("v2 artifact transitions do not exactly match PNML")
+
+    visible_transition_count = artifact["visible_transition_count"]
+    is_feasible = artifact["is_feasible"]
+    constraint_violations = artifact["constraint_violations"]
+    if (
+        not isinstance(visible_transition_count, int)
+        or isinstance(visible_transition_count, bool)
+        or visible_transition_count < 0
+    ):
+        raise ValueError("v2 artifact is missing visible_transition_count")
+    if not isinstance(is_feasible, bool):
+        raise ValueError("v2 artifact is missing is_feasible")
+    if not isinstance(constraint_violations, list) or not all(
+        isinstance(item, str) for item in constraint_violations
+    ):
+        raise ValueError("v2 artifact has invalid constraint_violations")
+
+    actual_visible_count = sum(1 for transition in transitions if transition["invisible"] is False)
+    if actual_visible_count != visible_transition_count:
+        raise ValueError("v2 artifact visible_transition_count does not match transitions")
+    if is_feasible != (visible_transition_count > 0):
+        raise ValueError("v2 artifact is_feasible does not match visible_transition_count")
+    expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+    if constraint_violations != expected_violations:
+        raise ValueError("v2 artifact constraint_violations do not match feasibility")
+    return places, transitions, arcs, initial_marking, final_marking, final_markings
+
+
 def _ensure_pm4py_loaded() -> None:
     if "pm4py" in sys.modules:
         return
@@ -179,8 +310,6 @@ def _normalize_transition_label(value: Any, is_invisible: Any = None) -> Optiona
         return None
     text = str(value or "").strip()
     if not text:
-        return None
-    if text.lower() in {"tau", "silent", "invisible"}:
         return None
     return text
 
@@ -216,7 +345,7 @@ def _build_petri_net_from_payload(
         transition_id = _extract_node_id(item.get("id"), "transition", index)
         if transition_id in transition_nodes:
             continue
-        transition_label = _normalize_transition_label(item.get("label"), item.get("is_invisible"))
+        transition_label = _normalize_transition_label(item.get("label"), item.get("invisible", item.get("is_invisible")))
         transition = PetriNet.Transition(transition_id, transition_label)
         net.transitions.add(transition)
         transition_nodes[transition_id] = transition
@@ -287,6 +416,8 @@ def _marking_from_payload(payload: Any, place_nodes: Dict[str, Any]) -> Any:
 
 
 def _final_marking_payload(final_marking_payload: Any, final_markings_payload: Any) -> Any:
+    if final_marking_payload is not None:
+        return final_marking_payload
     if isinstance(final_markings_payload, list):
         for item in final_markings_payload:
             if isinstance(item, list) and item:

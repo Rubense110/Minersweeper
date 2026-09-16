@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from execution_control import JobCancelled
 from java_service_client import ProMServiceClient
+from pareto import feasible_non_dominated
 
 from .common import LOGGER, _utc_now_iso
 from .evaluation_trace import append_evaluation_trace
@@ -215,9 +216,9 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
     )
     miner.raise_if_cancel_requested()
 
-    pareto_ids = set(miner.get_non_dominated_evaluation_ids())
     all_solutions_raw = miner.result or []
-    pareto_solutions_raw = miner.non_dominated or []
+    pareto_solutions_raw = feasible_non_dominated(all_solutions_raw)
+    pareto_ids = _non_dominated_evaluation_ids(pareto_solutions_raw)
     population_snapshots_raw = miner.population_snapshots or []
 
     all_solutions = [_serialize_solution(sol, pareto_ids) for sol in all_solutions_raw]

@@ -64,6 +64,7 @@ function mapDbSolution(item, index, metricsOrder) {
       transitions: Array.isArray(item.transitions) ? item.transitions : [],
       arcs: Array.isArray(item.arcs) ? item.arcs : [],
       initial_marking: Array.isArray(item.initial_marking) ? item.initial_marking : [],
+      final_marking: Array.isArray(item.final_marking) ? item.final_marking : null,
       final_markings: Array.isArray(item.final_markings) ? item.final_markings : [],
     },
   }
@@ -680,6 +681,7 @@ export default function ResultsPage() {
             transitions: selectedSolution.petri.transitions || [],
             arcs: selectedSolution.petri.arcs || [],
             initial_marking: selectedSolution.petri.initial_marking || [],
+            final_marking: selectedSolution.petri.final_marking,
             final_markings: selectedSolution.petri.final_markings || [],
           },
           'svg'
@@ -727,6 +729,7 @@ export default function ResultsPage() {
             transitions: weightedSelectedSolution.petri.transitions || [],
             arcs: weightedSelectedSolution.petri.arcs || [],
             initial_marking: weightedSelectedSolution.petri.initial_marking || [],
+            final_marking: weightedSelectedSolution.petri.final_marking,
             final_markings: weightedSelectedSolution.petri.final_markings || [],
           },
           'svg'

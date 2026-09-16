@@ -92,6 +92,8 @@ def select_weighted_model(
     valid_candidates: List[Dict[str, Any]] = []
     objective_vectors: List[List[float]] = []
     for solution in solutions:
+        if solution.get("is_feasible") is False:
+            continue
         objective_vector = _coerce_objective_vector(list(solution.get("objectives") or []), metrics)
         if objective_vector is None:
             continue

@@ -216,6 +216,7 @@ public final class OpenApiDocs {
         schemas.put("ArtifactBulkResponse", artifactBulkResponseSchema());
         schemas.put("ArtifactEntry", artifactEntrySchema());
         schemas.put("MarkingEntry", markingEntrySchema());
+        schemas.put("TransitionEntry", transitionEntrySchema());
         schemas.put("ExperimentCancelResponse", experimentCancelResponseSchema());
         schemas.put("EvaluationCancelResponse", evaluationCancelResponseSchema());
         schemas.put("ExperimentCleanupResponse", experimentCleanupResponseSchema());
@@ -262,14 +263,27 @@ public final class OpenApiDocs {
     }
 
     private static Map<String, Object> pipelineResponseSchema() {
-        Map<String, Object> schema = objectSchema("experiment_id", "evaluation_id", "fingerprint", "metrics");
+        Map<String, Object> schema = objectSchema(
+            "experiment_id",
+            "evaluation_id",
+            "fingerprint",
+            "metrics",
+            "model_schema_version",
+            "visible_transition_count",
+            "is_feasible",
+            "constraint_violations"
+        );
         schema.put(
             "properties",
             properties(
                 property("experiment_id", scalarSchema("string")),
                 property("evaluation_id", scalarSchema("string")),
                 property("fingerprint", scalarSchema("string")),
-                property("metrics", numberMapSchema())
+                property("metrics", numberMapSchema()),
+                property("model_schema_version", scalarSchema("integer", "int32")),
+                property("visible_transition_count", scalarSchema("integer", "int32")),
+                property("is_feasible", scalarSchema("boolean")),
+                property("constraint_violations", arraySchema(scalarSchema("string")))
             )
         );
         return schema;
@@ -308,7 +322,15 @@ public final class OpenApiDocs {
             "log_path",
             "created_at_epoch_ms",
             "metrics",
-            "pipeline"
+            "pipeline",
+            "model_schema_version",
+            "visible_transition_count",
+            "is_feasible",
+            "constraint_violations",
+            "initial_marking",
+            "final_marking",
+            "final_markings",
+            "transitions"
         );
         schema.put(
             "properties",
@@ -320,8 +342,14 @@ public final class OpenApiDocs {
                 property("created_at_epoch_ms", scalarSchema("integer", "int64")),
                 property("metrics", numberMapSchema()),
                 property("pipeline", schemaRef("PipelineConfig")),
+                property("model_schema_version", scalarSchema("integer", "int32")),
+                property("visible_transition_count", scalarSchema("integer", "int32")),
+                property("is_feasible", scalarSchema("boolean")),
+                property("constraint_violations", arraySchema(scalarSchema("string"))),
                 property("initial_marking", arraySchema(schemaRef("MarkingEntry"))),
+                property("final_marking", arraySchema(schemaRef("MarkingEntry"))),
                 property("final_markings", arraySchema(arraySchema(schemaRef("MarkingEntry")))),
+                property("transitions", arraySchema(schemaRef("TransitionEntry"))),
                 property("pnml", scalarSchema("string"))
             )
         );
@@ -335,6 +363,19 @@ public final class OpenApiDocs {
             properties(
                 property("place_id", scalarSchema("string")),
                 property("tokens", scalarSchema("integer"))
+            )
+        );
+        return schema;
+    }
+
+    private static Map<String, Object> transitionEntrySchema() {
+        Map<String, Object> schema = objectSchema("id", "invisible");
+        schema.put(
+            "properties",
+            properties(
+                property("id", scalarSchema("string")),
+                property("label", scalarSchema("string")),
+                property("invisible", scalarSchema("boolean"))
             )
         );
         return schema;

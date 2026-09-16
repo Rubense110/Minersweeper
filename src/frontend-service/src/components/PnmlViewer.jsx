@@ -20,7 +20,7 @@ function parseStoredPetri(petri) {
   const transitionNodes = Array.isArray(petri.transitions)
     ? petri.transitions.map((item, index) => {
         const id = item?.id || `transition-${index + 1}`
-        const isInvisible = item?.is_invisible === true
+        const isInvisible = item?.invisible === true || item?.is_invisible === true
         const label = isInvisible ? '' : item?.label || id
         const data = { id, label, kind: 'transition' }
         if (isInvisible) data.isInvisible = true

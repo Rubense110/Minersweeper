@@ -18,6 +18,7 @@ from jmetal.util.ranking import FastNonDominatedRanking
 from jmetal.util.termination_criterion import StoppingByEvaluations
 
 from problem import PipelineOptimizationProblem
+from pareto import CONSTRAINT_DOMINANCE_COMPARATOR, feasible_non_dominated
 
 
 class SeededBinaryTournamentSelection:
@@ -279,6 +280,7 @@ class PipelineNSGAIIIOptimizer:
             selection=SeededBinaryTournamentSelection(self.rng),
             termination_criterion=StoppingByEvaluations(max_evaluations=max_evaluations),
             population_evaluator=population_evaluator,
+            dominance_comparator=CONSTRAINT_DOMINANCE_COMPARATOR,
             execution_control=execution_control,
             snapshot_callback=self._store_population_snapshot,
         )
@@ -299,9 +301,7 @@ class PipelineNSGAIIIOptimizer:
         return self.result
 
     def _calculate_non_dominated(self, solutions: List):
-        ranking = FastNonDominatedRanking()
-        ranking.compute_ranking(solutions)
-        return ranking.get_subfront(0)
+        return feasible_non_dominated(solutions)
 
     def get_result(self):
         return self.result

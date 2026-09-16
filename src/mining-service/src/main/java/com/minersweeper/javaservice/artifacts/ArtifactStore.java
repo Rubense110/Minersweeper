@@ -39,8 +39,14 @@ public class ArtifactStore {
             metrics,
             pnml,
             fingerprint,
+            null,
+            null,
+            null,
+            new ArrayList<String>(),
             new ArrayList<ArtifactBulkResponse.MarkingEntry>(),
-            new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
+            new ArrayList<ArtifactBulkResponse.MarkingEntry>(),
+            new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>(),
+            new ArrayList<ArtifactBulkResponse.TransitionEntry>()
         );
     }
 
@@ -51,6 +57,63 @@ public class ArtifactStore {
         String fingerprint,
         List<ArtifactBulkResponse.MarkingEntry> initialMarking,
         List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings
+    ) throws IOException {
+        return store(
+            request,
+            metrics,
+            pnml,
+            fingerprint,
+            null,
+            null,
+            null,
+            new ArrayList<String>(),
+            initialMarking,
+            new ArrayList<ArtifactBulkResponse.MarkingEntry>(),
+            finalMarkings,
+            new ArrayList<ArtifactBulkResponse.TransitionEntry>()
+        );
+    }
+
+    public EvaluationResult store(
+        PipelineRequest request,
+        java.util.Map<String, Double> metrics,
+        String pnml,
+        String fingerprint,
+        Integer modelSchemaVersion,
+        List<ArtifactBulkResponse.MarkingEntry> initialMarking,
+        List<ArtifactBulkResponse.MarkingEntry> finalMarking,
+        List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings,
+        List<ArtifactBulkResponse.TransitionEntry> transitions
+    ) throws IOException {
+        return store(
+            request,
+            metrics,
+            pnml,
+            fingerprint,
+            modelSchemaVersion,
+            null,
+            null,
+            new ArrayList<String>(),
+            initialMarking,
+            finalMarking,
+            finalMarkings,
+            transitions
+        );
+    }
+
+    public EvaluationResult store(
+        PipelineRequest request,
+        java.util.Map<String, Double> metrics,
+        String pnml,
+        String fingerprint,
+        Integer modelSchemaVersion,
+        Integer visibleTransitionCount,
+        Boolean isFeasible,
+        List<String> constraintViolations,
+        List<ArtifactBulkResponse.MarkingEntry> initialMarking,
+        List<ArtifactBulkResponse.MarkingEntry> finalMarking,
+        List<List<ArtifactBulkResponse.MarkingEntry>> finalMarkings,
+        List<ArtifactBulkResponse.TransitionEntry> transitions
     ) throws IOException {
         String experimentId = request.experiment_id;
         String evaluationId = nextEvaluationId();
@@ -71,16 +134,31 @@ public class ArtifactStore {
         metadata.created_at_epoch_ms = System.currentTimeMillis();
         metadata.metrics = metrics;
         metadata.pipeline = request.pipeline;
+        metadata.model_schema_version = modelSchemaVersion;
+        metadata.visible_transition_count = visibleTransitionCount;
+        metadata.is_feasible = isFeasible;
+        metadata.constraint_violations = constraintViolations == null
+            ? new ArrayList<String>()
+            : constraintViolations;
         metadata.initial_marking = initialMarking == null
             ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
             : initialMarking;
+        metadata.final_marking = finalMarking == null
+            ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
+            : finalMarking;
         metadata.final_markings = finalMarkings == null
             ? new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
             : finalMarkings;
+        metadata.transitions = transitions == null
+            ? new ArrayList<ArtifactBulkResponse.TransitionEntry>()
+            : transitions;
         metadata.pnml_file = pnmlFile;
         mapper.writeValue(metadataPath.toFile(), metadata);
 
-        return new EvaluationResult(experimentId, evaluationId, fingerprint, metrics);
+        return new EvaluationResult(
+            experimentId, evaluationId, fingerprint, metrics,
+            modelSchemaVersion, visibleTransitionCount, isFeasible, metadata.constraint_violations
+        );
     }
 
     public ArtifactBulkResponse readBulk(String experimentId, List<String> evaluationIds, boolean includePnml) throws IOException {
@@ -103,12 +181,24 @@ public class ArtifactStore {
             entry.created_at_epoch_ms = metadata.created_at_epoch_ms;
             entry.metrics = metadata.metrics;
             entry.pipeline = metadata.pipeline;
+            entry.model_schema_version = metadata.model_schema_version;
+            entry.visible_transition_count = metadata.visible_transition_count;
+            entry.is_feasible = metadata.is_feasible;
+            entry.constraint_violations = metadata.constraint_violations == null
+                ? new ArrayList<String>()
+                : metadata.constraint_violations;
             entry.initial_marking = metadata.initial_marking == null
                 ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
                 : metadata.initial_marking;
+            entry.final_marking = metadata.final_marking == null
+                ? new ArrayList<ArtifactBulkResponse.MarkingEntry>()
+                : metadata.final_marking;
             entry.final_markings = metadata.final_markings == null
                 ? new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>()
                 : metadata.final_markings;
+            entry.transitions = metadata.transitions == null
+                ? new ArrayList<ArtifactBulkResponse.TransitionEntry>()
+                : metadata.transitions;
             if (includePnml) {
                 Path pnmlPath = experimentDir.resolve(metadata.pnml_file);
                 if (!Files.exists(pnmlPath)) {

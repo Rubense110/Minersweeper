@@ -161,6 +161,9 @@ def _components() -> Dict[str, Any]:
                     "objectives": {"type": "array", "items": {"type": "number"}, "example": [-0.91, -0.55]},
                     "variables": {"type": "array", "items": {}},
                     "is_pareto": {"type": "boolean", "example": True},
+                    "visible_transition_count": {"type": "integer", "nullable": True},
+                    "is_feasible": {"type": "boolean", "nullable": True},
+                    "constraint_violations": {"type": "array", "items": {"type": "string"}},
                     "evaluation_error": {"type": "string", "nullable": True},
                     "places": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "transitions": {
@@ -170,13 +173,16 @@ def _components() -> Dict[str, Any]:
                             "properties": {
                                 "id": {"type": "string"},
                                 "label": {"type": "string"},
+                                "invisible": {"type": "boolean"},
                                 "is_invisible": {"type": "boolean"},
                             },
                             "additionalProperties": True,
                         },
                     },
                     "arcs": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "model_schema_version": {"type": "integer", "nullable": True},
                     "initial_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                    "final_marking": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                     "final_markings": {
                         "type": "array",
                         "items": {

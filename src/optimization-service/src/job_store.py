@@ -19,6 +19,7 @@ from sqlalchemy import (
     create_engine,
     func,
     inspect,
+    or_,
     select,
     text,
 )
@@ -77,7 +78,12 @@ class Solution(Base):
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
+    visible_transition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_feasible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    model_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    final_marking: Mapped[Any] = mapped_column(JSON, nullable=True)
     final_markings: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
 
     experiment: Mapped[Experiment] = relationship(back_populates="solutions")
@@ -109,7 +115,12 @@ class SnapshotSolution(Base):
     places: Mapped[Any] = mapped_column(JSON, nullable=False)
     transitions: Mapped[Any] = mapped_column(JSON, nullable=False)
     arcs: Mapped[Any] = mapped_column(JSON, nullable=False)
+    visible_transition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_feasible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    model_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    final_marking: Mapped[Any] = mapped_column(JSON, nullable=True)
     final_markings: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
 
     experiment: Mapped[Experiment] = relationship(back_populates="snapshot_solutions")
@@ -143,6 +154,16 @@ class JobStore:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN initial_marking JSON NOT NULL DEFAULT '[]'"))
                 if "final_markings" not in solution_columns:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN final_markings JSON NOT NULL DEFAULT '[]'"))
+                if "model_schema_version" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN model_schema_version INTEGER"))
+                if "final_marking" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN final_marking JSON"))
+                if "visible_transition_count" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN visible_transition_count INTEGER"))
+                if "is_feasible" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN is_feasible BOOLEAN"))
+                if "constraint_violations" not in solution_columns:
+                    connection.execute(text("ALTER TABLE solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'"))
 
             if "snapshot_solutions" in table_names:
                 snapshot_columns = {column["name"] for column in inspector.get_columns("snapshot_solutions")}
@@ -152,6 +173,16 @@ class JobStore:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN initial_marking JSON NOT NULL DEFAULT '[]'"))
                 if "final_markings" not in snapshot_columns:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN final_markings JSON NOT NULL DEFAULT '[]'"))
+                if "model_schema_version" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN model_schema_version INTEGER"))
+                if "final_marking" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN final_marking JSON"))
+                if "visible_transition_count" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN visible_transition_count INTEGER"))
+                if "is_feasible" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN is_feasible BOOLEAN"))
+                if "constraint_violations" not in snapshot_columns:
+                    connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'"))
 
     @staticmethod
     def _to_int_or_none(value: Any) -> int | None:
@@ -218,7 +249,12 @@ class JobStore:
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
+                            visible_transition_count=self._to_int_or_none(item.get("visible_transition_count")),
+                            is_feasible=item.get("is_feasible") if isinstance(item.get("is_feasible"), bool) else None,
+                            constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
+                            model_schema_version=self._to_int_or_none(item.get("model_schema_version")),
                             initial_marking=self._sanitize_json(item.get("initial_marking", [])),
+                            final_marking=self._sanitize_json(item.get("final_marking")),
                             final_markings=self._sanitize_json(item.get("final_markings", [])),
                         )
                     )
@@ -239,7 +275,12 @@ class JobStore:
                             places=self._sanitize_json(item.get("places", [])),
                             transitions=self._sanitize_json(item.get("transitions", [])),
                             arcs=self._sanitize_json(item.get("arcs", [])),
+                            visible_transition_count=self._to_int_or_none(item.get("visible_transition_count")),
+                            is_feasible=item.get("is_feasible") if isinstance(item.get("is_feasible"), bool) else None,
+                            constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
+                            model_schema_version=self._to_int_or_none(item.get("model_schema_version")),
                             initial_marking=self._sanitize_json(item.get("initial_marking", [])),
+                            final_marking=self._sanitize_json(item.get("final_marking")),
                             final_markings=self._sanitize_json(item.get("final_markings", [])),
                         )
                     )
@@ -284,7 +325,12 @@ class JobStore:
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
+            "visible_transition_count": solution.visible_transition_count,
+            "is_feasible": solution.is_feasible,
+            "constraint_violations": solution.constraint_violations or [],
+            "model_schema_version": solution.model_schema_version,
             "initial_marking": solution.initial_marking or [],
+            "final_marking": solution.final_marking,
             "final_markings": solution.final_markings or [],
         }
 
@@ -305,7 +351,12 @@ class JobStore:
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
+            "visible_transition_count": solution.visible_transition_count,
+            "is_feasible": solution.is_feasible,
+            "constraint_violations": solution.constraint_violations or [],
+            "model_schema_version": solution.model_schema_version,
             "initial_marking": solution.initial_marking or [],
+            "final_marking": solution.final_marking,
             "final_markings": solution.final_markings or [],
         }
 
@@ -322,6 +373,7 @@ class JobStore:
                     select(func.count(Solution.solution_id)).where(
                         Solution.experiment_id == experiment.experiment_id,
                         Solution.is_pareto.is_(True),
+                        or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
                     )
                 ).scalar_one()
                 payload = self._serialize_experiment(experiment)
@@ -345,6 +397,7 @@ class JobStore:
                 select(func.count(Solution.solution_id)).where(
                     Solution.experiment_id == experiment_id,
                     Solution.is_pareto.is_(True),
+                    or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
                 )
             ).scalar_one()
             payload = self._serialize_experiment(experiment)
@@ -362,7 +415,10 @@ class JobStore:
 
             stmt = select(Solution).where(Solution.experiment_id == experiment_id).order_by(Solution.solution_id.asc())
             if scope == "pareto":
-                stmt = stmt.where(Solution.is_pareto.is_(True))
+                stmt = stmt.where(
+                    Solution.is_pareto.is_(True),
+                    or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
+                )
             solutions = session.execute(stmt).scalars().all()
             return [self._serialize_solution(item) for item in solutions]
 

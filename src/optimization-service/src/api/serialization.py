@@ -7,6 +7,8 @@ import re
 import zipfile
 from typing import Any, Dict, List
 
+from pareto import feasible_non_dominated_evaluation_ids, is_feasible_solution
+
 
 def _compact_pipeline_for_storage(pipeline: Any) -> Dict[str, Any]:
     if not isinstance(pipeline, dict):
@@ -55,7 +57,11 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),
         "variables": list(getattr(solution, "variables", []) or []),
-        "is_pareto": bool(evaluation_id and evaluation_id in pareto_ids),
+        "is_pareto": bool(is_feasible_solution(solution) and evaluation_id and evaluation_id in pareto_ids),
+        "model_schema_version": attrs.get("model_schema_version"),
+        "is_feasible": attrs.get("is_feasible"),
+        "constraint_violations": attrs.get("constraint_violations", []),
+        "visible_transition_count": attrs.get("visible_transition_count"),
     }
     if attrs.get("evaluation_error"):
         payload["evaluation_error"] = attrs.get("evaluation_error")
@@ -63,13 +69,7 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
 
 
 def _non_dominated_evaluation_ids(solutions: List[Any]) -> set[str]:
-    evaluation_ids: set[str] = set()
-    for solution in solutions:
-        attrs = getattr(solution, "attributes", {}) or {}
-        evaluation_id = attrs.get("evaluation_id")
-        if evaluation_id:
-            evaluation_ids.add(str(evaluation_id))
-    return evaluation_ids
+    return feasible_non_dominated_evaluation_ids(solutions)
 
 
 def _count_failed_solutions(all_solutions: List[Dict[str, Any]], observed_error_count: int = 0) -> int:
@@ -133,7 +133,12 @@ def _build_experiment_export_archive(
         "places",
         "transitions",
         "arcs",
+        "visible_transition_count",
+        "is_feasible",
+        "constraint_violations",
+        "model_schema_version",
         "initial_marking",
+        "final_marking",
         "final_markings",
     ]
     snapshot_solution_fields = [
@@ -151,7 +156,12 @@ def _build_experiment_export_archive(
         "places",
         "transitions",
         "arcs",
+        "visible_transition_count",
+        "is_feasible",
+        "constraint_violations",
+        "model_schema_version",
         "initial_marking",
+        "final_marking",
         "final_markings",
     ]
 
