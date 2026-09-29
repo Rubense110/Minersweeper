@@ -10,6 +10,8 @@ import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.model.XLog;
 import org.processmining.framework.plugin.PluginContext;
 import org.processmining.models.heuristics.HeuristicsNet;
+import org.processmining.models.graphbased.directed.petrinet.Petrinet;
+import org.processmining.models.semantics.petrinet.Marking;
 import org.processmining.plugins.heuristicsnet.miner.heuristics.converter.HeuristicsNetToPetriNetConverter;
 import org.processmining.plugins.heuristicsnet.miner.heuristics.miner.FlexibleHeuristicsMinerPlugin;
 import org.processmining.plugins.heuristicsnet.miner.heuristics.miner.HeuristicsMiner;
@@ -54,6 +56,16 @@ public final class HeuristicsMinerDiscoverer implements MinerDiscoverer {
         }
 
         Object[] result = HeuristicsNetToPetriNetConverter.converter(context, heuristicsNet);
-        return artifactFactory.fromResultArray(context, result);
+        Petrinet net = (Petrinet) result[0];
+        Marking initial = (Marking) result[1];
+        HeuristicsFinalMarkingPolicy.Result semantics =
+            new HeuristicsFinalMarkingPolicy().choose(net, initial, log);
+        Object[] acceptingResult = new Object[2 + semantics.finalMarkings.size()];
+        acceptingResult[0] = net;
+        acceptingResult[1] = initial;
+        for (int i = 0; i < semantics.finalMarkings.size(); i++) {
+            acceptingResult[i + 2] = semantics.finalMarkings.get(i);
+        }
+        return artifactFactory.fromResultArray(context, acceptingResult);
     }
 }

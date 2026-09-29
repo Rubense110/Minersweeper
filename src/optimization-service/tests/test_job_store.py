@@ -4,19 +4,122 @@ import sys
 import tempfile
 import unittest
 import math
+import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 
 
 SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
-from job_store import JobStore, SnapshotSolution, Solution
+from job_store import Base, JobStore, SnapshotSolution, Solution
 
 
 class JobStoreRuntimeTest(unittest.TestCase):
+    @unittest.skipUnless(
+        os.getenv("TEST_POSTGRES_URL"),
+        "TEST_POSTGRES_URL is required for the PostgreSQL legacy-schema compatibility test",
+    )
+    def test_postgres_legacy_constraints_schema_can_persist_current_experiment(self):
+        admin_url = os.environ["TEST_POSTGRES_URL"]
+        schema = f"job_store_legacy_{uuid.uuid4().hex}"
+        admin_engine = create_engine(admin_url, future=True)
+        scoped_url = make_url(admin_url).update_query_dict(
+            {"options": f"-csearch_path={schema}"}
+        )
+        scoped_engine = create_engine(scoped_url, future=True)
+
+        try:
+            with admin_engine.begin() as connection:
+                connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            Base.metadata.create_all(scoped_engine)
+            with scoped_engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE experiments ADD COLUMN constraints JSON NOT NULL")
+                )
+                connection.execute(
+                    text("ALTER TABLE solutions ALTER COLUMN is_feasible SET NOT NULL")
+                )
+                connection.execute(
+                    text("ALTER TABLE snapshot_solutions ALTER COLUMN is_feasible SET NOT NULL")
+                )
+
+            store = JobStore(db_url=scoped_url)
+            experiment_columns = {
+                column["name"]: column
+                for column in inspect(store.engine).get_columns("experiments")
+            }
+            solution_columns = {
+                column["name"]: column
+                for column in inspect(store.engine).get_columns("solutions")
+            }
+            snapshot_columns = {
+                column["name"]: column
+                for column in inspect(store.engine).get_columns("snapshot_solutions")
+            }
+            self.assertIsNotNone(experiment_columns["constraints"]["default"])
+            self.assertTrue(solution_columns["is_feasible"]["nullable"])
+            self.assertTrue(snapshot_columns["is_feasible"]["nullable"])
+
+            now = datetime.now(timezone.utc)
+            store.save_completed_experiment(
+                {
+                    "experiment_id": "legacy-compatible",
+                    "experiment_name": "legacy-compatible",
+                    "start_at": now,
+                    "end_at": now,
+                    "max_evals": 1,
+                    "pop_size": 1,
+                    "seed": 1,
+                    "miners": ["alpha"],
+                    "preprocessing": ["matrix_filter"],
+                    "log_path": "/data/logs/log.xes",
+                    "metrics": ["fitness"],
+                    "workers": 1,
+                },
+                [
+                    {
+                        "variables": [],
+                        "objectives": [0.0],
+                        "metrics": {},
+                        "pipeline": {},
+                        "is_pareto": False,
+                        "places": [],
+                        "transitions": [],
+                        "arcs": [],
+                        "is_feasible": None,
+                    }
+                ],
+            )
+
+            with store.engine.connect() as connection:
+                constraints = connection.execute(
+                    text(
+                        "SELECT constraints::text FROM experiments "
+                        "WHERE experiment_id = 'legacy-compatible'"
+                    )
+                ).scalar_one()
+                persisted_feasibility = connection.execute(
+                    text(
+                        "SELECT is_feasible FROM solutions "
+                        "WHERE experiment_id = 'legacy-compatible'"
+                    )
+                ).scalar_one()
+            self.assertEqual("[]", constraints)
+            self.assertIsNone(persisted_feasibility)
+        finally:
+            scoped_engine.dispose()
+            admin_engine.dispose()
+            cleanup_engine = create_engine(admin_url, future=True)
+            try:
+                with cleanup_engine.begin() as connection:
+                    connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            finally:
+                cleanup_engine.dispose()
+
     def test_save_completed_experiment_persists_runtime_ms(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = os.path.join(tmp_dir, "runtime.db")

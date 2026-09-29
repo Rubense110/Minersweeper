@@ -4,6 +4,7 @@ import static org.junit.Assert.assertTrue;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceComputation;
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceMode;
 import com.minersweeper.javaservice.evaluation.conformance.TokenReplayResult;
+import java.util.Arrays;
 import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.extension.std.XConceptExtension;
 import org.deckfour.xes.factory.XFactory;
@@ -19,6 +20,39 @@ import org.processmining.models.graphbased.directed.petrinet.impl.PetrinetFactor
 import org.processmining.models.semantics.petrinet.Marking;
 
 public class TokenReplayComputationTest {
+    @Test
+    public void tokenReplayChoosesTheMatchingFinalForEachAlternativeTrace() throws Exception {
+        Petrinet net = PetrinetFactory.newPetrinet("alternative-ends");
+        Place start = net.addPlace("start");
+        Place afterA = net.addPlace("afterA");
+        Place endB = net.addPlace("endB");
+        Place endC = net.addPlace("endC");
+        Transition a = net.addTransition("A");
+        Transition b = net.addTransition("B");
+        Transition c = net.addTransition("C");
+        net.addArc(start, a);
+        net.addArc(a, afterA);
+        net.addArc(afterA, b);
+        net.addArc(afterA, c);
+        net.addArc(b, endB);
+        net.addArc(c, endC);
+        Marking initial = new Marking();
+        initial.add(start);
+        Marking finalB = new Marking();
+        finalB.add(endB);
+        Marking finalC = new Marking();
+        finalC.add(endC);
+        XLog log = log("A", "B");
+        log.add(log("A", "C").get(0));
+
+        TokenReplayResult result = ConformanceComputation.withFinalMarkings(
+            null, log, net, initial, Arrays.asList(finalB, finalC), ConformanceMode.REPLAY_TOKEN, null
+        ).getTokenReplayResult();
+
+        assertEquals(1.0, result.fitness(), 0.0);
+        assertEquals(2L, result.fitTraceCount());
+    }
+
     @Test
     public void tokenReplayReturnsPerfectFitnessForMatchingTrace() throws Exception {
         Model model = sequenceModel();

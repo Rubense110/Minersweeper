@@ -6,6 +6,8 @@ import com.minersweeper.javaservice.evaluation.ExperimentExecutionRegistry;
 import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.deckfour.xes.model.XLog;
@@ -33,6 +35,23 @@ public class ConformanceMetricsCalculator {
         String experimentId,
         String requestId
     ) throws Exception {
+        return compute(context, log, net, initial, Collections.singletonList(fin), requestedMetrics,
+            conformanceMode, timing, executionRegistry, experimentId, requestId);
+    }
+
+    public Map<String, Double> compute(
+        PluginContext context,
+        XLog log,
+        Petrinet net,
+        Marking initial,
+        List<Marking> finals,
+        Iterable<String> requestedMetrics,
+        ConformanceMode conformanceMode,
+        TimingTrace timing,
+        ExperimentExecutionRegistry executionRegistry,
+        String experimentId,
+        String requestId
+    ) throws Exception {
         if (requestedMetrics == null) {
             throw new IllegalArgumentException("requested metrics cannot be null");
         }
@@ -42,12 +61,12 @@ public class ConformanceMetricsCalculator {
             ConformanceMetricCatalog.canonicalizeRequestedMetrics(requestedMetrics, conformanceMode)
         );
 
-        ConformanceComputation computation = new ConformanceComputation(
+        ConformanceComputation computation = ConformanceComputation.withFinalMarkings(
             context,
             log,
             net,
             initial,
-            fin,
+            finals,
             conformanceMode,
             timing
         );

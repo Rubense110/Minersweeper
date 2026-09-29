@@ -3,6 +3,8 @@ package com.minersweeper.javaservice.evaluation.conformance;
 import com.minersweeper.javaservice.app.logging.TimingTrace;
 import com.minersweeper.javaservice.evaluation.utils.MetricUtils;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.deckfour.xes.classification.XEventClass;
@@ -35,6 +37,7 @@ public class ConformanceComputation {
     private final Petrinet net;
     private final Marking initialMarking;
     private final Marking finalMarking;
+    private final List<Marking> finalMarkings;
     private final ConformanceMode conformanceMode;
     private final TimingTrace timing;
 
@@ -59,11 +62,41 @@ public class ConformanceComputation {
         ConformanceMode conformanceMode,
         TimingTrace timing
     ) {
+        this(context, log, net, initialMarking, Collections.singletonList(finalMarking),
+            conformanceMode, timing);
+    }
+
+    public static ConformanceComputation withFinalMarkings(
+        PluginContext context,
+        XLog log,
+        Petrinet net,
+        Marking initialMarking,
+        List<Marking> finalMarkings,
+        ConformanceMode conformanceMode,
+        TimingTrace timing
+    ) {
+        return new ConformanceComputation(context, log, net, initialMarking, finalMarkings,
+            conformanceMode, timing);
+    }
+
+    private ConformanceComputation(
+        PluginContext context,
+        XLog log,
+        Petrinet net,
+        Marking initialMarking,
+        List<Marking> finalMarkings,
+        ConformanceMode conformanceMode,
+        TimingTrace timing
+    ) {
+        if (finalMarkings == null || finalMarkings.isEmpty()) {
+            throw new IllegalArgumentException("at least one final marking is required");
+        }
         this.context = context;
         this.log = log;
         this.net = net;
         this.initialMarking = initialMarking;
-        this.finalMarking = finalMarking;
+        this.finalMarkings = Collections.unmodifiableList(new ArrayList<Marking>(finalMarkings));
+        this.finalMarking = this.finalMarkings.get(0);
         this.conformanceMode = conformanceMode == null ? ConformanceMode.ALIGNMENT : conformanceMode;
         this.timing = timing;
     }
@@ -111,7 +144,7 @@ public class ConformanceComputation {
             1
         );
         replayParam.setInitialMarking(initialMarking);
-        replayParam.setFinalMarkings(finalMarking);
+        replayParam.setFinalMarkings(finalMarkings.toArray(new Marking[finalMarkings.size()]));
         replayParam.setCreateConn(false);
         replayParam.setGUIMode(false);
         replayParam.setNumThreads(1);
@@ -165,7 +198,9 @@ public class ConformanceComputation {
         if (tokenReplayResult != null) {
             return tokenReplayResult;
         }
-        TokenReplayComputation computation = new TokenReplayComputation(log, getTokenReplayEngine(), timing);
+        TokenReplayComputation computation = new TokenReplayComputation(
+            log, net, initialMarking, finalMarkings, getClassifier(), getMapping(), timing
+        );
         tokenReplayResult = computation.compute();
         return tokenReplayResult;
     }

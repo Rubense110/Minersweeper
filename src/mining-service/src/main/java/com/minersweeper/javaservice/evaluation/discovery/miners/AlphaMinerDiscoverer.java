@@ -6,12 +6,22 @@ import com.minersweeper.javaservice.evaluation.discovery.DiscoveryArtifactFactor
 import com.minersweeper.javaservice.evaluation.discovery.MinerDiscoverer;
 import com.minersweeper.javaservice.evaluation.utils.ParameterReader;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
+import org.processmining.acceptingpetrinet.models.AcceptingPetriNet;
 import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.model.XLog;
+import org.processmining.alphaminer.algorithms.AlphaClassicMinerImpl;
+import org.processmining.alphaminer.algorithms.AlphaMiner;
+import org.processmining.alphaminer.algorithms.AlphaMinerFactory;
+import org.processmining.alphaminer.algorithms.AlphaRobustMinerImpl;
+import org.processmining.alphaminer.parameters.AlphaMinerParameters;
 import org.processmining.alphaminer.parameters.AlphaRobustMinerParameters;
 import org.processmining.alphaminer.parameters.AlphaVersion;
 import org.processmining.alphaminer.plugins.AlphaMinerPlugin;
 import org.processmining.framework.plugin.PluginContext;
+import org.processmining.framework.util.Pair;
+import org.processmining.models.graphbased.directed.petrinet.Petrinet;
+import org.processmining.models.graphbased.directed.petrinet.elements.Place;
+import org.processmining.models.semantics.petrinet.Marking;
 
 public final class AlphaMinerDiscoverer implements MinerDiscoverer {
     private final DiscoveryArtifactFactory artifactFactory;
@@ -28,11 +38,14 @@ public final class AlphaMinerDiscoverer implements MinerDiscoverer {
     @Override
     public DiscoveryArtifact discover(PluginContext context, XLog log, PipelineRequest request) throws Exception {
         AlphaVersion version = mapAlphaVersion(request.pipeline.miner.variant);
-        Object[] result;
+        if (AlphaVersion.SHARP.equals(version) || AlphaVersion.DOLLAR.equals(version)) {
+            // Retired catalog variants keep their existing direct-service behavior.
+            return artifactFactory.fromResultArray(
+                context, AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), version)
+            );
+        }
+        AlphaMinerParameters parameters;
         if (AlphaVersion.ROBUST.equals(version)) {
-            // Do not call applyAlphaRobust/apply(..., AlphaVersion.ROBUST): those paths create
-            // AlphaMinerParameters instead of AlphaRobustMinerParameters in this ProM version.
-            // That ends in ClassCastException inside AlphaMinerFactory.
             AlphaRobustMinerParameters robustParams = new AlphaRobustMinerParameters(AlphaVersion.ROBUST);
             robustParams.setCausalThreshold(
                 ParameterReader.doubleParam(
@@ -55,11 +68,50 @@ public final class AlphaMinerDiscoverer implements MinerDiscoverer {
                     robustParams.getNoiseThresholdMostFreq()
                 )
             );
-            result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), robustParams);
+            parameters = robustParams;
         } else {
-            result = AlphaMinerPlugin.apply(context, log, new XEventNameClassifier(), version);
+            parameters = new AlphaMinerParameters(version);
         }
-        return artifactFactory.fromResultArray(context, result);
+
+        AlphaMiner<?, ?, ?> miner = AlphaMinerFactory.createAlphaMiner(
+            context, log, new XEventNameClassifier(), parameters
+        );
+        if (AlphaVersion.CLASSIC.equals(version)) {
+            AcceptingPetriNet accepting = ((AlphaClassicMinerImpl<?, ?, ?>) miner).runAccPN();
+            return artifactFactory.fromResultArray(context, new Object[] {accepting});
+        }
+        if (AlphaVersion.ROBUST.equals(version)) {
+            AcceptingPetriNet accepting = ((AlphaRobustMinerImpl<?, ?, ?>) miner).runAccPN();
+            return artifactFactory.fromResultArray(context, new Object[] {accepting});
+        }
+        if (AlphaVersion.PLUS.equals(version) || AlphaVersion.PLUS_PLUS.equals(version)) {
+            Pair<Petrinet, Marking> discovered = miner.run();
+            Petrinet net = discovered.getFirst();
+            Marking finalMarking = finalMarkingFromAlphaEndPlace(net);
+            return artifactFactory.fromResultArray(
+                context, new Object[] {net, discovered.getSecond(), finalMarking}
+            );
+        }
+        throw new IllegalArgumentException("Unsupported Alpha version: " + version);
+    }
+
+    private Marking finalMarkingFromAlphaEndPlace(Petrinet net) {
+        Place end = null;
+        for (Place place : net.getPlaces()) {
+            if (!"End".equals(place.getLabel())) {
+                continue;
+            }
+            if (end != null) {
+                throw new IllegalStateException("Alpha+/++ produced multiple End places");
+            }
+            end = place;
+        }
+        if (end == null || net.getInEdges(end).isEmpty() || !net.getOutEdges(end).isEmpty()) {
+            throw new IllegalStateException("Alpha+/++ has no unambiguous terminal End place");
+        }
+        Marking finalMarking = new Marking();
+        finalMarking.add(end);
+        return finalMarking;
     }
 
     private AlphaVersion mapAlphaVersion(String variantLabel) {

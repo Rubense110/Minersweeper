@@ -34,6 +34,23 @@ final class TestFixtures {
         return file;
     }
 
+    static Path createAlternativeEndsLog(Path dir, String filename) throws IOException {
+        String xes = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<log xes.version=\"1.0\" xes.features=\"nested-attributes\" xmlns=\"http://www.xes-standard.org/\">\n"
+            + "  <extension name=\"Concept\" prefix=\"concept\" uri=\"http://www.xes-standard.org/concept.xesext\"/>\n"
+            + "  <classifier name=\"Event Name\" keys=\"concept:name\"/>\n"
+            + "  <trace><string key=\"concept:name\" value=\"Case1\"/>"
+            + "<event><string key=\"concept:name\" value=\"A\"/></event>"
+            + "<event><string key=\"concept:name\" value=\"B\"/></event></trace>\n"
+            + "  <trace><string key=\"concept:name\" value=\"Case2\"/>"
+            + "<event><string key=\"concept:name\" value=\"A\"/></event>"
+            + "<event><string key=\"concept:name\" value=\"C\"/></event></trace>\n"
+            + "</log>\n";
+        Path file = dir.resolve(filename);
+        Files.write(file, xes.getBytes(StandardCharsets.UTF_8));
+        return file;
+    }
+
     static List<String> defaultMetrics() {
         return Arrays.asList("fitness", "precision", "simplicity", "generalisation");
     }
@@ -114,19 +131,22 @@ final class TestFixtures {
     }
 
     static PipelineRequest.MinerConfig alphaClassic() {
-        return miner(
-            "alpha",
-            "alpha",
-            "Alpha",
-            mapOf("alpha_version", "CLASSIC")
-        );
+        return alphaVariant("Alpha", "CLASSIC");
+    }
+
+    static PipelineRequest.MinerConfig alphaVariant(String variant, String version) {
+        return miner("alpha", "alpha", variant, mapOf("alpha_version", version));
     }
 
     static PipelineRequest.MinerConfig inductiveImf() {
+        return inductiveVariant("Inductive Miner - infrequent (IMf)");
+    }
+
+    static PipelineRequest.MinerConfig inductiveVariant(String variant) {
         return miner(
             "inductive",
             "inductive",
-            "Inductive Miner - infrequent (IMf)",
+            variant,
             mapOf(
                 "noise_threshold", Double.valueOf(0.2),
                 "is_debug", Boolean.FALSE,
@@ -136,10 +156,14 @@ final class TestFixtures {
     }
 
     static PipelineRequest.MinerConfig heuristicsHm() {
+        return heuristicsVariant("Heuristics Miner");
+    }
+
+    static PipelineRequest.MinerConfig heuristicsVariant(String variant) {
         return miner(
             "heuristics",
             "heuristics",
-            "Heuristics Miner",
+            variant,
             mapOf(
                 "relative_to_best_threshold", Double.valueOf(0.05),
                 "positive_observation_threshold", Integer.valueOf(1),
@@ -208,13 +232,33 @@ final class TestFixtures {
         );
     }
 
+    static List<PipelineRequest.MinerConfig> activeMinerVariants() {
+        return Arrays.asList(
+            alphaClassic(),
+            alphaVariant("Alpha+", "PLUS"),
+            alphaVariant("Alpha++", "PLUS_PLUS"),
+            alphaVariant("AlphaR", "ROBUST"),
+            inductiveVariant("Inductive Miner (IM)"),
+            inductiveImf(),
+            inductiveVariant("Inductive Miner - life cycle (IMlc)"),
+            inductiveVariant("Inductive Miner - infrequent & life cycle (IMflc)"),
+            inductiveVariant("Inductive Miner - partial traces (IMpt)"),
+            inductiveVariant("Inductive Miner - infrequent & partial traces (IMfpt)"),
+            inductiveVariant("Inductive Miner - infrequent & partial traces Ali (IMfpta)"),
+            heuristicsHm(),
+            heuristicsVariant("Flexible Heuristics Miner"),
+            splitMiner()
+        );
+    }
+
     static void assertMetricsRange(Map<String, Double> metrics, List<String> expectedKeys) {
         for (String key : expectedKeys) {
             if (!metrics.containsKey(key)) {
                 throw new AssertionError("missing metric key: " + key + " in " + metrics.keySet());
             }
             Double value = metrics.get(key);
-            if (value == null || value.doubleValue() < 0.0 || value.doubleValue() > 1.0) {
+            if (value == null || Double.isNaN(value.doubleValue()) || Double.isInfinite(value.doubleValue())
+                || value.doubleValue() < 0.0 || value.doubleValue() > 1.0) {
                 throw new AssertionError("metric out of [0,1] for key " + key + ": " + value);
             }
         }

@@ -12,6 +12,21 @@ from parameters.miners import MINER_CATALOG
 
 
 class PipelineSearchSpaceTest(unittest.TestCase):
+    def test_alpha_search_space_excludes_sharp_and_dollar(self):
+        alpha_spec = MINER_CATALOG["alpha"]
+        self.assertEqual(
+            [variant.key for variant in alpha_spec.variants],
+            ["classic", "plus", "plus_plus", "robust"],
+        )
+        self.assertEqual(
+            alpha_spec.parameters["alpha_version"].choices,
+            ["CLASSIC", "PLUS", "PLUS_PLUS", "ROBUST"],
+        )
+
+        space = PipelineSearchSpace(excluded_miners=("ilp", "hybrid_ilp"))
+        alpha_variant = space.variables[space.index_by_key["miner::alpha::variant"]]
+        self.assertEqual(alpha_variant.choices, ["classic", "plus", "plus_plus", "robust"])
+
     def test_split_catalog_exposes_single_sm_variant(self):
         split_spec = MINER_CATALOG["split"]
         variant_keys = [variant.key for variant in split_spec.variants]

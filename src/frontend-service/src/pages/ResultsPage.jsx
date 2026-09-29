@@ -11,7 +11,9 @@ import {
   selectExperimentModel,
 } from '../api'
 import ParetoFrontScatter from '../components/ParetoFrontScatter'
+import PetriMarkings from '../components/PetriMarkings'
 import PnmlViewer from '../components/PnmlViewer'
+import { selectedFinalMarking } from '../petriMarkings'
 
 function isCancelableStatus(status) {
   return status === 'queued' || status === 'running'
@@ -241,6 +243,7 @@ export default function ResultsPage() {
   const [error, setError] = useState('')
   const [solutionsListMaxHeight, setSolutionsListMaxHeight] = useState(null)
   const [petriViewMode, setPetriViewMode] = useState('interactive')
+  const [finalSelection, setFinalSelection] = useState({ solutionId: '', index: 0 })
   const [petriImageUrl, setPetriImageUrl] = useState('')
   const [petriImageLoading, setPetriImageLoading] = useState(false)
   const [petriImageError, setPetriImageError] = useState('')
@@ -252,6 +255,7 @@ export default function ResultsPage() {
   const [modelSelectionResult, setModelSelectionResult] = useState(null)
   const [showOnlyFeasible, setShowOnlyFeasible] = useState(false)
   const [modelPetriViewMode, setModelPetriViewMode] = useState('interactive')
+  const [modelFinalSelection, setModelFinalSelection] = useState({ solutionId: '', index: 0 })
   const [modelPetriImageUrl, setModelPetriImageUrl] = useState('')
   const [modelPetriImageLoading, setModelPetriImageLoading] = useState(false)
   const [modelPetriImageError, setModelPetriImageError] = useState('')
@@ -583,6 +587,10 @@ export default function ResultsPage() {
     return solutions.find((solution) => solution.solutionId === modelSelectionResult.selected_solution_id) || null
   }, [modelSelectionResult, solutions])
 
+  const selectedFinalIndex = finalSelection.solutionId === selectedSolution?.id ? finalSelection.index : 0
+  const modelSelectedFinalIndex = modelFinalSelection.solutionId === weightedSelectedSolution?.id
+    ? modelFinalSelection.index : 0
+
   useEffect(() => {
     setModelWeights((previous) => {
       const next = {}
@@ -674,6 +682,7 @@ export default function ResultsPage() {
 
       setPetriImageLoading(true)
       setPetriImageError('')
+      replacePetriImageUrl('')
       try {
         const blob = await renderPetriImage(
           {
@@ -681,7 +690,7 @@ export default function ResultsPage() {
             transitions: selectedSolution.petri.transitions || [],
             arcs: selectedSolution.petri.arcs || [],
             initial_marking: selectedSolution.petri.initial_marking || [],
-            final_marking: selectedSolution.petri.final_marking,
+            final_marking: selectedFinalMarking(selectedSolution.petri, selectedFinalIndex),
             final_markings: selectedSolution.petri.final_markings || [],
           },
           'svg'
@@ -702,7 +711,7 @@ export default function ResultsPage() {
     return () => {
       cancelled = true
     }
-  }, [petriViewMode, selectedSolution])
+  }, [petriViewMode, selectedSolution, selectedFinalIndex])
 
   useEffect(() => {
     let cancelled = false
@@ -722,6 +731,7 @@ export default function ResultsPage() {
 
       setModelPetriImageLoading(true)
       setModelPetriImageError('')
+      replaceModelPetriImageUrl('')
       try {
         const blob = await renderPetriImage(
           {
@@ -729,7 +739,7 @@ export default function ResultsPage() {
             transitions: weightedSelectedSolution.petri.transitions || [],
             arcs: weightedSelectedSolution.petri.arcs || [],
             initial_marking: weightedSelectedSolution.petri.initial_marking || [],
-            final_marking: weightedSelectedSolution.petri.final_marking,
+            final_marking: selectedFinalMarking(weightedSelectedSolution.petri, modelSelectedFinalIndex),
             final_markings: weightedSelectedSolution.petri.final_markings || [],
           },
           'svg'
@@ -750,7 +760,7 @@ export default function ResultsPage() {
     return () => {
       cancelled = true
     }
-  }, [modelPetriViewMode, weightedSelectedSolution])
+  }, [modelPetriViewMode, weightedSelectedSolution, modelSelectedFinalIndex])
 
   useEffect(() => {
     if (!solutionDetailRef.current) return undefined
@@ -960,8 +970,14 @@ export default function ResultsPage() {
                           </button>
                         </div>
 
+                        <PetriMarkings
+                          petri={weightedSelectedSolution.petri}
+                          selectedFinalIndex={modelSelectedFinalIndex}
+                          onSelectFinal={(index) => setModelFinalSelection({ solutionId: weightedSelectedSolution.id, index })}
+                        />
+
                         {modelPetriViewMode === 'interactive' ? (
-                          <PnmlViewer petri={weightedSelectedSolution.petri} />
+                          <PnmlViewer petri={weightedSelectedSolution.petri} selectedFinalIndex={modelSelectedFinalIndex} />
                         ) : (
                           <div className="petri-image-panel">
                             {modelPetriImageLoading ? <p className="small muted">Generating model image...</p> : null}
@@ -1102,8 +1118,14 @@ export default function ResultsPage() {
                       </button>
                     </div>
 
+                    <PetriMarkings
+                      petri={selectedSolution.petri}
+                      selectedFinalIndex={selectedFinalIndex}
+                      onSelectFinal={(index) => setFinalSelection({ solutionId: selectedSolution.id, index })}
+                    />
+
                     {petriViewMode === 'interactive' ? (
-                      <PnmlViewer petri={selectedSolution.petri} />
+                      <PnmlViewer petri={selectedSolution.petri} selectedFinalIndex={selectedFinalIndex} />
                     ) : (
                       <div className="petri-image-panel">
                         {petriImageLoading ? <p className="small muted">Generating model image...</p> : null}

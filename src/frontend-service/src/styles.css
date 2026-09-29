@@ -852,6 +852,80 @@ button:disabled {
   color: #fff;
 }
 
+.petri-markings {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8faf8;
+}
+
+.marking-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.marking-row > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.marking-key {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #111;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.marking-key.initial { background: #d5ebff; }
+.marking-key.final { border: 3px solid #16845b; }
+
+.marking-entries,
+.marking-final-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.marking-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.marking-token-count { font-weight: 700; }
+
+.marking-final-option {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+.marking-final-option.active {
+  border-color: #16845b;
+  box-shadow: inset 0 0 0 1px #16845b;
+}
+
+.marking-final-number { font-weight: 700; }
+.marking-legend { margin: 0; }
+
 .petri-image-panel {
   min-height: 140px;
   border: 1px solid var(--line);

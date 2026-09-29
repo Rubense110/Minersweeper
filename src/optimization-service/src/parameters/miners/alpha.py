@@ -11,7 +11,7 @@ ALPHA_PARAMS: Dict[str, ParamSpec] = {
     "alpha_version": ParamSpec(
         name="alpha_version",
         ptype="enum",
-        choices=["CLASSIC", "PLUS", "PLUS_PLUS", "SHARP", "ROBUST", "DOLLAR"],
+        choices=["CLASSIC", "PLUS", "PLUS_PLUS", "ROBUST"],
         default="CLASSIC",
         prom_field="AlphaMinerParameters.version",
         optimize=False,
@@ -78,7 +78,6 @@ ALPHA_VARIANTS = [
         "AlphaVersion.PLUS_PLUS",
         parameters=["alpha_version", "ignore_length_one_loops"],
     ),
-    VariantSpec("sharp", "Alpha#", "AlphaVersion.SHARP", parameters=["alpha_version"]),
     VariantSpec(
         "robust",
         "AlphaR",
@@ -90,7 +89,6 @@ ALPHA_VARIANTS = [
             "noise_threshold_most_freq",
         ],
     ),
-    VariantSpec("dollar", "Alpha$", "AlphaVersion.DOLLAR", parameters=["alpha_version"]),
 ]
 
 ALPHA_SPEC = MinerSpec(

@@ -140,12 +140,28 @@ class JobStore:
         table_names = set(inspector.get_table_names())
         with self.engine.begin() as connection:
             if "experiments" in table_names:
-                experiment_columns = {column["name"] for column in inspector.get_columns("experiments")}
+                experiment_columns = {
+                    column["name"]: column for column in inspector.get_columns("experiments")
+                }
                 if "seed" not in experiment_columns:
                     connection.execute(text("ALTER TABLE experiments ADD COLUMN seed BIGINT"))
+                if (
+                    "constraints" in experiment_columns
+                    and self.engine.dialect.name == "postgresql"
+                    and experiment_columns["constraints"].get("default") is None
+                ):
+                    # The removed experiment-constraints feature left this JSON
+                    # column NOT NULL in existing PostgreSQL databases.  Keep its
+                    # historical values, while allowing current ORM inserts that
+                    # intentionally no longer map the obsolete column.
+                    connection.execute(
+                        text("ALTER TABLE experiments ALTER COLUMN constraints SET DEFAULT '[]'::json")
+                    )
 
             if "solutions" in table_names:
-                solution_columns = {column["name"] for column in inspector.get_columns("solutions")}
+                solution_columns = {
+                    column["name"]: column for column in inspector.get_columns("solutions")
+                }
                 if "runtime_ms" not in solution_columns:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN runtime_ms INTEGER"))
                 if "metrics" not in solution_columns:
@@ -162,11 +178,18 @@ class JobStore:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN visible_transition_count INTEGER"))
                 if "is_feasible" not in solution_columns:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN is_feasible BOOLEAN"))
+                elif (
+                    self.engine.dialect.name == "postgresql"
+                    and not solution_columns["is_feasible"]["nullable"]
+                ):
+                    connection.execute(text("ALTER TABLE solutions ALTER COLUMN is_feasible DROP NOT NULL"))
                 if "constraint_violations" not in solution_columns:
                     connection.execute(text("ALTER TABLE solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'"))
 
             if "snapshot_solutions" in table_names:
-                snapshot_columns = {column["name"] for column in inspector.get_columns("snapshot_solutions")}
+                snapshot_columns = {
+                    column["name"]: column for column in inspector.get_columns("snapshot_solutions")
+                }
                 if "metrics" not in snapshot_columns:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN metrics JSON NOT NULL DEFAULT '{}'"))
                 if "initial_marking" not in snapshot_columns:
@@ -181,6 +204,13 @@ class JobStore:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN visible_transition_count INTEGER"))
                 if "is_feasible" not in snapshot_columns:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN is_feasible BOOLEAN"))
+                elif (
+                    self.engine.dialect.name == "postgresql"
+                    and not snapshot_columns["is_feasible"]["nullable"]
+                ):
+                    connection.execute(
+                        text("ALTER TABLE snapshot_solutions ALTER COLUMN is_feasible DROP NOT NULL")
+                    )
                 if "constraint_violations" not in snapshot_columns:
                     connection.execute(text("ALTER TABLE snapshot_solutions ADD COLUMN constraint_violations JSON NOT NULL DEFAULT '[]'"))
 

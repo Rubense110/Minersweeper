@@ -112,7 +112,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 log,
                 discovered.getNet(),
                 discovered.getInitialMarking(),
-                discovered.getFinalMarking(),
+                discovered.getFinalMarkings(),
                 request.metrics,
                 conformanceMode,
                 timing,

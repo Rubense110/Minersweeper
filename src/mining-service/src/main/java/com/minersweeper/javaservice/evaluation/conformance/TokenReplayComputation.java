@@ -2,6 +2,8 @@ package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.deckfour.xes.classification.XEventClassifier;
@@ -14,6 +16,7 @@ import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMap
 public class TokenReplayComputation {
     private final XLog log;
     private final TokenReplayEngine engine;
+    private final List<TokenReplayEngine> finalEngines;
     private final TimingTrace timing;
 
     private TokenReplayResult result;
@@ -33,6 +36,28 @@ public class TokenReplayComputation {
     public TokenReplayComputation(XLog log, TokenReplayEngine engine, TimingTrace timing) {
         this.log = log;
         this.engine = engine;
+        this.finalEngines = Collections.singletonList(engine);
+        this.timing = timing;
+    }
+
+    public TokenReplayComputation(
+        XLog log,
+        Petrinet net,
+        Marking initialMarking,
+        List<Marking> finalMarkings,
+        XEventClassifier classifier,
+        TransEvClassMapping mapping,
+        TimingTrace timing
+    ) {
+        if (finalMarkings == null || finalMarkings.isEmpty()) {
+            throw new IllegalArgumentException("at least one final marking is required");
+        }
+        this.log = log;
+        this.finalEngines = new ArrayList<TokenReplayEngine>();
+        for (Marking fin : finalMarkings) {
+            this.finalEngines.add(new TokenReplayEngine(net, initialMarking, fin, classifier, mapping));
+        }
+        this.engine = this.finalEngines.get(0);
         this.timing = timing;
     }
 
@@ -48,7 +73,7 @@ public class TokenReplayComputation {
         long fitTraces = 0L;
 
         for (Map.Entry<List<String>, Integer> variant : variants.entrySet()) {
-            TokenReplayEngine.TraceReplay traceReplay = engine.replayFitnessTrace(variant.getKey());
+            TokenReplayEngine.TraceReplay traceReplay = bestReplay(variant.getKey());
             int multiplicity = variant.getValue().intValue();
             totals.add(traceReplay.counts(), multiplicity);
             if (traceReplay.fit()) {
@@ -76,5 +101,21 @@ public class TokenReplayComputation {
             timing.markFromStart("token_replay_ms", tokenReplayStartNs);
         }
         return result;
+    }
+
+    private TokenReplayEngine.TraceReplay bestReplay(List<String> activities) {
+        TokenReplayEngine.TraceReplay best = null;
+        for (TokenReplayEngine candidateEngine : finalEngines) {
+            TokenReplayEngine.TraceReplay candidate = candidateEngine.replayFitnessTrace(activities);
+            if (best == null || replayPenalty(candidate) < replayPenalty(best)
+                || (replayPenalty(candidate) == replayPenalty(best) && candidate.fit() && !best.fit())) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private long replayPenalty(TokenReplayEngine.TraceReplay replay) {
+        return replay.counts().missing + replay.counts().remaining;
     }
 }

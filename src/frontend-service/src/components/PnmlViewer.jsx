@@ -1,19 +1,32 @@
 import { useEffect, useMemo, useRef } from 'react'
 import cytoscape from 'cytoscape'
+import { markingTokenMap, selectedFinalMarking } from '../petriMarkings'
 
 function toArray(value) {
   if (!value) return []
   return Array.isArray(value) ? value : [value]
 }
 
-function parseStoredPetri(petri) {
+function parseStoredPetri(petri, finalIndex) {
   if (!petri || typeof petri !== 'object') return { nodes: [], edges: [] }
+
+  const initialTokens = markingTokenMap(petri.initial_marking)
+  const finalTokens = markingTokenMap(selectedFinalMarking(petri, finalIndex))
 
   const placeNodes = Array.isArray(petri.places)
     ? petri.places.map((item, index) => {
         const id = item?.id || `place-${index + 1}`
         const label = item?.label || id
-        return { data: { id, label, kind: 'place' } }
+        const tokenCount = initialTokens.get(id) || 0
+        return {
+          data: {
+            id,
+            label: tokenCount ? `${label}\n${tokenCount === 1 ? '●' : tokenCount}` : label,
+            kind: 'place',
+            hasInitialTokens: tokenCount > 0,
+            hasFinalTokens: (finalTokens.get(id) || 0) > 0,
+          },
+        }
       })
     : []
 
@@ -48,11 +61,11 @@ function parseStoredPetri(petri) {
   return { nodes: [...placeNodes, ...transitionNodes], edges }
 }
 
-export default function PnmlViewer({ petri = null }) {
+export default function PnmlViewer({ petri = null, selectedFinalIndex = 0 }) {
   const containerRef = useRef(null)
   const cyRef = useRef(null)
 
-  const elements = useMemo(() => parseStoredPetri(petri), [petri])
+  const elements = useMemo(() => parseStoredPetri(petri, selectedFinalIndex), [petri, selectedFinalIndex])
 
   useEffect(() => {
     if (!containerRef.current) return undefined
@@ -96,6 +109,19 @@ export default function PnmlViewer({ petri = null }) {
             color: '#111111',
             'text-valign': 'bottom',
             'text-margin-y': 8,
+          },
+        },
+        {
+          selector: 'node[hasInitialTokens = true]',
+          style: {
+            'background-color': '#d5ebff',
+          },
+        },
+        {
+          selector: 'node[hasFinalTokens = true]',
+          style: {
+            'border-color': '#16845b',
+            'border-width': 4,
           },
         },
         {
