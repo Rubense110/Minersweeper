@@ -96,7 +96,8 @@ public class LogLoader {
             try {
                 CachedLog cached = logsByExperiment.get(key);
                 if (cached != null && cached.path.equals(resolvedPath)) {
-                    return LogAccess.hit(cached.log, resolvedPath);
+                    // A waiter can publish first; the thread that parsed still reports a miss.
+                    return shouldRun ? LogAccess.miss(cached.log, resolvedPath) : LogAccess.hit(cached.log, resolvedPath);
                 }
                 if (loadingByExperiment.get(key) == loading && loading.path.equals(resolvedPath)) {
                     logsByExperiment.put(key, new CachedLog(resolvedPath, loaded));

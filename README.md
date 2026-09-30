@@ -262,11 +262,29 @@ and one optimization job at a time. Adjust these variables together:
 |---|---:|---|
 | `PROM_MAX_CONCURRENT_EVALUATIONS` | 4 | Java evaluation slots; released after execution and owned tasks stop |
 | `PROM_EVALUATION_RESERVE_MB` | 512 | Heap headroom signal; not a bound on plugin allocation |
+| `PROM_PREPROCESS_CACHE_MB` | 256 | Estimated retained payload budget for filtered logs; 0 disables this cache |
 | `OPT_MAX_EVALUATION_WORKERS` | 4 | Worker cap for the API and direct optimizer |
 | `OPT_MAX_CONCURRENT_JOBS` | 1 | Optimization jobs allowed to run together |
 | `OPT_MAX_QUEUED_JOBS` | 16 | Jobs allowed to wait for execution |
 | `PROM_ALLOW_MINER_MULTITHREADING` | false | Enables IM internal threads only if requested by the pipeline too |
 | `JAVA_CANCEL_GRACE_SECONDS` | 10 | Time to confirm termination after an ambiguous HTTP failure |
+
+Filtered logs can be reused across different miners within an experiment. The cache
+uses source identity and the ordered effective filter parameters, coordinates
+identical concurrent requests, and gives each cached consumer a private deep copy.
+When a result consists of whole original traces, the cache stores their indices
+instead of event payloads. It holds at most 32 entries and is cleared on experiment
+cleanup. Other filtered logs larger than the budget bypass storage: each request
+computes its own result using the existing uncached path, without an extra copy. This budget estimates retained payload; private
+copies, in-flight filters, and plugin allocations consume additional memory.
+
+Variant filtering uses compact statistics (a separate 64 MiB / 16-entry bound)
+and sorts variants by frequency, with later first appearances winning ties.
+It retains whole variants until the next would exceed the percentage of traces,
+then stops, preserving input trace order. Sequence keys distinguish ambiguous
+activity-name concatenations such as `[AB, C]` and `[A, BC]`; global attribute
+declarations are now preserved. These corrections can change affected models.
+Neither cache changes the optimization population or uses log-specific rules.
 
 The Java waiting queue is bounded. Insufficient heap headroom for five seconds
 rejects admission rather than waiting indefinitely. For a 32 GB machine, begin

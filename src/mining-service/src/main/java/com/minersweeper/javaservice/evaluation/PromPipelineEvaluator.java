@@ -108,7 +108,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                     request.pipeline.miner.parameters, "use_multithreading", false)));
 
             long preprocessStartNs = TimingTrace.nowNs();
-            XLog processedLog = preprocessingPipeline.apply(context, log, request);
+            PreprocessingPipeline.Access preprocessing = preprocessingPipeline.applyWithCache(context, log, request);
+            XLog processedLog = preprocessing.log();
+            timing.putField("preprocess_cache", preprocessing.cacheStatus());
             timing.markFromStart("preprocess_ms", preprocessStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
@@ -221,6 +223,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     @Override
     public void cleanupExperiment(String experimentId) throws Exception {
         executionRegistry.cleanupExperiment(experimentId);
+        preprocessingPipeline.evictExperiment(experimentId);
         logLoader.evictExperiment(experimentId);
     }
 

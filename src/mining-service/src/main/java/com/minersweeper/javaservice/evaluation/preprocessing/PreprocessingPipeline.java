@@ -17,9 +17,6 @@ import org.deckfour.xes.classification.XEventNameClassifier;
 import org.deckfour.xes.info.XLogInfo;
 import org.deckfour.xes.info.impl.XLogInfoImpl;
 import org.deckfour.xes.model.XLog;
-import org.processmining.filterd.filters.FilterdEventRateFilter;
-import org.processmining.filterd.parameters.Parameter;
-import org.processmining.filterd.parameters.ParameterMultipleFromSet;
 import org.processmining.filterd.parameters.ParameterOneFromSet;
 import org.processmining.filterd.parameters.ParameterValueFromRange;
 import org.processmining.filterd.tools.Toolbox;
@@ -27,7 +24,6 @@ import org.processmining.framework.plugin.PluginContext;
 import org.processmining.logfiltering.algorithms.FilterBasedOnRelationMatrixK;
 import org.processmining.logfiltering.parameters.MatrixFilterParameter;
 import org.processmining.logfiltering.plugins.RepairLog;
-import org.processmining.logfiltering.plugins.VariantCounterPlugin;
 
 public final class PreprocessingPipeline {
     private static final Set<String> SUPPORTED_KEYS = Collections.unmodifiableSet(
@@ -41,7 +37,62 @@ public final class PreprocessingPipeline {
         )
     );
 
+    private final PreprocessedLogCache cache;
+    private final VariantFilter variantFilter = new VariantFilter();
+
+    public PreprocessingPipeline() { this(defaultCacheBytes()); }
+    public PreprocessingPipeline(long maxCacheBytes) { cache = new PreprocessedLogCache(maxCacheBytes); }
+
+    public static final class Access {
+        private final XLog log;
+        private final String cacheStatus;
+        Access(XLog log, String cacheStatus) { this.log = log; this.cacheStatus = cacheStatus; }
+        public XLog log() { return log; }
+        public String cacheStatus() { return cacheStatus; }
+    }
+
     public XLog apply(PluginContext context, XLog sourceLog, PipelineRequest request) throws Exception {
+        return applyWithCache(context, sourceLog, request).log();
+    }
+
+    public Access applyWithCache(PluginContext context, XLog sourceLog, PipelineRequest request) throws Exception {
+        if (sourceLog == null) throw new IllegalArgumentException("source log is required for preprocessing");
+        if (steps(request).isEmpty()) return new Access(sourceLog, "none");
+        return cache.get(sourceLog, TextUtils.safe(request.experiment_id), cacheKey(request), () -> applyUncached(context, sourceLog, request));
+    }
+
+    public void evictExperiment(String experiment) {
+        String normalized = TextUtils.safe(experiment);
+        cache.evictExperiment(normalized);
+        variantFilter.evictExperiment(normalized);
+    }
+
+    private static long defaultCacheBytes() {
+        String value = System.getenv("PROM_PREPROCESS_CACHE_MB");
+        try { return Math.max(0L, Math.min(4096L, value == null ? 256L : Long.parseLong(value))) * 1024L * 1024L; }
+        catch (NumberFormatException invalid) { return 256L * 1024L * 1024L; }
+    }
+
+    // Canonicalize the parameters actually consumed by each filter, in execution order.
+    private static String cacheKey(PipelineRequest request) {
+        StringBuilder key = new StringBuilder();
+        for (PipelineRequest.PreprocessingConfig step : steps(request)) {
+            String name = normalizeKey(step == null ? null : step.key);
+            key.append(name).append(':');
+            if ("projection_filter".equals(name) || "variant_filter".equals(name)) {
+                key.append(clampInt(ParameterReader.intParam(step.parameters,
+                    "projection_filter".equals(name) ? "keep_threshold_p" : "keep_threshold_vf", 50), 0, 100));
+            } else if ("matrix_filter".equals(name) || "repair_log_filter".equals(name)) {
+                String suffix = "matrix_filter".equals(name) ? "mf" : "rl";
+                key.append(clampInt(ParameterReader.intParam(step.parameters, "subsequence_length_" + suffix, 2), 1, Integer.MAX_VALUE));
+                key.append(',').append(clampDouble(ParameterReader.doubleParam(step.parameters, "probability_of_removal_" + suffix, 0.15d), 0d, 1d));
+            } else throw new IllegalArgumentException("unsupported preprocessing key: " + name);
+            key.append(';');
+        }
+        return key.toString();
+    }
+
+    private XLog applyUncached(PluginContext context, XLog sourceLog, PipelineRequest request) throws Exception {
         if (sourceLog == null) {
             throw new IllegalArgumentException("source log is required for preprocessing");
         }
@@ -56,7 +107,7 @@ public final class PreprocessingPipeline {
             if ("projection_filter".equals(key)) {
                 current = applyProjectionFilter(current, preprocessing);
             } else if ("variant_filter".equals(key)) {
-                current = applyVariantFilter(current, preprocessing);
+                current = applyVariantFilter(current, preprocessing, TextUtils.safe(request.experiment_id));
             } else if ("repair_log_filter".equals(key)) {
                 current = applyRepairLogFilter(current, preprocessing);
             } else if ("matrix_filter".equals(key)) {
@@ -133,22 +184,9 @@ public final class PreprocessingPipeline {
         return output;
     }
 
-    private static XLog applyVariantFilter(XLog sourceLog, PipelineRequest.PreprocessingConfig preprocessing) {
-        int keepThreshold = clampInt(
-            ParameterReader.intParam(preprocessing.parameters, "keep_threshold_vf", 50),
-            0,
-            100
-        );
-        XLog workingLog = ensureClassifier(sourceLog);
-        if (workingLog.isEmpty()) {
-            return (XLog) workingLog.clone();
-        }
-        MatrixFilterParameter parameters = new MatrixFilterParameter(
-            keepThreshold,
-            XLogInfoImpl.NAME_CLASSIFIER
-        );
-        XLog filteredLog = VariantCounterPlugin.run(null, workingLog, parameters);
-        return restoreClassifiers(filteredLog, workingLog);
+    private XLog applyVariantFilter(XLog sourceLog, PipelineRequest.PreprocessingConfig preprocessing, String experiment) {
+        int keepThreshold = clampInt(ParameterReader.intParam(preprocessing.parameters, "keep_threshold_vf", 50), 0, 100);
+        return variantFilter.apply(sourceLog, keepThreshold, experiment);
     }
 
     private static XLog applyMatrixFilter(
