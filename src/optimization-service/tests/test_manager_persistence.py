@@ -38,9 +38,17 @@ class ManagerPersistenceTest(unittest.TestCase):
             },
             "result": {
                 "all_solutions": [],
-                "population_snapshots": [],
+                "population_snapshots": [{
+                    "snapshot_index": 1, "evaluations_done": 20,
+                    "attempts_since_previous": 20, "cache_hits_since_previous": 3,
+                    "errors_since_previous": 1, "unique_pipelines_since_previous": 17,
+                    "solutions": [],
+                }],
                 "catalogs": {"miners": ["inductive"], "preprocessing": ["variant_filter"]},
                 "metrics_order": ["fitness"],
+                "actual_evaluations": 20,
+                "optimizer_config": {"population_size": 20, "n_partitions": 3},
+                "log_sha256": "a" * 64,
             },
             "_control": ExecutionControl(),
         }
@@ -50,6 +58,11 @@ class ManagerPersistenceTest(unittest.TestCase):
             persist_completed_experiment(manager, "job-1")
 
         manager.job_store.save_completed_experiment.assert_called_once()
+        experiment, _solutions, _members, snapshots = manager.job_store.save_completed_experiment.call_args.args
+        self.assertEqual(20, experiment["actual_evaluations"])
+        self.assertEqual(3, experiment["optimizer_config"]["n_partitions"])
+        self.assertEqual(3, snapshots[0]["cache_hits_since_previous"])
+        self.assertNotIn("solutions", snapshots[0])
         client_cls.assert_called_once_with(
             base_url="http://remote-service",
             experiment_id="exp-1",
@@ -139,9 +152,10 @@ class ManagerPersistenceTest(unittest.TestCase):
             ]
             persist_completed_experiment(manager, "job-1")
 
-        _experiment_data, solutions, _snapshots = manager.job_store.save_completed_experiment.call_args.args
+        _experiment_data, solutions, _snapshots, _snapshot_stats = manager.job_store.save_completed_experiment.call_args.args
         self.assertEqual([{"place_id": "real-start", "tokens": 1}], solutions[0]["initial_marking"])
         self.assertEqual([[{"place_id": "real-end", "tokens": 1}]], solutions[0]["final_markings"])
+        self.assertEqual("eval-1", solutions[0]["evaluation_id"])
 
     def test_persist_completed_experiment_keeps_v2_empty_markings_without_inference(self):
         manager = _FakeManager()
@@ -170,7 +184,7 @@ class ManagerPersistenceTest(unittest.TestCase):
             client_cls.return_value.fetch_artifacts.return_value = [artifact]
             persist_completed_experiment(manager, "job-1")
 
-        _experiment_data, solutions, _snapshots = manager.job_store.save_completed_experiment.call_args.args
+        _experiment_data, solutions, _snapshots, _snapshot_stats = manager.job_store.save_completed_experiment.call_args.args
         self.assertEqual(2, solutions[0]["model_schema_version"])
         self.assertEqual([], solutions[0]["initial_marking"])
         self.assertEqual([], solutions[0]["final_marking"])
@@ -179,6 +193,42 @@ class ManagerPersistenceTest(unittest.TestCase):
         self.assertEqual(1, solutions[0]["visible_transition_count"])
         self.assertTrue(solutions[0]["is_feasible"])
         self.assertEqual([], solutions[0]["constraint_violations"])
+
+    def test_persist_completed_experiment_keeps_v3_quality_exclusion(self):
+        manager = _FakeManager()
+        manager._jobs["job-1"] = {
+            "job_id": "job-1",
+            "started_at": "2026-06-14T11:29:25.723111+00:00",
+            "finished_at": "2026-06-14T11:29:33.884817+00:00",
+            "request": {
+                "execution_name": "exp-1", "service_url": "http://remote-service", "log_path": "/data/log.xes",
+                "metrics": ["fitness"], "discover": {"max_evaluations": 1, "population_size": 1, "n_workers": 1},
+            },
+            "result": {
+                "all_solutions": [{"evaluation_id": "eval-1", "variables": [], "objectives": [], "metrics": {}, "pipeline": {}}],
+                "population_snapshots": [], "catalogs": {"miners": [], "preprocessing": []}, "metrics_order": ["fitness"],
+            },
+            "_control": ExecutionControl(),
+        }
+        artifact = {
+            "evaluation_id": "eval-1", "model_schema_version": 3,
+            "pnml": "<pnml><net><place id='source'/><place id='sink'/><place id='orphan'/><transition id='t'/><arc id='a1' source='source' target='t'/><arc id='a2' source='t' target='sink'/></net></pnml>",
+            "initial_marking": [{"place_id": "source", "tokens": 1}],
+            "final_marking": [{"place_id": "sink", "tokens": 1}],
+            "final_markings": [[{"place_id": "sink", "tokens": 1}]],
+            "transitions": [{"id": "t", "label": "A", "invisible": False}],
+            "visible_transition_count": 1,
+            "is_feasible": False,
+            "constraint_violations": ["MULTIPLE_COMPONENTS"],
+        }
+        with patch("api.manager_persistence.ProMServiceClient") as client_cls:
+            client_cls.return_value.fetch_artifacts.return_value = [artifact]
+            persist_completed_experiment(manager, "job-1")
+
+        _experiment_data, solutions, _snapshots, _snapshot_stats = manager.job_store.save_completed_experiment.call_args.args
+        self.assertEqual(3, solutions[0]["model_schema_version"])
+        self.assertFalse(solutions[0]["is_feasible"])
+        self.assertEqual(["MULTIPLE_COMPONENTS"], solutions[0]["constraint_violations"])
 
 
 if __name__ == "__main__":

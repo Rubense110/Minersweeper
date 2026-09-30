@@ -109,7 +109,7 @@ public class PromPipelineEvaluatorRealTest {
                 assertEquals(experimentId, result.experiment_id);
                 assertNotNull(result.evaluation_id);
                 assertTrue(result.fingerprint.contains(miner.key));
-                assertEquals(Integer.valueOf(2), result.model_schema_version);
+                assertEquals(Integer.valueOf(3), result.model_schema_version);
                 TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
 
                 ArtifactBulkResponse bulk = store.readBulk(experimentId, Arrays.asList(result.evaluation_id), true);
@@ -118,7 +118,7 @@ public class PromPipelineEvaluatorRealTest {
                 assertEquals(miner.key, artifact.pipeline.miner.key);
                 assertEquals(miner.variant, artifact.pipeline.miner.variant);
                 assertTrue(artifact.pnml.contains("pnml"));
-                assertV2Semantics(artifact);
+                assertV3Semantics(artifact);
                 System.out.println("PASS " + miner.key + " / " + miner.variant);
             } catch (Exception | AssertionError error) {
                 failures.add(miner.key + " / " + miner.variant + ": " + error);
@@ -193,7 +193,9 @@ public class PromPipelineEvaluatorRealTest {
                 );
                 ArtifactBulkResponse.ArtifactEntry artifact = bulk.artifacts.get(0);
                 assertEquals("both alternative endings must be retained", 2, artifact.final_markings.size());
-                assertV2Semantics(artifact);
+                assertEquals(Boolean.FALSE, artifact.is_feasible);
+                assertTrue(artifact.constraint_violations.contains("MULTIPLE_FINAL_MARKINGS"));
+                assertV3Semantics(artifact);
             }
         }
     }
@@ -263,8 +265,8 @@ public class PromPipelineEvaluatorRealTest {
         return edge instanceof Arc ? ":" + ((Arc) edge).getWeight() : "";
     }
 
-    private static void assertV2Semantics(ArtifactBulkResponse.ArtifactEntry artifact) throws Exception {
-        assertEquals(Integer.valueOf(2), artifact.model_schema_version);
+    private static void assertV3Semantics(ArtifactBulkResponse.ArtifactEntry artifact) throws Exception {
+        assertEquals(Integer.valueOf(3), artifact.model_schema_version);
         assertNotNull(artifact.initial_marking);
         assertNotNull(artifact.final_marking);
         assertNotNull(artifact.final_markings);
@@ -290,12 +292,12 @@ public class PromPipelineEvaluatorRealTest {
         }
         assertEquals(Integer.valueOf(actualVisibleCount), artifact.visible_transition_count);
         assertNotNull(artifact.is_feasible);
-        assertEquals(Boolean.valueOf(actualVisibleCount > 0), artifact.is_feasible);
         assertNotNull(artifact.constraint_violations);
-        assertEquals(
-            actualVisibleCount > 0 ? Arrays.<String>asList() : Arrays.asList("NO_VISIBLE_TRANSITIONS"),
-            artifact.constraint_violations
-        );
+        assertEquals(Boolean.valueOf(artifact.constraint_violations.isEmpty()), artifact.is_feasible);
+        assertEquals(Boolean.valueOf(actualVisibleCount == 0),
+            Boolean.valueOf(artifact.constraint_violations.contains("NO_VISIBLE_TRANSITIONS")));
+        assertEquals(Boolean.valueOf(artifact.final_markings.size() != 1),
+            Boolean.valueOf(artifact.constraint_violations.contains("MULTIPLE_FINAL_MARKINGS")));
     }
 
     private static void assertMarking(

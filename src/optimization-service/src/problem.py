@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import math
 import random
 import threading
 import time
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from copy import deepcopy
+from typing import Any, Callable, Dict, List, Sequence
 
 from execution_control import JobCancelled
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
+from model_quality import validate_v3_feasibility
 
 from pipeline_space import PipelineSearchSpace
 from preprocessing_constraints import repair_pipeline_preprocessing
@@ -60,7 +63,9 @@ class PipelineOptimizationProblem(FloatProblem):
         self.search_space = search_space
         self.evaluator = evaluator
         self.use_cache = use_cache
-        self.evaluation_cache: Dict[Tuple[float, ...], Dict[str, Any]] = {}
+        self.evaluation_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_inflight: Dict[str, threading.Event] = {}
+        self._cache_lock = threading.Lock()
         self.on_evaluation = on_evaluation
         self.rng = rng or random.Random()
         self._evaluations_done = 0
@@ -95,15 +100,43 @@ class PipelineOptimizationProblem(FloatProblem):
         if hasattr(self.evaluator, "raise_if_cancel_requested"):
             self.evaluator.raise_if_cancel_requested()
 
-        cache_key = tuple(round(value, 8) for value in solution.variables)
-        cache_hit = self.use_cache and cache_key in self.evaluation_cache
-        if cache_hit:
-            cached = self.evaluation_cache[cache_key]
+        decoded_pipeline = repair_pipeline_preprocessing(
+            self.log_path,
+            self.search_space.decode(solution.variables),
+        )
+        if not self.use_cache:
+            return self._evaluate_uncached(solution, decoded_pipeline, None)
+
+        # Only the effective request is relevant: inactive genes and selector
+        # values that decode to the same option must share an evaluation.
+        cache_key = json.dumps(
+            decoded_pipeline,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        while True:
+            with self._cache_lock:
+                cached = self.evaluation_cache.get(cache_key)
+                if cached is not None:
+                    break
+                inflight = self._cache_inflight.get(cache_key)
+                if inflight is None:
+                    inflight = threading.Event()
+                    self._cache_inflight[cache_key] = inflight
+                    break
+            # Do not hold the lock during a ProM call, or while waiting for one.
+            inflight.wait(timeout=0.1)
+            if hasattr(self.evaluator, "raise_if_cancel_requested"):
+                self.evaluator.raise_if_cancel_requested()
+
+        if cached is not None:
             solution.objectives = list(cached["objectives"])
             solution.constraints = list(cached["constraints"])
-            solution.attributes["pipeline"] = cached["pipeline"]
-            solution.attributes["metrics"] = cached["metrics"]
-            solution.attributes["objective_metrics"] = cached["objective_metrics"]
+            solution.attributes["pipeline"] = deepcopy(cached["pipeline"])
+            solution.attributes["metrics"] = dict(cached["metrics"])
+            solution.attributes["objective_metrics"] = dict(cached["objective_metrics"])
             if cached.get("runtime_ms") is not None:
                 solution.attributes["runtime_ms"] = cached["runtime_ms"]
             if cached.get("evaluation_error"):
@@ -134,10 +167,18 @@ class PipelineOptimizationProblem(FloatProblem):
             )
             return solution
 
-        decoded_pipeline = repair_pipeline_preprocessing(
-            self.log_path,
-            self.search_space.decode(solution.variables),
-        )
+        try:
+            return self._evaluate_uncached(solution, decoded_pipeline, cache_key)
+        finally:
+            with self._cache_lock:
+                self._cache_inflight.pop(cache_key).set()
+
+    def _evaluate_uncached(
+        self,
+        solution: FloatSolution,
+        decoded_pipeline: Dict[str, Any],
+        cache_key: str | None,
+    ) -> FloatSolution:
         eval_started_ns = time.perf_counter_ns()
         try:
             evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.required_metrics)
@@ -218,11 +259,11 @@ class PipelineOptimizationProblem(FloatProblem):
         if model_schema_version is not None:
             if not isinstance(model_schema_version, int) or isinstance(model_schema_version, bool):
                 raise ValueError("evaluator returned an invalid model_schema_version")
-            if model_schema_version != 2:
+            if model_schema_version not in (2, 3):
                 raise ValueError(f"unsupported model_schema_version: {model_schema_version}")
             solution.attributes["model_schema_version"] = model_schema_version
             if not isinstance(is_feasible, bool):
-                raise ValueError("v2 evaluator response is missing feasibility metadata")
+                raise ValueError("versioned evaluator response is missing feasibility metadata")
 
         if isinstance(is_feasible, bool):
             if not isinstance(visible_transition_count, int) or isinstance(visible_transition_count, bool):
@@ -231,11 +272,14 @@ class PipelineOptimizationProblem(FloatProblem):
                 isinstance(item, str) for item in constraint_violations
             ):
                 raise ValueError("evaluator returned invalid constraint_violations")
-            expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
-            if constraint_violations != expected_violations:
-                raise ValueError("evaluator returned inconsistent feasibility metadata")
-            if is_feasible != (visible_transition_count > 0):
-                raise ValueError("evaluator returned inconsistent visible_transition_count")
+            if model_schema_version == 3:
+                validate_v3_feasibility(visible_transition_count, is_feasible, constraint_violations)
+            else:
+                expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+                if constraint_violations != expected_violations:
+                    raise ValueError("evaluator returned inconsistent feasibility metadata")
+                if is_feasible != (visible_transition_count > 0):
+                    raise ValueError("evaluator returned inconsistent visible_transition_count")
             solution.constraints[0] = 0.0 if is_feasible else -1.0
             solution.attributes["is_feasible"] = is_feasible
             solution.attributes["constraint_violations"] = constraint_violations
@@ -250,13 +294,13 @@ class PipelineOptimizationProblem(FloatProblem):
             solution.attributes["experiment_id"] = experiment_id
         if fingerprint:
             solution.attributes["fingerprint"] = fingerprint
-        if self.use_cache:
-            self.evaluation_cache[cache_key] = {
+        if cache_key is not None and evaluation_error is None:
+            cached_result = {
                 "objectives": objectives,
                 "constraints": list(solution.constraints),
-                "pipeline": decoded_pipeline,
-                "metrics": metric_values,
-                "objective_metrics": objective_metrics,
+                "pipeline": deepcopy(decoded_pipeline),
+                "metrics": dict(metric_values),
+                "objective_metrics": dict(objective_metrics),
                 "runtime_ms": runtime_ms,
                 "evaluation_id": evaluation_id,
                 "experiment_id": experiment_id,
@@ -264,9 +308,11 @@ class PipelineOptimizationProblem(FloatProblem):
                 "model_schema_version": solution.attributes.get("model_schema_version"),
                 "evaluation_error": evaluation_error,
                 "is_feasible": solution.attributes.get("is_feasible"),
-                "constraint_violations": solution.attributes.get("constraint_violations", []),
+                "constraint_violations": list(solution.attributes.get("constraint_violations", [])),
                 "visible_transition_count": solution.attributes.get("visible_transition_count"),
             }
+            with self._cache_lock:
+                self.evaluation_cache[cache_key] = cached_result
         self._notify_evaluation(
             cache_hit=False,
             has_error=bool(evaluation_error),
@@ -307,6 +353,8 @@ class PipelineOptimizationProblem(FloatProblem):
         with self._eval_lock:
             self._evaluations_done += 1
             done = self._evaluations_done
+        with self._cache_lock:
+            solution_cache_size = len(self.evaluation_cache)
         try:
             self.on_evaluation(
                 {
@@ -321,7 +369,7 @@ class PipelineOptimizationProblem(FloatProblem):
                     "evaluation_id": evaluation_id,
                     "experiment_id": experiment_id,
                     "fingerprint": fingerprint,
-                    "solution_cache_size": len(self.evaluation_cache),
+                    "solution_cache_size": solution_cache_size,
                 }
             )
         except Exception:

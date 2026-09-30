@@ -255,6 +255,16 @@ class PipelineNSGAIIIOptimizer:
         if mutation_probability is None:
             mutation_probability = 1.0 / max(1, self.problem.number_of_variables())
 
+        self.effective_config = {
+            "population_size": population_size,
+            "n_partitions": n_partitions,
+            "reference_direction_count": len(self.reference_directions.compute()),
+            "crossover_probability": crossover_probability,
+            "crossover_distribution_index": crossover_distribution_index,
+            "mutation_probability": mutation_probability,
+            "mutation_distribution_index": mutation_distribution_index,
+        }
+
         if n_workers < 1:
             raise ValueError("n_workers must be >= 1")
         population_evaluator = (

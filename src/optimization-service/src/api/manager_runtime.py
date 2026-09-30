@@ -1,16 +1,32 @@
 from __future__ import annotations
 
+import json
+import platform
+import threading
 import traceback
+from importlib.metadata import version
 from typing import Any, Dict
 
 from execution_control import JobCancelled
 from java_service_client import ProMServiceClient
+from parameters.miners import MINER_CATALOG
 from pareto import feasible_non_dominated
 
 from .common import LOGGER, _utc_now_iso
 from .evaluation_trace import append_evaluation_trace
 from .manager_state import publish_event, public_progress, update_progress
+from .provenance import configured_revision, file_sha256, optimizer_source_sha256
 from .serialization import _count_failed_solutions, _non_dominated_evaluation_ids, _pipeline_for_log, _serialize_solution
+
+
+def _interval_evaluation_stats(events: list[Dict[str, Any]], start: int, end: int) -> Dict[str, int]:
+    interval = [event for event in events if start < event["evaluations_done"] <= end]
+    return {
+        "attempts_since_previous": len(interval),
+        "cache_hits_since_previous": sum(event["cache_hit"] for event in interval),
+        "errors_since_previous": sum(event["has_error"] for event in interval),
+        "unique_pipelines_since_previous": len({event["pipeline_key"] for event in interval}),
+    }
 
 
 def run_job(manager: Any, job_id: str) -> None:
@@ -144,10 +160,24 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         "error_count": 0,
         "error_occurrences": {},
         "unique_errors_logged": 0,
+        "evaluation_events": [],
     }
+    event_lock = threading.Lock()
+    log_sha256 = file_sha256(config["log_path"])
+    source_sha256 = optimizer_source_sha256()
 
     def on_evaluation(event: Dict[str, Any]) -> None:
         evaluations_done = int(event.get("evaluations_done") or 0)
+        pipeline_key = json.dumps(
+            event.get("pipeline") or {}, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        with event_lock:
+            progress_state["evaluation_events"].append({
+                "evaluations_done": evaluations_done,
+                "cache_hit": bool(event.get("cache_hit")),
+                "has_error": bool(event.get("has_error")),
+                "pipeline_key": pipeline_key,
+            })
         update_progress(manager, job_id, evaluations_done)
         try:
             append_evaluation_trace(job_id=job_id, config=config, event=event)
@@ -224,18 +254,46 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
     all_solutions = [_serialize_solution(sol, pareto_ids) for sol in all_solutions_raw]
     pareto_solutions = [_serialize_solution(sol, pareto_ids) for sol in pareto_solutions_raw]
     population_snapshots = []
+    with event_lock:
+        evaluation_events = sorted(
+            progress_state["evaluation_events"], key=lambda event: event["evaluations_done"]
+        )
+    previous_evaluations = 0
     for snapshot in population_snapshots_raw:
         snapshot_solutions_raw = list(snapshot.get("solutions") or [])
         snapshot_pareto_ids = _non_dominated_evaluation_ids(snapshot_solutions_raw)
+        evaluations_done = int(snapshot.get("evaluations_done") or 0)
         population_snapshots.append(
             {
                 "snapshot_index": int(snapshot.get("snapshot_index") or 0),
-                "evaluations_done": int(snapshot.get("evaluations_done") or 0),
+                "evaluations_done": evaluations_done,
+                **_interval_evaluation_stats(evaluation_events, previous_evaluations, evaluations_done),
                 "solutions": [
                     _serialize_solution(solution, snapshot_pareto_ids) for solution in snapshot_solutions_raw
                 ],
             }
         )
+        previous_evaluations = evaluations_done
+
+    effective_config = dict(miner.optimizer.effective_config)
+    effective_config.update({
+        "max_evaluations": max_evaluations,
+        "n_workers": int(discover["n_workers"]),
+        "seed": discover.get("seed"),
+        "variable_count": miner.problem.number_of_variables(),
+        "python_version": platform.python_version(),
+        "jmetalpy_version": version("jmetalpy"),
+        "objective_directions": {metric: "maximize" for metric in miner.metrics_list},
+        "model_schema_versions": sorted({
+            int(solution.get("model_schema_version")) for solution in all_solutions
+            if isinstance(solution.get("model_schema_version"), int)
+        }),
+        "excluded_miners": list(config.get("excluded_miners") or []),
+        "enabled_variants": {
+            key: [variant.key for variant in MINER_CATALOG[key].variants]
+            for key in miner.search_space.miner_keys
+        },
+    })
 
     control.raise_if_cancel_requested()
     return {
@@ -252,6 +310,12 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         "all_solutions": all_solutions,
         "pareto_solutions": pareto_solutions,
         "population_snapshots": population_snapshots,
+        "actual_evaluations": int(miner.optimizer.algorithm.evaluations or 0),
+        "optimizer_config": effective_config,
+        "log_sha256": log_sha256,
+        "optimizer_source_sha256": source_sha256,
+        "prom_revision": configured_revision("PROM_SERVICE_REVISION"),
+        "quality_policy_version": configured_revision("MODEL_QUALITY_POLICY_VERSION"),
         "non_dominated_pipelines": miner.get_non_dominated_pipelines(),
         "non_dominated_metrics": miner.get_non_dominated_metrics(),
         "catalogs": {

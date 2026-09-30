@@ -3,6 +3,9 @@ import sys
 import unittest
 import math
 import copy
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 
 SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -90,6 +93,28 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(["NO_VISIBLE_TRANSITIONS"], evaluated.attributes["constraint_violations"])
         self.assertEqual(0, evaluated.attributes["visible_transition_count"])
 
+    def test_v3_structurally_broken_model_is_infeasible_despite_good_metrics(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+
+        def evaluator(_log, _pipeline, _metrics):
+            return {
+                "model_schema_version": 3,
+                "metrics": {"fitness": 0.99},
+                "visible_transition_count": 2,
+                "is_feasible": False,
+                "constraint_violations": ["FINAL_NOT_REACHABLE", "DEAD_VISIBLE_TRANSITION"],
+            }
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator,
+        )
+        evaluated = problem.evaluate(problem.create_solution())
+        self.assertEqual([-0.99], evaluated.objectives)
+        self.assertEqual([-1.0], evaluated.constraints)
+        self.assertFalse(evaluated.attributes["is_feasible"])
+        self.assertEqual(3, evaluated.attributes["model_schema_version"])
+
     def test_visible_tau_is_feasible_when_semantic_flag_says_visible(self):
         space = PipelineSearchSpace(excluded_miners=("split",))
 
@@ -133,6 +158,160 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         problem.evaluate(solution)
         problem.evaluate(solution)
         self.assertEqual(call_count["n"], 1)
+
+    def test_cache_uses_decoded_pipeline_not_inactive_genes_or_selector_float(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+        calls = []
+        events = []
+
+        def evaluator(_log, pipeline, _metrics):
+            calls.append(pipeline)
+            return {"fitness": 0.8}
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator, on_evaluation=events.append,
+        )
+        first = problem.create_solution()
+        first.variables = list(first.lower_bound)
+        second = problem.create_solution()
+        second_variables = list(first.variables)
+        # Both selector floats decode to the first miner. The Heuristics gene
+        # is inactive while Alpha is selected, so it cannot change the request.
+        second_variables[space.index_by_key["miner::selected"]] = 0.2
+        inactive_index = space.index_by_key["miner::heuristics::param::dependency_threshold"]
+        second_variables[inactive_index] = second.upper_bound[inactive_index]
+        second.variables = second_variables
+
+        problem.evaluate(first)
+        problem.evaluate(second)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([False, True], [event["cache_hit"] for event in events])
+        self.assertEqual(first.attributes["pipeline"], second.attributes["pipeline"])
+
+    def test_cache_keeps_distinct_active_float_parameters_separate(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+        calls = []
+
+        def evaluator(_log, pipeline, _metrics):
+            calls.append(pipeline)
+            return {"fitness": 0.8}
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator,
+        )
+        first = problem.create_solution()
+        first_variables = list(first.lower_bound)
+        first_variables[space.index_by_key["miner::selected"]] = float(space.miner_keys.index("heuristics"))
+        active_index = space.index_by_key["miner::heuristics::param::dependency_threshold"]
+        first_variables[active_index] = 0.25
+        first.variables = first_variables
+        second = problem.create_solution()
+        second_variables = list(first.variables)
+        # These values collided under the old eight-decimal raw-vector key.
+        second_variables[active_index] = 0.250000001
+        second.variables = second_variables
+
+        problem.evaluate(first)
+        problem.evaluate(second)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(problem.evaluation_cache), 2)
+
+    def test_cache_key_is_built_after_pipeline_repair(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+        calls = {"n": 0}
+
+        def evaluator(_log, _pipeline, _metrics):
+            calls["n"] += 1
+            return {"fitness": 0.8}
+
+        def repair(_log, pipeline):
+            repaired = copy.deepcopy(pipeline)
+            repaired["preprocessing"]["parameters"]["keep_threshold_p"] = 50
+            return repaired
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator,
+        )
+        first = problem.create_solution()
+        first_variables = list(first.lower_bound)
+        first_variables[space.index_by_key["preprocessing::selected"]] = float(
+            space.preprocessing_keys.index("projection_filter")
+        )
+        first.variables = first_variables
+        second = problem.create_solution()
+        second_variables = list(first.variables)
+        threshold_index = space.index_by_key["preprocessing::projection_filter::param::keep_threshold_p"]
+        second_variables[threshold_index] = second.upper_bound[threshold_index]
+        second.variables = second_variables
+
+        with patch("problem.repair_pipeline_preprocessing", side_effect=repair):
+            problem.evaluate(first)
+            problem.evaluate(second)
+
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(first.attributes["pipeline"], second.attributes["pipeline"])
+
+    def test_cache_does_not_reuse_transient_evaluation_error(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+        calls = {"n": 0}
+
+        def evaluator(_log, _pipeline, _metrics):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("temporary outage")
+            return {"fitness": 0.8}
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator,
+        )
+        solution = problem.create_solution()
+        problem.evaluate(solution)
+        self.assertIn("evaluation_error", solution.attributes)
+        self.assertEqual(len(problem.evaluation_cache), 0)
+
+        problem.evaluate(solution)
+        self.assertNotIn("evaluation_error", solution.attributes)
+        problem.evaluate(solution)
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(len(problem.evaluation_cache), 1)
+
+    def test_concurrent_equal_pipelines_share_one_inflight_evaluation(self):
+        space = PipelineSearchSpace(excluded_miners=("split",))
+        started = threading.Event()
+        release = threading.Event()
+        calls = {"n": 0}
+
+        def evaluator(_log, _pipeline, _metrics):
+            calls["n"] += 1
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("test evaluation was not released")
+            return {"fitness": 0.8}
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=space, evaluator=evaluator,
+        )
+        first = problem.create_solution()
+        second = problem.create_solution()
+        second.variables = list(first.variables)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first_result = executor.submit(problem.evaluate, first)
+                self.assertTrue(started.wait(timeout=5))
+                second_result = executor.submit(problem.evaluate, second)
+                release.set()
+                self.assertEqual(first_result.result(timeout=5).objectives, [-0.8])
+                self.assertEqual(second_result.result(timeout=5).objectives, [-0.8])
+        finally:
+            release.set()
+        self.assertEqual(calls["n"], 1)
 
     def test_maximize_metrics_length_mismatch_raises(self):
         space = PipelineSearchSpace(excluded_miners=("split",))

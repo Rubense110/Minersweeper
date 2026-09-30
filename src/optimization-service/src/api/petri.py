@@ -6,6 +6,8 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
+from model_quality import validate_v3_feasibility
+
 
 _PM4PY_IMPORT_LOCK = threading.Lock()
 
@@ -269,11 +271,18 @@ def _petri_from_v2_artifact(artifact: Dict[str, Any]) -> Tuple[
     actual_visible_count = sum(1 for transition in transitions if transition["invisible"] is False)
     if actual_visible_count != visible_transition_count:
         raise ValueError("v2 artifact visible_transition_count does not match transitions")
-    if is_feasible != (visible_transition_count > 0):
-        raise ValueError("v2 artifact is_feasible does not match visible_transition_count")
-    expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
-    if constraint_violations != expected_violations:
-        raise ValueError("v2 artifact constraint_violations do not match feasibility")
+    if artifact.get("model_schema_version") == 3:
+        validate_v3_feasibility(visible_transition_count, is_feasible, constraint_violations)
+        if len(final_markings) != 1 and "MULTIPLE_FINAL_MARKINGS" not in constraint_violations:
+            raise ValueError("v3 artifact is missing MULTIPLE_FINAL_MARKINGS violation")
+        if len(final_markings) == 1 and "MULTIPLE_FINAL_MARKINGS" in constraint_violations:
+            raise ValueError("v3 artifact has spurious MULTIPLE_FINAL_MARKINGS violation")
+    else:
+        if is_feasible != (visible_transition_count > 0):
+            raise ValueError("v2 artifact is_feasible does not match visible_transition_count")
+        expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+        if constraint_violations != expected_violations:
+            raise ValueError("v2 artifact constraint_violations do not match feasibility")
     return places, transitions, arcs, initial_marking, final_marking, final_markings
 
 

@@ -15,7 +15,7 @@ SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src
 if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
-from job_store import Base, JobStore, SnapshotSolution, Solution
+from job_store import Base, JobStore, PopulationSnapshot, SnapshotSolution, Solution
 
 
 class JobStoreRuntimeTest(unittest.TestCase):
@@ -138,6 +138,13 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "log_path": "/data/logs/log.xes",
                 "metrics": ["fitness"],
                 "workers": 1,
+                "actual_evaluations": 10,
+                "conformance_mode": "replay-token",
+                "log_sha256": "a" * 64,
+                "optimizer_source_sha256": "b" * 64,
+                "prom_revision": "prom-test-revision",
+                "quality_policy_version": "quality-v3",
+                "optimizer_config": {"n_partitions": 2, "reference_direction_count": 10},
             }
             solutions = [
                 {
@@ -145,6 +152,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "objectives": [-0.9],
                     "metrics": {"fitness": 0.9, "places": 8.0},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "pipeline_full": {"miner": {"key": "inductive", "variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "evaluation_id": "eval-final",
+                    "fingerprint": "fp-final",
+                    "evaluation_status": "feasible",
                     "runtime_ms": 245,
                     "is_pareto": True,
                     "places": [],
@@ -230,6 +241,30 @@ class JobStoreRuntimeTest(unittest.TestCase):
                         arcs JSON NOT NULL,
                         FOREIGN KEY(experiment_id) REFERENCES experiments(experiment_id) ON DELETE CASCADE
                     );
+                    CREATE TABLE snapshot_solutions (
+                        snapshot_solution_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        experiment_id VARCHAR(64) NOT NULL,
+                        snapshot_index INTEGER NOT NULL,
+                        evaluations_done INTEGER NOT NULL,
+                        member_index INTEGER NOT NULL,
+                        variables JSON NOT NULL,
+                        objectives JSON NOT NULL,
+                        pipeline JSON NOT NULL,
+                        runtime_ms INTEGER,
+                        is_pareto BOOLEAN NOT NULL,
+                        places JSON NOT NULL,
+                        transitions JSON NOT NULL,
+                        arcs JSON NOT NULL
+                    );
+                    INSERT INTO experiments
+                    (experiment_id, experiment_name, start_at, end_at, max_evals, pop_size,
+                     miners, preprocessing, log_path, metrics, workers)
+                    VALUES ('old', 'old', '2026-01-01', '2026-01-01', 2, 1,
+                            '[]', '[]', '/data/old.xes', '["fitness"]', 1);
+                    INSERT INTO snapshot_solutions
+                    (experiment_id, snapshot_index, evaluations_done, member_index,
+                     variables, objectives, pipeline, is_pareto, places, transitions, arcs)
+                    VALUES ('old', 1, 1, 1, '[]', '[-0.5]', '{}', 0, '[]', '[]', '[]');
                     """
                 )
                 conn.commit()
@@ -247,8 +282,19 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertIn("visible_transition_count", columns)
             self.assertIn("is_feasible", columns)
             self.assertIn("constraint_violations", columns)
+            self.assertIn("pipeline_full", columns)
+            self.assertIn("evaluation_status", columns)
             experiment_columns = {column["name"] for column in inspect(store.engine).get_columns("experiments")}
             self.assertIn("seed", experiment_columns)
+            self.assertIn("optimizer_config", experiment_columns)
+            old = store.get_experiment("old")
+            self.assertIsNone(old["optimizer_config"])
+            self.assertEqual(1, old["population_snapshots"][0]["snapshot_index"])
+            self.assertIsNone(old["population_snapshots"][0]["cache_hits_since_previous"])
+            self.assertEqual(
+                old["population_snapshots"][0]["snapshot_id"],
+                store.get_experiment_snapshot_solutions("old")[0]["snapshot_id"],
+            )
 
     def test_save_completed_experiment_sanitizes_non_finite_json_values(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -307,6 +353,13 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 "log_path": "/data/logs/log.xes",
                 "metrics": ["fitness"],
                 "workers": 1,
+                "actual_evaluations": 10,
+                "conformance_mode": "replay-token",
+                "log_sha256": "a" * 64,
+                "optimizer_source_sha256": "b" * 64,
+                "prom_revision": "prom-test-revision",
+                "quality_policy_version": "quality-v3",
+                "optimizer_config": {"n_partitions": 2, "reference_direction_count": 10},
             }
             solutions = [
                 {
@@ -314,6 +367,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "objectives": [-0.9],
                     "metrics": {"fitness": 0.9},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "pipeline_full": {"miner": {"key": "inductive", "variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "evaluation_id": "eval-final",
+                    "fingerprint": "fp-final",
+                    "evaluation_status": "feasible",
                     "runtime_ms": 245,
                     "is_pareto": True,
                     "places": [],
@@ -330,6 +387,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "objectives": [-0.8],
                     "metrics": {"fitness": 0.8, "places": 9.0},
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "pipeline_full": {"miner": {"key": "inductive", "variant": "Inductive Miner (IM)", "parameters": {}}},
+                    "evaluation_id": "eval-snapshot",
+                    "fingerprint": "fp-snapshot",
+                    "evaluation_status": "feasible",
                     "runtime_ms": 200,
                     "is_pareto": True,
                     "places": [{"id": "p1"}],
@@ -361,7 +422,15 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 },
             ]
 
-            store.save_completed_experiment(experiment_data, solutions, snapshot_solutions)
+            snapshot_stats = [{
+                "snapshot_index": 1,
+                "evaluations_done": 5,
+                "attempts_since_previous": 5,
+                "cache_hits_since_previous": 2,
+                "errors_since_previous": 1,
+                "unique_pipelines_since_previous": 3,
+            }]
+            store.save_completed_experiment(experiment_data, solutions, snapshot_solutions, snapshot_stats)
 
             with store._session_factory() as session:
                 persisted = session.query(SnapshotSolution).order_by(SnapshotSolution.member_index.asc()).all()
@@ -378,6 +447,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                 self.assertTrue(persisted[0].is_feasible)
                 self.assertEqual([], persisted[0].constraint_violations)
                 self.assertFalse(persisted[1].is_pareto)
+                parent = session.query(PopulationSnapshot).one()
+                self.assertEqual(parent.snapshot_id, persisted[0].snapshot_id)
+                self.assertEqual(5, parent.attempts_since_previous)
+                self.assertEqual(2, parent.cache_hits_since_previous)
 
             exported = store.get_experiment_snapshot_solutions("exp-snap")
             self.assertEqual(2, len(exported))
@@ -387,6 +460,14 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertEqual([{"place_id": "p2", "tokens": 2}], exported[0]["final_marking"])
             self.assertTrue(exported[0]["is_feasible"])
             self.assertEqual([[{"place_id": "p2", "tokens": 1}]], exported[0]["final_markings"])
+            self.assertEqual("eval-snapshot", exported[0]["evaluation_id"])
+            self.assertEqual("inductive", exported[0]["pipeline_full"]["miner"]["key"])
+            experiment = store.get_experiment("exp-snap")
+            self.assertEqual("replay-token", experiment["conformance_mode"])
+            self.assertEqual(10, experiment["actual_evaluations"])
+            self.assertEqual(2, experiment["optimizer_config"]["n_partitions"])
+            self.assertEqual(2, experiment["population_snapshots"][0]["cache_hits_since_previous"])
+            self.assertEqual("eval-final", store.get_experiment_solutions("exp-snap")[0]["evaluation_id"])
 
 
 if __name__ == "__main__":

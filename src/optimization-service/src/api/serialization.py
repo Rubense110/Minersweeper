@@ -120,6 +120,13 @@ def _build_experiment_export_archive(
         "metrics",
         "miners",
         "preprocessing",
+        "actual_evaluations",
+        "conformance_mode",
+        "log_sha256",
+        "optimizer_source_sha256",
+        "prom_revision",
+        "quality_policy_version",
+        "optimizer_config",
     ]
     solution_fields = [
         "solution_id",
@@ -140,9 +147,15 @@ def _build_experiment_export_archive(
         "initial_marking",
         "final_marking",
         "final_markings",
+        "pipeline_full",
+        "evaluation_id",
+        "fingerprint",
+        "evaluation_error",
+        "evaluation_status",
     ]
     snapshot_solution_fields = [
         "snapshot_solution_id",
+        "snapshot_id",
         "experiment_id",
         "snapshot_index",
         "evaluations_done",
@@ -163,6 +176,21 @@ def _build_experiment_export_archive(
         "initial_marking",
         "final_marking",
         "final_markings",
+        "pipeline_full",
+        "evaluation_id",
+        "fingerprint",
+        "evaluation_error",
+        "evaluation_status",
+    ]
+    population_snapshot_fields = [
+        "snapshot_id",
+        "experiment_id",
+        "snapshot_index",
+        "evaluations_done",
+        "attempts_since_previous",
+        "cache_hits_since_previous",
+        "errors_since_previous",
+        "unique_pipelines_since_previous",
     ]
 
     zip_buffer = io.BytesIO()
@@ -172,6 +200,10 @@ def _build_experiment_export_archive(
         archive.writestr(
             "snapshot_solutions.csv",
             _build_csv_bytes(snapshot_solution_fields, snapshot_solutions),
+        )
+        archive.writestr(
+            "population_snapshots.csv",
+            _build_csv_bytes(population_snapshot_fields, experiment.get("population_snapshots") or []),
         )
 
     filename = "experiment_{experiment_id}_{experiment_name}.zip".format(

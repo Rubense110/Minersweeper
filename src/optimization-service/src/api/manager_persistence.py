@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from java_service_client import ProMServiceClient
+from model_quality import validate_v3_feasibility
 
 from .common import LOGGER, _parse_utc_iso, _to_int_or_none
 from .petri import _petri_from_pnml, _petri_from_v2_artifact
@@ -110,7 +111,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
                 ):
                     raise ValueError("solution and artifact model_schema_version do not match")
                 model_schema_version = artifact_schema_version
-                if model_schema_version == 2:
+                if model_schema_version in (2, 3):
                     (
                         places,
                         transitions,
@@ -122,16 +123,19 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
                     visible_transition_count = artifact.get("visible_transition_count")
                     is_feasible = artifact.get("is_feasible")
                     constraint_violations = artifact.get("constraint_violations")
-                    if not isinstance(visible_transition_count, int) or isinstance(visible_transition_count, bool):
-                        raise ValueError("v2 artifact is missing visible_transition_count")
-                    if not isinstance(is_feasible, bool) or not isinstance(constraint_violations, list):
-                        raise ValueError("v2 artifact is missing feasibility metadata")
-                    expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
-                    if (
-                        is_feasible != (visible_transition_count > 0)
-                        or constraint_violations != expected_violations
-                    ):
-                        raise ValueError("v2 artifact has inconsistent feasibility metadata")
+                    if model_schema_version == 3:
+                        validate_v3_feasibility(visible_transition_count, is_feasible, constraint_violations)
+                    else:
+                        if not isinstance(visible_transition_count, int) or isinstance(visible_transition_count, bool):
+                            raise ValueError("v2 artifact is missing visible_transition_count")
+                        if not isinstance(is_feasible, bool) or not isinstance(constraint_violations, list):
+                            raise ValueError("v2 artifact is missing feasibility metadata")
+                        expected_violations = [] if is_feasible else ["NO_VISIBLE_TRANSITIONS"]
+                        if (
+                            is_feasible != (visible_transition_count > 0)
+                            or constraint_violations != expected_violations
+                        ):
+                            raise ValueError("v2 artifact has inconsistent feasibility metadata")
                 elif model_schema_version is None:
                     pnml_text = str(artifact.get("pnml") or "")
                     places, transitions, arcs, initial_marking, final_markings = _petri_from_pnml(pnml_text)
@@ -142,14 +146,23 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
                     final_marking = final_markings[0] if final_markings else []
                 else:
                     raise ValueError(f"unsupported model_schema_version: {model_schema_version}")
-            elif model_schema_version == 2:
-                raise ValueError("v2 solution is missing its semantic artifact")
+            elif model_schema_version in (2, 3):
+                raise ValueError("versioned solution is missing its semantic artifact")
 
         return {
             "variables": solution.get("variables", []),
             "objectives": solution.get("objectives", []),
             "metrics": solution.get("metrics", {}),
             "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
+            "pipeline_full": solution.get("pipeline") if isinstance(solution.get("pipeline"), dict) else None,
+            "evaluation_id": evaluation_id,
+            "fingerprint": solution.get("fingerprint"),
+            "evaluation_error": solution.get("evaluation_error"),
+            "evaluation_status": (
+                "error" if solution.get("evaluation_error") else
+                "feasible" if is_feasible is True else
+                "infeasible" if is_feasible is False else "unknown"
+            ),
             "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
             "is_pareto": bool(solution.get("is_pareto")) and is_feasible is not False,
             "places": places,
@@ -183,15 +196,32 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "start_at": _parse_utc_iso(started_at) or datetime.now(timezone.utc),
         "end_at": _parse_utc_iso(finished_at) or datetime.now(timezone.utc),
         "max_evals": int(discover.get("max_evaluations") or 0),
-        "pop_size": _to_int_or_none(discover.get("population_size")),
+        "pop_size": _to_int_or_none((result.get("optimizer_config") or {}).get("population_size") or discover.get("population_size")),
         "seed": _to_int_or_none(discover.get("seed")),
         "miners": (result.get("catalogs") or {}).get("miners", []),
         "preprocessing": (result.get("catalogs") or {}).get("preprocessing", []),
         "log_path": request_data.get("log_path") or "",
         "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
         "workers": int(discover.get("n_workers") or 1),
+        "actual_evaluations": _to_int_or_none(result.get("actual_evaluations")),
+        "conformance_mode": request_data.get("conformance_mode") or "alignment",
+        "log_sha256": result.get("log_sha256"),
+        "optimizer_source_sha256": result.get("optimizer_source_sha256"),
+        "prom_revision": result.get("prom_revision"),
+        "quality_policy_version": result.get("quality_policy_version"),
+        "optimizer_config": result.get("optimizer_config"),
     }
 
+    parsed_population_snapshots = [
+        {key: snapshot.get(key) for key in (
+            "snapshot_index", "evaluations_done", "attempts_since_previous",
+            "cache_hits_since_previous", "errors_since_previous", "unique_pipelines_since_previous",
+        )}
+        for snapshot in population_snapshots
+    ]
+
     control.raise_if_cancel_requested()
-    manager.job_store.save_completed_experiment(experiment_data, parsed_solutions, parsed_snapshot_solutions)
+    manager.job_store.save_completed_experiment(
+        experiment_data, parsed_solutions, parsed_snapshot_solutions, parsed_population_snapshots
+    )
     _cleanup_persisted_experiment_artifacts(manager, request_data, job_id)

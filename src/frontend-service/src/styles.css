@@ -926,6 +926,15 @@ button:disabled {
 .marking-final-number { font-weight: 700; }
 .marking-legend { margin: 0; }
 
+.quality-violations {
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  overflow-wrap: anywhere;
+}
+
 .petri-image-panel {
   min-height: 140px;
   border: 1px solid var(--line);

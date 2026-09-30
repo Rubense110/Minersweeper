@@ -167,6 +167,35 @@ class PetriPnmlSerializationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "is_feasible does not match visible_transition_count"):
             _petri_from_v2_artifact(artifact)
 
+    def test_v3_artifact_preserves_and_excludes_multiple_final_markings(self):
+        artifact = {
+            "model_schema_version": 3,
+            "pnml": "<pnml><net><place id='p0'/><place id='p1'/><place id='p2'/><transition id='t'/></net></pnml>",
+            "initial_marking": [{"place_id": "p0", "tokens": 1}],
+            "final_marking": [{"place_id": "p1", "tokens": 1}],
+            "final_markings": [[{"place_id": "p1", "tokens": 1}], [{"place_id": "p2", "tokens": 1}]],
+            "transitions": [{"id": "t", "label": "A", "invisible": False}],
+            "visible_transition_count": 1,
+            "is_feasible": False,
+            "constraint_violations": ["MULTIPLE_FINAL_MARKINGS"],
+        }
+        self.assertEqual(2, len(_petri_from_v2_artifact(artifact)[-1]))
+        artifact["constraint_violations"] = []
+        artifact["is_feasible"] = True
+        with self.assertRaisesRegex(ValueError, "MULTIPLE_FINAL_MARKINGS"):
+            _petri_from_v2_artifact(artifact)
+
+    def test_v3_artifact_accepts_structural_exclusion_with_visible_transition(self):
+        artifact = self._minimal_v2_artifact()
+        artifact.update({
+            "model_schema_version": 3,
+            "transitions": [{"id": "t", "label": "A", "invisible": False}],
+            "visible_transition_count": 1,
+            "is_feasible": False,
+            "constraint_violations": ["FINAL_NOT_REACHABLE"],
+        })
+        self.assertEqual(1, len(_petri_from_v2_artifact(artifact)[-1]))
+
     @staticmethod
     def _minimal_v2_artifact():
         return {

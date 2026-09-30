@@ -20,6 +20,7 @@ import com.minersweeper.javaservice.evaluation.fingerprint.FingerprintBuilder;
 import com.minersweeper.javaservice.evaluation.io.LogLoader;
 import com.minersweeper.javaservice.evaluation.io.PmnlExporter;
 import com.minersweeper.javaservice.evaluation.preprocessing.PreprocessingPipeline;
+import com.minersweeper.javaservice.evaluation.quality.ModelQualityAnalyzer;
 import com.minersweeper.javaservice.evaluation.serialization.PetriNetSemanticsSerializer;
 import com.minersweeper.javaservice.evaluation.utils.TextUtils;
 import java.io.InterruptedIOException;
@@ -29,6 +30,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -47,6 +49,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     private final FingerprintBuilder fingerprintBuilder = new FingerprintBuilder();
     private final ConformanceMetricsCalculator conformanceMetricsCalculator = new ConformanceMetricsCalculator();
     private final PetriNetSemanticsSerializer semanticsSerializer = new PetriNetSemanticsSerializer();
+    private final ModelQualityAnalyzer qualityAnalyzer = new ModelQualityAnalyzer();
 
     public PromPipelineEvaluator(ArtifactStore artifactStore, Path logsRoot) {
         this(artifactStore, logsRoot, new ExperimentExecutionRegistry());
@@ -101,10 +104,14 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("discover_ms", discoverStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             int visibleTransitionCount = semanticsSerializer.countVisibleTransitions(discovered.getNet());
-            boolean isFeasible = visibleTransitionCount > 0;
-            List<String> constraintViolations = isFeasible
-                ? Collections.<String>emptyList()
-                : Collections.singletonList("NO_VISIBLE_TRANSITIONS");
+            ModelQualityAnalyzer.Result quality = qualityAnalyzer.analyze(
+                discovered.getNet(), discovered.getInitialMarking(), discovered.getFinalMarkings()
+            );
+            List<String> constraintViolations = quality.violations();
+            boolean isFeasible = constraintViolations.isEmpty();
+            timing.putField("quality_states", Integer.toString(quality.exploredStates));
+            timing.putField("quality_feasible", Boolean.toString(isFeasible));
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long metricsStartNs = TimingTrace.nowNs();
             Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
@@ -143,7 +150,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 selectedMetrics,
                 discovered.getPnml(),
                 fingerprint,
-                Integer.valueOf(2),
+                Integer.valueOf(3),
                 Integer.valueOf(visibleTransitionCount),
                 Boolean.valueOf(isFeasible),
                 constraintViolations,

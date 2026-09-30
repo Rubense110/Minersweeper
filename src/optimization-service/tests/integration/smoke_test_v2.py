@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and validate a small MineSweeper schema-v2 experiment through public APIs."""
+"""Run and validate a small MineSweeper schema-v3 experiment through public APIs."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ XES_LOG = os.environ.get("SMOKE_XES", "BPI_Challenge_2013_open_problems.xes")
 TIMEOUT_SECONDS = int(os.environ.get("SMOKE_TIMEOUT_SECONDS", "1800"))
 POLL_SECONDS = float(os.environ.get("SMOKE_POLL_SECONDS", "2"))
 POPULATION_SIZE = int(os.environ.get("SMOKE_POPULATION_SIZE", "4"))
+N_PARTITIONS = int(os.environ.get("SMOKE_N_PARTITIONS", "1"))
 MAX_EVALUATIONS = int(os.environ.get("SMOKE_MAX_EVALUATIONS", "8"))
 SEED = int(os.environ.get("SMOKE_SEED", "20260916"))
 EXCLUDED_MINERS = sorted({"ilp", "hybrid_ilp"} | {
@@ -78,8 +79,9 @@ def validate_marking(marking: Any, place_ids: set[str], label: str) -> None:
         seen.add(place_id)
 
 
-def validate_v2_solution(solution: dict[str, Any], label: str) -> None:
-    require(solution.get("model_schema_version") == 2, f"{label}: model_schema_version is not 2")
+def validate_solution(solution: dict[str, Any], label: str) -> None:
+    schema_version = solution.get("model_schema_version")
+    require(schema_version in (2, 3), f"{label}: unsupported model_schema_version")
     for field in (
         "places", "transitions", "initial_marking", "final_marking", "final_markings",
         "visible_transition_count", "is_feasible", "constraint_violations", "is_pareto",
@@ -125,10 +127,19 @@ def validate_v2_solution(solution: dict[str, Any], label: str) -> None:
             f"{label}: visible_transition_count={reported_count}, actual={visible_count}")
     feasible = solution["is_feasible"]
     require(isinstance(feasible, bool), f"{label}: is_feasible is not boolean")
-    require(feasible == (reported_count > 0), f"{label}: feasibility contradicts visible count")
-    expected_violations = [] if feasible else ["NO_VISIBLE_TRANSITIONS"]
-    require(solution["constraint_violations"] == expected_violations,
-            f"{label}: constraint_violations contradict feasibility")
+    violations = solution["constraint_violations"]
+    if schema_version == 2:
+        require(feasible == (reported_count > 0), f"{label}: v2 feasibility contradicts visible count")
+        require(violations == ([] if feasible else ["NO_VISIBLE_TRANSITIONS"]),
+                f"{label}: v2 constraint_violations contradict feasibility")
+    else:
+        require(isinstance(violations, list) and len(violations) == len(set(violations)),
+                f"{label}: v3 constraint_violations are invalid")
+        require(feasible == (len(violations) == 0), f"{label}: v3 feasibility contradicts violations")
+        require((reported_count == 0) == ("NO_VISIBLE_TRANSITIONS" in violations),
+                f"{label}: v3 visibility contradicts violations")
+        require((len(final_markings) != 1) == ("MULTIPLE_FINAL_MARKINGS" in violations),
+                f"{label}: v3 final marking count contradicts violations")
     require(isinstance(solution["is_pareto"], bool), f"{label}: is_pareto is not boolean")
     require(feasible or not solution["is_pareto"], f"{label}: infeasible solution is public Pareto")
 
@@ -140,7 +151,7 @@ def dominates(left: list[float], right: list[float]) -> bool:
 def validate_pareto(solutions: list[dict[str, Any]]) -> set[int]:
     feasible_indexes = [
         index for index, solution in enumerate(solutions)
-        if solution.get("model_schema_version") == 2 and solution.get("is_feasible") is True
+        if solution.get("model_schema_version") in (2, 3) and solution.get("is_feasible") is True
     ]
     for index in feasible_indexes:
         solution = solutions[index]
@@ -183,12 +194,12 @@ def validate_export(payload: bytes, solutions: list[dict[str, Any]]) -> tuple[li
             "is_feasible", "constraint_violations", "is_pareto", "initial_marking",
             "final_marking", "final_markings",
         }
-        require(not rows or semantic_fields.issubset(rows[0]), "export lacks v2 semantic columns")
-        v2_rows = 0
+        require(not rows or semantic_fields.issubset(rows[0]), "export lacks model semantic columns")
+        model_rows = 0
         for index, row in enumerate(rows):
             if not row["model_schema_version"]:
                 require(row["is_pareto"].lower() != "true",
-                        f"export.solution[{index}]: failed/non-v2 evaluation is Pareto")
+                        f"export.solution[{index}]: failed/legacy evaluation is Pareto")
                 continue
             exported = {
                 "model_schema_version": int(row["model_schema_version"]),
@@ -202,14 +213,14 @@ def validate_export(payload: bytes, solutions: list[dict[str, Any]]) -> tuple[li
                 "final_marking": json_cell(row, "final_marking"),
                 "final_markings": json_cell(row, "final_markings"),
             }
-            validate_v2_solution(exported, f"export.solution[{index}]")
+            validate_solution(exported, f"export.solution[{index}]")
             require(row["solution_id"] in by_id, "export contains an unknown solution ID")
             original = by_id[row["solution_id"]]
             for field in semantic_fields:
                 require(exported[field] == original[field],
                         f"export.solution[{index}]: {field} differs from the persisted API value")
-            v2_rows += 1
-    return names, v2_rows
+            model_rows += 1
+    return names, model_rows
 
 
 def main() -> int:
@@ -222,7 +233,7 @@ def main() -> int:
     logs, _ = request("/logs")
     require(XES_LOG in logs.get("logs", []), f"XES log is not exposed by /logs: {XES_LOG}")
 
-    execution_name = f"smoke_v2_{int(time.time())}"
+    execution_name = f"smoke_v3_{int(time.time())}"
     experiment_request = {
         "execution_name": execution_name,
         "log_path": XES_LOG,
@@ -230,7 +241,7 @@ def main() -> int:
         "conformance_mode": CONFORMANCE_MODE,
         "max_evaluations": MAX_EVALUATIONS,
         "population_size": POPULATION_SIZE,
-        "n_partitions": 1,
+        "n_partitions": N_PARTITIONS,
         "n_workers": 1,
         "seed": SEED,
         "excluded_miners": EXCLUDED_MINERS,
@@ -250,7 +261,9 @@ def main() -> int:
             previous = state
         if job.get("status") in {"completed", "failed", "cancelled"}:
             break
-        require(time.monotonic() < deadline, f"job {job_id} timed out")
+        if time.monotonic() >= deadline:
+            request(f"/optimizations/{urllib.parse.quote(job_id)}/cancel", method="POST")
+            raise ValidationError(f"job {job_id} timed out and cancellation was requested")
         time.sleep(POLL_SECONDS)
     require(job.get("status") == "completed", f"job ended as {job.get('status')}: {job.get('error')}")
 
@@ -258,12 +271,12 @@ def main() -> int:
     pareto_payload, _ = request(f"/experiments/{urllib.parse.quote(job_id)}/solutions?scope=pareto")
     solutions = all_payload.get("solutions", [])
     require(isinstance(solutions, list) and solutions, "completed experiment returned no solutions")
-    v2_solutions = []
+    v3_solutions = []
     for index, solution in enumerate(solutions):
         schema_version = solution.get("model_schema_version")
-        require(schema_version in (None, 2), f"solution[{index}]: unexpected schema version {schema_version!r}")
-        if schema_version == 2:
-            validate_v2_solution(solution, f"solution[{index}]")
+        require(schema_version in (None, 3), f"solution[{index}]: unexpected schema version {schema_version!r}")
+        if schema_version == 3:
+            validate_solution(solution, f"solution[{index}]")
             metrics = solution.get("metrics") or {}
             require(all(isinstance(metrics.get(metric), (int, float))
                         and not isinstance(metrics.get(metric), bool)
@@ -273,13 +286,13 @@ def main() -> int:
             require(miner.get("key") not in EXCLUDED_MINERS
                     and miner.get("variant") not in {"Alpha#", "Alpha$"},
                     f"solution[{index}]: excluded miner/variant was evaluated")
-            v2_solutions.append(solution)
+            v3_solutions.append(solution)
         else:
             require(solution.get("is_pareto") is False,
-                    f"solution[{index}]: failed/non-v2 evaluation is Pareto")
+                    f"solution[{index}]: failed/non-v3 evaluation is Pareto")
             require(solution.get("is_feasible") is None,
-                    f"solution[{index}]: failed/non-v2 evaluation has feasibility metadata")
-    require(v2_solutions, "completed experiment persisted no schema-v2 solutions")
+                    f"solution[{index}]: failed/non-v3 evaluation has feasibility metadata")
+    require(v3_solutions, "completed experiment persisted no schema-v3 solutions")
     expected_pareto = validate_pareto(solutions)
     require(pareto_payload.get("count") == len(expected_pareto),
             "scope=pareto count differs from locally recomputed front")
@@ -289,8 +302,8 @@ def main() -> int:
 
     export_payload, headers = request(f"/experiments/{urllib.parse.quote(job_id)}/download")
     require(isinstance(export_payload, bytes), "download endpoint did not return a ZIP")
-    export_names, exported_v2 = validate_export(export_payload, solutions)
-    require(exported_v2 == len(v2_solutions), "export schema-v2 row count differs from the API")
+    export_names, exported_v3 = validate_export(export_payload, solutions)
+    require(exported_v3 == len(v3_solutions), "export schema-v3 row count differs from the API")
     export_path = Path(os.environ.get("SMOKE_EXPORT_PATH", f"/tmp/minersweeper-smoke-{job_id}.zip"))
     export_path.write_bytes(export_payload)
 
@@ -306,16 +319,20 @@ def main() -> int:
         "duration_seconds": round(duration, 1),
         "requested_evaluations": MAX_EVALUATIONS,
         "solutions": len(solutions),
-        "schema_v2_solutions": len(v2_solutions),
-        "failed_or_legacy_solutions": len(solutions) - len(v2_solutions),
+        "schema_v3_solutions": len(v3_solutions),
+        "failed_or_legacy_solutions": len(solutions) - len(v3_solutions),
         "feasible_solutions": sum(solution.get("is_feasible") is True for solution in solutions),
         "pareto_solutions": len(expected_pareto),
+        "snapshots": (job.get("result_summary") or {}).get("counts", {}).get("snapshots"),
+        "excluded_reasons": sorted({
+            reason for solution in solutions for reason in solution.get("constraint_violations", [])
+        }),
         "observed_miner_variants": miners,
         "export_path": str(export_path),
         "export_entries": export_names,
         "content_disposition": headers.get("content-disposition"),
         "validation": {
-            "schema_v2": "PASS",
+            "schema_v3": "PASS",
             "markings": "PASS",
             "invisibility": "PASS",
             "visible_count": "PASS",

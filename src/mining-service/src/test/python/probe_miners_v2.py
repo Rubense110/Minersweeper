@@ -110,7 +110,8 @@ def validate_marking(marking: Any, place_ids: set[str], field: str) -> None:
 
 
 def validate_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
-    require(artifact.get("model_schema_version") == 2, "model_schema_version is not 2")
+    schema_version = artifact.get("model_schema_version")
+    require(schema_version in (2, 3), "unsupported model_schema_version")
     places = artifact.get("places")
     if not isinstance(places, list):
         # The Java artifact API exposes PNML plus semantic fields, not parsed places.
@@ -141,9 +142,16 @@ def validate_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     actual_visible = sum(not item["invisible"] for item in transitions)
     require(artifact.get("visible_transition_count") == actual_visible, "visible transition count mismatch")
     feasible = artifact.get("is_feasible")
-    require(isinstance(feasible, bool) and feasible == (actual_visible > 0), "feasibility mismatch")
-    expected = [] if feasible else ["NO_VISIBLE_TRANSITIONS"]
-    require(artifact.get("constraint_violations") == expected, "constraint violations mismatch")
+    require(isinstance(feasible, bool), "feasibility is not boolean")
+    violations = artifact.get("constraint_violations")
+    require(isinstance(violations, list), "constraint violations are not a list")
+    if schema_version == 2:
+        require(feasible == (actual_visible > 0), "v2 feasibility mismatch")
+        require(violations == ([] if feasible else ["NO_VISIBLE_TRANSITIONS"]), "v2 violations mismatch")
+    else:
+        require(feasible == (len(violations) == 0), "v3 feasibility mismatch")
+        require((actual_visible == 0) == ("NO_VISIBLE_TRANSITIONS" in violations), "v3 visibility mismatch")
+        require((len(finals) != 1) == ("MULTIPLE_FINAL_MARKINGS" in violations), "v3 final count mismatch")
     return {
         "places": len(place_ids),
         "transitions": len(transitions),
@@ -152,14 +160,14 @@ def validate_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
         "final_markings": finals,
         "visible_transition_count": actual_visible,
         "is_feasible": feasible,
-        "constraint_violations": expected,
+        "constraint_violations": violations,
     }
 
 
 def main() -> int:
     health_status, health = http_json("/health")
     require(health_status == 200 and health.get("status") == "ok", "mining service is not healthy")
-    run_id = f"probe_v2_{int(time.time())}"
+    run_id = f"probe_v3_{int(time.time())}"
     results: list[dict[str, Any]] = []
     selected_variants = {variant.strip() for variant in os.environ.get("PROBE_VARIANTS", "").split(",") if variant.strip()}
     selected_miners = [miner for miner in MINERS if not selected_variants or miner["variant"] in selected_variants]
@@ -185,7 +193,7 @@ def main() -> int:
             "duration_seconds": round(time.monotonic() - started, 3),
             "discovery": "PASS" if status == 200 else "FAIL",
             "response": response,
-            "artifact_v2": False,
+            "artifact_valid": False,
         }
         if status == 200:
             metrics = response.get("metrics") or {}
@@ -209,7 +217,7 @@ def main() -> int:
             if artifact_status == 200 and len(artifacts) == 1:
                 try:
                     row["semantics"] = validate_artifact(artifacts[0])
-                    row["artifact_v2"] = True
+                    row["artifact_valid"] = True
                 except (ValueError, TypeError) as error:
                     row["artifact_validation_error"] = str(error)
             else:
@@ -224,7 +232,7 @@ def main() -> int:
                           handle, ensure_ascii=True, indent=2, sort_keys=True)
                 handle.write("\n")
 
-    return 0 if all(row["artifact_v2"] and row.get("metrics_valid") for row in results) else 1
+    return 0 if all(row["artifact_valid"] and row.get("metrics_valid") for row in results) else 1
 
 
 if __name__ == "__main__":

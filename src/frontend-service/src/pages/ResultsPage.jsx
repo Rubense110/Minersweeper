@@ -61,6 +61,9 @@ function mapDbSolution(item, index, metricsOrder) {
     objectives: Array.isArray(item.objectives) ? item.objectives : [],
     variables: Array.isArray(item.variables) ? item.variables : [],
     isPareto: Boolean(item.is_pareto),
+    isFeasible: typeof item.is_feasible === 'boolean' ? item.is_feasible : null,
+    constraintViolations: Array.isArray(item.constraint_violations) ? item.constraint_violations : [],
+    modelSchemaVersion: item.model_schema_version ?? null,
     petri: {
       places: Array.isArray(item.places) ? item.places : [],
       transitions: Array.isArray(item.transitions) ? item.transitions : [],
@@ -541,7 +544,7 @@ export default function ResultsPage() {
   }
 
   const filteredSolutions = useMemo(
-    () => (showOnlyFeasible ? solutions.filter((solution) => solution.isFeasible) : solutions),
+    () => (showOnlyFeasible ? solutions.filter((solution) => solution.modelSchemaVersion === 3 && solution.isFeasible === true) : solutions),
     [showOnlyFeasible, solutions]
   )
 
@@ -1078,6 +1081,18 @@ export default function ResultsPage() {
                     </div>
 
                     <h3>Solution details</h3>
+                    <p>
+                      <strong>Model quality:</strong>{' '}
+                      {selectedSolution.modelSchemaVersion === 3
+                        ? (selectedSolution.isFeasible === true ? 'Feasible' : 'Excluded')
+                        : (selectedSolution.modelSchemaVersion === 2 ? 'Legacy (visibility-only check)' : 'Unknown (legacy)')}
+                      {selectedSolution.modelSchemaVersion ? ` (schema v${selectedSolution.modelSchemaVersion})` : ''}
+                    </p>
+                    {selectedSolution.constraintViolations.length > 0 ? (
+                      <p className="quality-violations">
+                        <strong>Reasons:</strong> {selectedSolution.constraintViolations.join(', ')}
+                      </p>
+                    ) : null}
                     <p>
                       <strong>Runtime (ms):</strong> {selectedSolution.runtimeMs === null ? '-' : selectedSolution.runtimeMs}
                     </p>
