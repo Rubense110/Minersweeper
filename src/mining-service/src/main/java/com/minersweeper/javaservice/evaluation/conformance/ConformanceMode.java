@@ -29,7 +29,7 @@ public enum ConformanceMode {
 
     public static ConformanceMode resolve(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
-            return ALIGNMENT;
+            return REPLAY_TOKEN;
         }
         String normalized = raw.trim().toLowerCase();
         for (ConformanceMode mode : values()) {

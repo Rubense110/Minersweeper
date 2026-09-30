@@ -1,9 +1,10 @@
 package com.minersweeper.javaservice.evaluation.discovery.miners;
 
 import com.minersweeper.javaservice.evaluation.conformance.TokenReplayEngine;
+import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+import com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -12,7 +13,6 @@ import java.util.Map;
 import org.deckfour.xes.classification.XEventClass;
 import org.deckfour.xes.classification.XEventClasses;
 import org.deckfour.xes.classification.XEventNameClassifier;
-import org.deckfour.xes.info.XLogInfoFactory;
 import org.deckfour.xes.model.XLog;
 import org.processmining.models.graphbased.directed.petrinet.Petrinet;
 import org.processmining.models.graphbased.directed.petrinet.PetrinetEdge;
@@ -44,71 +44,72 @@ final class HeuristicsFinalMarkingPolicy {
         if (search.complete && !search.terminals.isEmpty()) {
             return new Result(search.terminals, "reachable_terminal");
         }
-        Marking replayed = bestReachablePrefix(net, initial, log);
+        Marking replayed;
+        try (ExecutionChecks.Deadline ignored = ExecutionChecks.within(MAX_SEARCH_NANOS)) {
+            replayed = bestReachablePrefix(net, initial, log);
+        } catch (ExecutionChecks.DeadlineExceeded limit) {
+            // Initial marking is always reachable; never invent an accepting state.
+            replayed = copy(initial);
+        }
         return new Result(Collections.singletonList(replayed), "replayed_prefix_fallback");
     }
 
     private SearchResult searchTerminalMarkings(Petrinet net, Marking initial) {
+        Budget budget = new Budget(MAX_SEARCH_NANOS);
+        try { return searchTerminalMarkings(net, initial, budget); }
+        catch (Inconclusive | ArithmeticException limit) {
+            return new SearchResult(false, Collections.<Marking>emptyList());
+        }
+    }
+
+    private SearchResult searchTerminalMarkings(Petrinet net, Marking initial, Budget budget) {
+        budget.check();
         List<Place> places = new ArrayList<Place>(net.getPlaces());
         List<Transition> transitions = new ArrayList<Transition>(net.getTransitions());
         Map<Place, Integer> indexes = new LinkedHashMap<Place, Integer>();
-        for (int i = 0; i < places.size(); i++) indexes.put(places.get(i), Integer.valueOf(i));
+        for (int i = 0; i < places.size(); i++) { budget.check(); indexes.put(places.get(i), Integer.valueOf(i)); }
         int[] start = new int[places.size()];
         for (Place place : initial.baseSet()) {
+            budget.check();
             Integer index = indexes.get(place);
             if (index == null) return new SearchResult(false, Collections.<Marking>emptyList());
             start[index.intValue()] = initial.occurrences(place).intValue();
         }
-        int[][] consume = new int[transitions.size()][places.size()];
-        int[][] produce = new int[transitions.size()][places.size()];
-        for (int i = 0; i < transitions.size(); i++) {
-            Transition transition = transitions.get(i);
-            for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getInEdges(transition)) {
-                if (!(edge instanceof Arc) || !(edge.getSource() instanceof Place))
-                    return new SearchResult(false, Collections.<Marking>emptyList());
-                consume[i][indexes.get((Place) edge.getSource()).intValue()] += ((Arc) edge).getWeight();
-            }
-            for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getOutEdges(transition)) {
-                if (!(edge instanceof Arc) || !(edge.getTarget() instanceof Place))
-                    return new SearchResult(false, Collections.<Marking>emptyList());
-                produce[i][indexes.get((Place) edge.getTarget()).intValue()] += ((Arc) edge).getWeight();
-            }
-        }
+        SparseNet topology = new SparseNet(net, places, transitions, budget);
         boolean[] sink = new boolean[places.size()];
-        for (int i = 0; i < places.size(); i++) sink[i] = net.getOutEdges(places.get(i)).isEmpty();
+        for (int i = 0; i < places.size(); i++) { budget.check(); sink[i] = net.getOutEdges(places.get(i)).isEmpty(); }
 
         ArrayDeque<int[]> queue = new ArrayDeque<int[]>();
-        Map<String, int[]> seen = new LinkedHashMap<String, int[]>();
+        Map<StateKey, int[]> seen = new LinkedHashMap<StateKey, int[]>();
         queue.add(start);
-        seen.put(Arrays.toString(start), start);
+        seen.put(new StateKey(start), start);
         List<Marking> terminals = new ArrayList<Marking>();
-        long deadline = System.nanoTime() + MAX_SEARCH_NANOS;
+
         while (!queue.isEmpty()) {
-            if (seen.size() > MAX_STATES || System.nanoTime() > deadline)
+            budget.check();
+            if (seen.size() > MAX_STATES)
                 return new SearchResult(false, Collections.<Marking>emptyList());
             int[] state = queue.removeFirst();
             boolean enabledAny = false;
             for (int transition = 0; transition < transitions.size(); transition++) {
-                boolean enabled = true;
-                for (int place = 0; place < places.size(); place++) {
-                    if (state[place] < consume[transition][place]) { enabled = false; break; }
-                }
-                if (!enabled) continue;
+                budget.check();
+                if (!topology.enabled(transition, state)) continue;
                 enabledAny = true;
-                int[] next = new int[places.size()];
+                int[] next = topology.fire(transition, state);
                 boolean withinLimit = true;
-                for (int place = 0; place < places.size(); place++) {
-                    next[place] = state[place] - consume[transition][place] + produce[transition][place];
-                    if (next[place] > MAX_TOKENS_PER_PLACE) withinLimit = false;
-                }
+                for (int count : next) { budget.check(); if (count > MAX_TOKENS_PER_PLACE) withinLimit = false; }
                 if (!withinLimit) return new SearchResult(false, Collections.<Marking>emptyList());
-                String key = Arrays.toString(next);
-                if (!seen.containsKey(key)) { seen.put(key, next); queue.add(next); }
+                StateKey key = new StateKey(next);
+                if (!seen.containsKey(key)) {
+                    if (seen.size() >= MAX_STATES) throw new Inconclusive();
+                    budget.reserve(96L); seen.put(key, next); queue.add(next);
+                }
             }
             if (!enabledAny && onlySinkTokens(state, sink)) terminals.add(toMarking(state, places));
         }
         Collections.sort(terminals, new Comparator<Marking>() {
             @Override public int compare(Marking left, Marking right) {
+                budget.check();
                 return markingKey(left).compareTo(markingKey(right));
             }
         });
@@ -129,10 +130,11 @@ final class HeuristicsFinalMarkingPolicy {
     private Marking bestReachablePrefix(Petrinet net, Marking initial, XLog log) {
         if (log == null || log.isEmpty()) return copy(initial);
         XEventNameClassifier classifier = new XEventNameClassifier();
-        XEventClasses classes = XLogInfoFactory.createLogInfo(log, classifier).getEventClasses();
+        XEventClasses classes = com.minersweeper.javaservice.evaluation.conformance.LogReplayStatistics.forLog(log, classifier).eventClasses();
         XEventClass dummy = new XEventClass("DUMMY", classes.size() + 1);
         TransEvClassMapping mapping = new TransEvClassMapping(classifier, dummy);
         for (Transition transition : net.getTransitions()) {
+            ExecutionChecks.check();
             XEventClass eventClass = classes.getByIdentity(transition.getLabel());
             if (eventClass == null) eventClass = classes.getByIdentity(transition.getLabel() + "+complete");
             mapping.put(transition, eventClass == null ? dummy : eventClass);
@@ -141,6 +143,7 @@ final class HeuristicsFinalMarkingPolicy {
         Map<String, Candidate> candidates = new LinkedHashMap<String, Candidate>();
         long deadline = System.nanoTime() + MAX_SEARCH_NANOS;
         for (Map.Entry<List<String>, Integer> variant : engine.variantsByActivitySequence(log).entrySet()) {
+            ExecutionChecks.check();
             if (System.nanoTime() > deadline) break;
             TokenReplayEngine.TraceReplay replay = engine.replayPrefix(variant.getKey());
             Marking marking = replay.marking();
@@ -155,6 +158,7 @@ final class HeuristicsFinalMarkingPolicy {
         }
         Candidate best = null;
         for (Candidate candidate : candidates.values()) {
+            ExecutionChecks.check();
             if (best == null || candidate.completed > best.completed
                 || (candidate.completed == best.completed && candidate.frequency > best.frequency)
                 || (candidate.completed == best.completed && candidate.frequency == best.frequency

@@ -10,7 +10,7 @@ import time
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Sequence
 
-from execution_control import JobCancelled
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ExecutionControl
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 from model_quality import validate_v3_feasibility
@@ -28,6 +28,7 @@ class PipelineOptimizationProblem(FloatProblem):
     _EVALUATION_ATTRIBUTE_KEYS = (
         "pipeline",
         "metrics",
+        "metrics_status",
         "objective_metrics",
         "runtime_ms",
         "evaluation_error",
@@ -52,6 +53,7 @@ class PipelineOptimizationProblem(FloatProblem):
         use_cache: bool = True,
         on_evaluation: Callable[[Dict[str, Any]], None] | None = None,
         rng: random.Random | None = None,
+        execution_control: ExecutionControl | None = None,
     ):
         super().__init__()
         if not metrics_list:
@@ -62,6 +64,7 @@ class PipelineOptimizationProblem(FloatProblem):
         self.required_metrics = list(required_metrics or metrics_list)
         self.search_space = search_space
         self.evaluator = evaluator
+        self.execution_control = execution_control
         self.use_cache = use_cache
         self.evaluation_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_inflight: Dict[str, threading.Event] = {}
@@ -97,8 +100,7 @@ class PipelineOptimizationProblem(FloatProblem):
         self._clear_evaluation_state(solution)
         solution.objectives = [0.0] * self.number_of_objectives()
         solution.constraints = [0.0] * self.number_of_constraints()
-        if hasattr(self.evaluator, "raise_if_cancel_requested"):
-            self.evaluator.raise_if_cancel_requested()
+        self.raise_if_cancel_requested()
 
         decoded_pipeline = repair_pipeline_preprocessing(
             self.log_path,
@@ -128,14 +130,14 @@ class PipelineOptimizationProblem(FloatProblem):
                     break
             # Do not hold the lock during a ProM call, or while waiting for one.
             inflight.wait(timeout=0.1)
-            if hasattr(self.evaluator, "raise_if_cancel_requested"):
-                self.evaluator.raise_if_cancel_requested()
+            self.raise_if_cancel_requested()
 
         if cached is not None:
             solution.objectives = list(cached["objectives"])
             solution.constraints = list(cached["constraints"])
             solution.attributes["pipeline"] = deepcopy(cached["pipeline"])
             solution.attributes["metrics"] = dict(cached["metrics"])
+            solution.attributes["metrics_status"] = cached.get("metrics_status", "computed")
             solution.attributes["objective_metrics"] = dict(cached["objective_metrics"])
             if cached.get("runtime_ms") is not None:
                 solution.attributes["runtime_ms"] = cached["runtime_ms"]
@@ -180,13 +182,14 @@ class PipelineOptimizationProblem(FloatProblem):
         cache_key: str | None,
     ) -> FloatSolution:
         eval_started_ns = time.perf_counter_ns()
+        metrics_status = "computed"
         try:
             evaluation_payload = self.evaluator(self.log_path, decoded_pipeline, self.required_metrics)
-            if hasattr(self.evaluator, "raise_if_cancel_requested"):
-                self.evaluator.raise_if_cancel_requested()
+            self.raise_if_cancel_requested()
             runtime_ms = int((time.perf_counter_ns() - eval_started_ns) / 1_000_000)
             if "metrics" in evaluation_payload and isinstance(evaluation_payload["metrics"], dict):
                 metric_values = evaluation_payload["metrics"]
+                metrics_status = evaluation_payload.get("metrics_status", "computed")
                 evaluation_id = evaluation_payload.get("evaluation_id")
                 experiment_id = evaluation_payload.get("experiment_id")
                 fingerprint = evaluation_payload.get("fingerprint")
@@ -210,6 +213,10 @@ class PipelineOptimizationProblem(FloatProblem):
                 is_feasible = None
                 constraint_violations = None
             evaluation_error = None
+        except EvaluationTerminationUnconfirmed as error:
+            if self.execution_control is not None:
+                self.execution_control.request_failure(error)
+            raise
         except JobCancelled:
             raise
         except Exception as error:  # noqa: BLE001 - We must keep optimization running.
@@ -235,7 +242,10 @@ class PipelineOptimizationProblem(FloatProblem):
         objective_metrics: Dict[str, float] = {}
         for metric_name, maximize in zip(self.metrics_list, self.maximize_metrics):
             fallback = 0.0 if maximize else 1.0
-            raw_value = metric_values.get(metric_name)
+            skipped = metrics_status == "skipped_infeasible"
+            if skipped and is_feasible is not False:
+                raise ValueError("Only infeasible models can skip metrics")
+            raw_value = fallback if skipped else metric_values.get(metric_name)
             try:
                 value = float(raw_value)
             except (TypeError, ValueError):
@@ -247,13 +257,15 @@ class PipelineOptimizationProblem(FloatProblem):
                     value = fallback
                     if evaluation_error is None:
                         evaluation_error = f"non-finite metric value for '{metric_name}': {raw_value!r}"
-            metric_values[metric_name] = value
+            if not skipped:
+                metric_values[metric_name] = value
             objective_metrics[metric_name] = value
             objectives.append(-value if maximize else value)
 
         solution.objectives = objectives
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
+        solution.attributes["metrics_status"] = metrics_status
         solution.attributes["objective_metrics"] = objective_metrics
         solution.attributes["runtime_ms"] = runtime_ms
         if model_schema_version is not None:
@@ -303,6 +315,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 "constraints": list(solution.constraints),
                 "pipeline": deepcopy(decoded_pipeline),
                 "metrics": dict(metric_values),
+                "metrics_status": metrics_status,
                 "objective_metrics": dict(objective_metrics),
                 "runtime_ms": runtime_ms,
                 "evaluation_id": evaluation_id,
@@ -329,6 +342,12 @@ class PipelineOptimizationProblem(FloatProblem):
             fingerprint=fingerprint,
         )
         return solution
+
+    def raise_if_cancel_requested(self) -> None:
+        if self.execution_control is not None:
+            self.execution_control.raise_if_cancel_requested()
+        if hasattr(self.evaluator, "raise_if_cancel_requested"):
+            self.evaluator.raise_if_cancel_requested()
 
     @classmethod
     def _clear_evaluation_state(cls, solution: FloatSolution) -> None:

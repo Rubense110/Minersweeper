@@ -78,7 +78,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
             base_url="http://service",
             experiment_id="exec",
             timeout_seconds=300,
-            conformance_mode=None,
+            conformance_mode="replay-token",
             excluded_miners=("split", "ilp"),
         )
 

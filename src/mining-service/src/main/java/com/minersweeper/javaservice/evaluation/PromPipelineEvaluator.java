@@ -35,12 +35,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import org.deckfour.xes.model.XLog;
-import org.processmining.contexts.cli.CLIContext;
-import org.processmining.contexts.cli.CLIPluginContext;
 import org.processmining.framework.plugin.PluginContext;
 
 public class PromPipelineEvaluator implements PipelineEvaluator {
     private final ArtifactStore artifactStore;
+    private final EvaluationAdmission admission = new EvaluationAdmission();
     private final LogLoader logLoader;
     private final Map<String, MinerDiscoverer> minersByKey;
     private final ExperimentExecutionRegistry executionRegistry;
@@ -67,6 +66,13 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         this.minersByKey = createMiners();
     }
 
+    private static ManagedCLIContext createManagedContext(TimingTrace timing) {
+        long started = TimingTrace.nowNs();
+        ManagedCLIContext context = new ManagedCLIContext();
+        timing.markFromStart("context_create_ms", started);
+        return context;
+    }
+
     @Override
     public EvaluationResult evaluate(PipelineRequest request) throws Exception {
         TimingTrace timing = TimingTrace.start();
@@ -81,7 +87,9 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
         ConformanceMode conformanceMode = ConformanceMode.resolve(request.conformance_mode);
         timing.putField("conformance_mode", conformanceMode.key());
 
-        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId, requestId)) {
+        try (ExperimentExecutionRegistry.EvaluationLease ignored = executionRegistry.registerEvaluation(experimentId, requestId);
+             EvaluationAdmission.Permit permit = admission.acquire(executionRegistry, experimentId, requestId);
+             ManagedCLIContext contexts = createManagedContext(timing)) {
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             long logLoadStartNs = TimingTrace.nowNs();
             LogLoader.LogAccess logAccess = logLoader.loadForExperiment(request.experiment_id, request.log_path);
@@ -90,9 +98,14 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("log_load_ms", logLoadStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
-            long contextStartNs = TimingTrace.nowNs();
-            PluginContext context = createContext();
-            timing.markFromStart("context_create_ms", contextStartNs);
+            PluginContext context = contexts.plugin();
+            timing.putField("evaluations_active", Integer.toString(admission.active()));
+            timing.putField("evaluations_waiting", Integer.toString(admission.waiting()));
+            timing.putField("im_multithreading_effective", Boolean.toString(
+                "inductive".equals(request.pipeline.miner.key)
+                && Boolean.parseBoolean(System.getenv("PROM_ALLOW_MINER_MULTITHREADING"))
+                && com.minersweeper.javaservice.evaluation.utils.ParameterReader.boolParam(
+                    request.pipeline.miner.parameters, "use_multithreading", false)));
 
             long preprocessStartNs = TimingTrace.nowNs();
             XLog processedLog = preprocessingPipeline.apply(context, log, request);
@@ -104,9 +117,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             timing.markFromStart("discover_ms", discoverStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             int visibleTransitionCount = semanticsSerializer.countVisibleTransitions(discovered.getNet());
+            long qualityStartNs = TimingTrace.nowNs();
             ModelQualityAnalyzer.Result quality = qualityAnalyzer.analyze(
                 discovered.getNet(), discovered.getInitialMarking(), discovered.getFinalMarkings()
             );
+            timing.markFromStart("quality_ms", qualityStartNs);
             List<String> constraintViolations = quality.violations();
             boolean isFeasible = constraintViolations.isEmpty();
             timing.putField("quality_states", Integer.toString(quality.exploredStates));
@@ -114,7 +129,7 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             long metricsStartNs = TimingTrace.nowNs();
-            Map<String, Double> canonicalMetrics = conformanceMetricsCalculator.compute(
+            Map<String, Double> canonicalMetrics = isFeasible ? conformanceMetricsCalculator.compute(
                 context,
                 log,
                 discovered.getNet(),
@@ -126,13 +141,15 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
                 executionRegistry,
                 experimentId,
                 requestId
-            );
+            ) : Collections.<String, Double>emptyMap();
+            timing.putField("metrics_status", isFeasible ? "computed" : "skipped_infeasible");
             timing.markFromStart("metrics_ms", metricsStartNs);
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
 
             Map<String, Double> selectedMetrics = new LinkedHashMap<String, Double>();
             for (String metricName : request.metrics) {
                 Double value = canonicalMetrics.get(metricName);
+                if (!isFeasible) continue;
                 if (value == null) {
                     throw new IllegalArgumentException("unsupported metric: " + metricName);
                 }
@@ -145,21 +162,28 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
 
             long artifactStoreStartNs = TimingTrace.nowNs();
             executionRegistry.throwIfCancellationRequested(experimentId, requestId);
+            long pnmlStartNs = TimingTrace.nowNs();
+            String pnml = discovered.getPnml();
+            PetriNetSemanticsSerializer.SerializedSemantics semantics = semanticsSerializer.serializeAll(
+                discovered.getNet(), pnml, discovered.getInitialMarking(), discovered.getFinalMarkings());
+            timing.markFromStart("pnml_semantics_ms", pnmlStartNs);
+            executionRegistry.throwIfCancellationRequested(experimentId, requestId);
             EvaluationResult result = artifactStore.store(
                 request,
                 selectedMetrics,
-                discovered.getPnml(),
+                pnml,
                 fingerprint,
                 Integer.valueOf(3),
                 Integer.valueOf(visibleTransitionCount),
                 Boolean.valueOf(isFeasible),
                 constraintViolations,
-                semanticsSerializer.serializeMarking(discovered.getNet(), discovered.getPnml(), discovered.getInitialMarking()),
-                semanticsSerializer.serializeMarking(discovered.getNet(), discovered.getPnml(), discovered.getFinalMarking()),
-                semanticsSerializer.serializeFinalMarkings(discovered.getNet(), discovered.getPnml(), discovered.getFinalMarkings()),
-                semanticsSerializer.serializeTransitions(discovered.getNet(), discovered.getPnml())
+                semantics.initial,
+                semantics.finals.get(0),
+                semantics.finals,
+                semantics.transitions
             );
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
+            result.metrics_status = isFeasible ? "computed" : "skipped_infeasible";
             return result;
         } catch (Exception error) {
             Exception effectiveError = normalizeCancellationFailure(experimentId, requestId, error);
@@ -187,6 +211,11 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
     @Override
     public void cancelEvaluation(String experimentId, String requestId) {
         executionRegistry.requestCancelEvaluation(experimentId, requestId);
+    }
+
+    @Override
+    public Boolean terminationConfirmed(String experimentId, String requestId) {
+        return executionRegistry.terminationConfirmed(experimentId, requestId);
     }
 
     @Override
@@ -240,11 +269,6 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             throw new IllegalArgumentException("unsupported miner for real evaluator: " + minerKey);
         }
         return discoverer.discover(context, log, request);
-    }
-
-    private PluginContext createContext() {
-        CLIContext global = new CLIContext();
-        return new CLIPluginContext(global, "minersweeper");
     }
 
     private Map<String, MinerDiscoverer> createMiners() {

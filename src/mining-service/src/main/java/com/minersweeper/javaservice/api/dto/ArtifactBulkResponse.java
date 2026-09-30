@@ -15,6 +15,7 @@ public class ArtifactBulkResponse {
         public String log_path;
         public long created_at_epoch_ms;
         public Map<String, Double> metrics;
+        public String metrics_status;
         public PipelineRequest.PipelineConfig pipeline;
         public Integer model_schema_version;
         public Integer visible_transition_count;

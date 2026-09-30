@@ -21,6 +21,25 @@ import org.processmining.models.semantics.petrinet.Marking;
 public class PetriNetSemanticsSerializerTest {
 
     @Test
+    public void combinedSerializationPreservesUnicodeAndExactSemanticIds() throws Exception {
+        Petrinet net = PetrinetFactory.newPetrinet("facturación clínica");
+        Place start = net.addPlace("entrada"), end = net.addPlace("salida");
+        Transition activity = net.addTransition("Revisión 日本語");
+        net.addArc(start, activity); net.addArc(activity, end);
+        Marking initial = new Marking(); initial.add(start, 2);
+        Marking fin = new Marking(); fin.add(end, 3);
+        try (com.minersweeper.javaservice.evaluation.ManagedCLIContext context = new com.minersweeper.javaservice.evaluation.ManagedCLIContext()) {
+            String pnml = new PmnlExporter().exportPnml(context.plugin(), net);
+            PetriNetSemanticsSerializer serializer = new PetriNetSemanticsSerializer();
+            PetriNetSemanticsSerializer.SerializedSemantics combined = serializer.serializeAll(net, pnml, initial, Arrays.asList(fin));
+            assertEquals(2, tokensFor(combined.initial, exportedIdFor(pnml, "place", start.getLocalID().toString())));
+            assertEquals(3, tokensFor(combined.finals.get(0), exportedIdFor(pnml, "place", end.getLocalID().toString())));
+            assertEquals("Revisión 日本語", combined.transitions.get(0).label);
+            assertTrue(pnml.contains("encoding=\"UTF-8\""));
+        }
+    }
+
+    @Test
     public void serializesExactMarkingsAndTransitionInvisibility() throws Exception {
         Petrinet net = PetrinetFactory.newPetrinet("semantic-net");
         Place p0 = net.addPlace("p0");

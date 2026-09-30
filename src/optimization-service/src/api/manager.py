@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import queue
+import os
 import secrets
 import threading
-import time
 import uuid
 from typing import Any, Dict, List, Tuple
 
@@ -31,12 +31,14 @@ class OptimizationJobManager:
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._subscribers: Dict[str, List[queue.Queue]] = {}
         self._lock = threading.Lock()
+        self._maximum_queued_jobs = max(1, int(os.getenv("OPT_MAX_QUEUED_JOBS", "16")))
+        self._job_slots = threading.BoundedSemaphore(max(1, int(os.getenv("OPT_MAX_CONCURRENT_JOBS", "1"))))
 
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if payload is None:
             payload = {}
 
-        execution_name = payload.get("execution_name") or f"run_{int(time.time() * 1000)}"
+        execution_name = payload.get("execution_name") or f"run_{uuid.uuid4().hex}"
         raw_log_path = payload.get("log_path") or payload.get("log")
         log_path = _normalize_log_path(raw_log_path)
 
@@ -46,7 +48,7 @@ class OptimizationJobManager:
 
         metrics = _normalize_metric_names(payload.get("metrics") or ["fitness", "precision", "simplicity", "generalisation"])
         required_metrics = list(metrics)
-        conformance_mode = payload.get("conformance_mode")
+        conformance_mode = payload.get("conformance_mode") or "replay-token"
         excluded_miners = payload.get("excluded_miners", ["ilp"])
         seed = _normalize_seed(payload.get("seed"))
 
@@ -96,6 +98,9 @@ class OptimizationJobManager:
         }
 
         with self._lock:
+            queued = sum(existing.get("status") == "queued" for existing in self._jobs.values())
+            if queued >= self._maximum_queued_jobs:
+                raise ValueError("optimization job queue is full")
             self._jobs[job_id] = job
 
         self._publish_event(job_id, "status_changed", {"job_id": job_id, "status": "queued"})
@@ -158,7 +163,15 @@ class OptimizationJobManager:
         return payload
 
     def _run_job(self, job_id: str) -> None:
-        run_job(self, job_id)
+        while not self._job_slots.acquire(timeout=0.1):
+            with self._lock:
+                job = self._jobs.get(job_id)
+                if not job or job["_control"].is_cancel_requested():
+                    return
+        try:
+            run_job(self, job_id)
+        finally:
+            self._job_slots.release()
 
     def _execute(self, job_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
         return execute_job(self, job_id, config)
@@ -251,7 +264,18 @@ class OptimizationJobManager:
             result = job["result"] or {}
 
         scope_key = "pareto_solutions" if scope == "pareto" else "all_solutions"
-        solutions = list(result.get(scope_key, []))
+        if job.get("_result_persisted"):
+            solutions = self.job_store.get_experiment_solutions(job_id, scope)
+            for solution in solutions:
+                solution["pipeline"] = solution.get("pipeline_full") or solution["pipeline"]
+                solution["experiment_id"] = job["request"]["execution_name"]
+                solution["objective_metrics"] = {
+                    metric: solution.get("metrics", {}).get(metric)
+                    for metric in job["request"]["metrics"]
+                    if metric in solution.get("metrics", {})
+                }
+        else:
+            solutions = list(result.get(scope_key, []))
         return {
             "job_id": job_id,
             "scope": scope,

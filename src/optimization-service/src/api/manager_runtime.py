@@ -7,7 +7,7 @@ import traceback
 from importlib.metadata import version
 from typing import Any, Dict
 
-from execution_control import JobCancelled
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed
 from java_service_client import ProMServiceClient
 from parameters.miners import MINER_CATALOG
 from pareto import feasible_non_dominated
@@ -87,6 +87,11 @@ def run_job(manager: Any, job_id: str) -> None:
             if control.is_cancel_requested():
                 raise JobCancelled("job cancelled")
             job["status"] = "completed"
+            job["_result_persisted"] = True
+            job["result"] = {key: result.get(key) for key in ("execution_name", "counts", "pareto_evaluation_ids")}
+            # The persisted experiment remains available; discard all population
+            # copies and runtime objects held solely for the completed job.
+            job["_runtime_miner"] = None
 
         all_solutions = result.get("all_solutions", [])
         failed_solutions = _count_failed_solutions(
@@ -120,6 +125,8 @@ def run_job(manager: Any, job_id: str) -> None:
     except JobCancelled:
         manager._finalize_cancelled_job(job_id)
     except Exception as exc:
+        if isinstance(exc, EvaluationTerminationUnconfirmed):
+            request_java_experiment_cancel(manager, job_id, request_data)
         with manager._lock:
             job = manager._jobs.get(job_id)
             if not job:

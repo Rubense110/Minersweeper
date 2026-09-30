@@ -8,6 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
+import com.minersweeper.javaservice.evaluation.ExecutionChecks;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -124,8 +127,6 @@ public class ArtifactStore {
         Path pnmlPath = experimentDir.resolve(pnmlFile);
         Path metadataPath = experimentDir.resolve(metadataFile);
 
-        Files.write(pnmlPath, pnml.getBytes(StandardCharsets.UTF_8));
-
         StoredArtifactMetadata metadata = new StoredArtifactMetadata();
         metadata.experiment_id = experimentId;
         metadata.evaluation_id = evaluationId;
@@ -133,6 +134,7 @@ public class ArtifactStore {
         metadata.log_path = request.log_path;
         metadata.created_at_epoch_ms = System.currentTimeMillis();
         metadata.metrics = metrics;
+        metadata.metrics_status = Boolean.FALSE.equals(isFeasible) && metrics.isEmpty() ? "skipped_infeasible" : "computed";
         metadata.pipeline = request.pipeline;
         metadata.model_schema_version = modelSchemaVersion;
         metadata.visible_transition_count = visibleTransitionCount;
@@ -153,7 +155,28 @@ public class ArtifactStore {
             ? new ArrayList<ArtifactBulkResponse.TransitionEntry>()
             : transitions;
         metadata.pnml_file = pnmlFile;
-        mapper.writeValue(metadataPath.toFile(), metadata);
+        Path pnmlTemporary = Files.createTempFile(experimentDir, evaluationId, ".pnml.pending");
+        Path metadataTemporary = null;
+        boolean published = false;
+        try {
+            metadataTemporary = Files.createTempFile(experimentDir, evaluationId, ".json.pending");
+            ExecutionChecks.check();
+            Files.write(pnmlTemporary, pnml.getBytes(StandardCharsets.UTF_8));
+            mapper.writeValue(metadataTemporary.toFile(), metadata);
+            ExecutionChecks.check();
+            publish(pnmlTemporary, pnmlPath);
+            ExecutionChecks.check();
+            // Metadata is the publication marker: a reader sees a complete pair.
+            publish(metadataTemporary, metadataPath);
+            published = true;
+        } finally {
+            Files.deleteIfExists(pnmlTemporary);
+            if (metadataTemporary != null) Files.deleteIfExists(metadataTemporary);
+            if (!published) {
+                Files.deleteIfExists(metadataPath);
+                Files.deleteIfExists(pnmlPath);
+            }
+        }
 
         return new EvaluationResult(
             experimentId, evaluationId, fingerprint, metrics,
@@ -180,6 +203,7 @@ public class ArtifactStore {
             entry.log_path = metadata.log_path;
             entry.created_at_epoch_ms = metadata.created_at_epoch_ms;
             entry.metrics = metadata.metrics;
+            entry.metrics_status = metadata.metrics_status;
             entry.pipeline = metadata.pipeline;
             entry.model_schema_version = metadata.model_schema_version;
             entry.visible_transition_count = metadata.visible_transition_count;
@@ -225,6 +249,14 @@ public class ArtifactStore {
             Files.deleteIfExists(path);
         }
         return allPaths.size();
+    }
+
+    private static void publish(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(source, target);
+        }
     }
 
     private String nextEvaluationId() {

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import copy
+import os
 import random
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List
 
-from execution_control import ExecutionControl, JobCancelled
+from execution_control import ExecutionControl, JobCancelled, EvaluationTerminationUnconfirmed
 from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
 from jmetal.operator.crossover import SBXCrossover
 from jmetal.operator.mutation import PolynomialMutation
@@ -167,7 +168,7 @@ class ThreadPoolEvaluator(Evaluator):
                 except CancelledError as error:
                     raise JobCancelled("job cancelled") from error
             self.raise_if_cancel_requested()
-        except JobCancelled:
+        except (JobCancelled, EvaluationTerminationUnconfirmed):
             for future in futures:
                 future.cancel()
             raise
@@ -269,6 +270,12 @@ class PipelineNSGAIIIOptimizer:
 
         if n_workers < 1:
             raise ValueError("n_workers must be >= 1")
+        try:
+            worker_limit = max(1, int(os.getenv("OPT_MAX_EVALUATION_WORKERS", "4")))
+        except ValueError:
+            worker_limit = 4
+        n_workers = min(n_workers, os.cpu_count() or 1, worker_limit)
+        self.effective_config["n_workers"] = n_workers
         population_evaluator = (
             ThreadPoolEvaluator(max_workers=n_workers, execution_control=execution_control)
             if n_workers > 1
@@ -301,7 +308,17 @@ class PipelineNSGAIIIOptimizer:
 
     def run(self):
         self.raise_if_cancel_requested()
-        self.algorithm.run()
+        evaluator = self.algorithm.population_evaluator
+        try:
+            self.algorithm.run()
+            self.raise_if_cancel_requested()
+        except BaseException:
+            if isinstance(evaluator, ThreadPoolEvaluator):
+                evaluator.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            if isinstance(evaluator, ThreadPoolEvaluator):
+                evaluator.shutdown()
         self.raise_if_cancel_requested()
         # In jMetalPy NSGAIII, result() returns only the non-dominated front.
         # We need the full final population for downstream persistence/API.

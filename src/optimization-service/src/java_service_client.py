@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 
-from execution_control import JobCancelled
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed
 
 
 LOGGER = logging.getLogger("optimization_service.jobs")
@@ -33,7 +35,7 @@ class ProMServiceClient:
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.experiment_id = experiment_id
-        self.conformance_mode = (conformance_mode or "").strip() or None
+        self.conformance_mode = (conformance_mode or "replay-token").strip() or "replay-token"
         self.excluded_miners = tuple(excluded_miners or ())
         self.artifacts_bulk_endpoint = artifacts_bulk_endpoint
         self.cleanup_endpoint_template = cleanup_endpoint_template
@@ -96,16 +98,23 @@ class ProMServiceClient:
                 json=payload,
                 timeout=self.timeout_seconds,
             )
-        except requests.Timeout:
+        except (requests.Timeout, requests.ConnectionError):
             self._request_evaluation_cancel(resolved_experiment_id, request_id)
             raise
         self._raise_for_status_with_details(response)
         body = response.json()
 
         metrics_payload = body.get("metrics", body)
-        extracted_metrics = {metric: self._extract_metric(metrics_payload, metric) for metric in metrics}
+        metrics_status = body.get("metrics_status") or "computed"
+        if metrics_status == "skipped_infeasible":
+            if body.get("is_feasible") is not False or metrics_payload:
+                raise ValueError("invalid skipped metrics response")
+            extracted_metrics = {}
+        else:
+            extracted_metrics = {metric: self._extract_metric(metrics_payload, metric) for metric in metrics}
         return {
             "metrics": extracted_metrics,
+            "metrics_status": metrics_status,
             "experiment_id": body.get("experiment_id", resolved_experiment_id),
             "evaluation_id": body.get("evaluation_id"),
             "fingerprint": body.get("fingerprint"),
@@ -122,6 +131,9 @@ class ProMServiceClient:
         experiment_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         resolved_experiment_id = self._resolve_experiment_id(experiment_id)
+        if len(evaluation_ids) > 16:
+            return [artifact for offset in range(0, len(evaluation_ids), 16)
+                    for artifact in self.fetch_artifacts(evaluation_ids[offset:offset + 16], include_pnml, resolved_experiment_id)]
         payload = {
             "experiment_id": resolved_experiment_id,
             "evaluation_ids": evaluation_ids,
@@ -173,15 +185,34 @@ class ProMServiceClient:
         return response.json()
 
     def _request_evaluation_cancel(self, experiment_id: str, request_id: str) -> None:
+        grace = max(0.0, float(os.getenv("JAVA_CANCEL_GRACE_SECONDS", "10")))
+        deadline = time.monotonic() + grace
         try:
-            self.cancel_evaluation(request_id=request_id, experiment_id=experiment_id)
-        except Exception:
-            LOGGER.warning(
-                "evaluation cancel request failed experiment_id=%s request_id=%s",
-                experiment_id,
-                request_id,
-                exc_info=True,
-            )
+            cancelled = self.cancel_evaluation(request_id=request_id, experiment_id=experiment_id)
+            if (cancelled.get("experiment_id") == experiment_id
+                and cancelled.get("request_id") == request_id
+                and cancelled.get("termination_confirmed") is True):
+                return
+            endpoint = self.cancel_evaluation_endpoint_template.format(
+                experiment_id=experiment_id, request_id=request_id
+            ).removesuffix("/cancel") + "/status"
+            while time.monotonic() < deadline:
+                response = requests.get(
+                    f"{self.base_url}{endpoint}", timeout=max(0.01, min(2.0, deadline - time.monotonic()))
+                )
+                self._raise_for_status_with_details(response)
+                body = response.json()
+                if (body.get("experiment_id") == experiment_id and body.get("request_id") == request_id
+                    and body.get("termination_confirmed") is True):
+                    return
+                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+        except Exception as error:
+            raise EvaluationTerminationUnconfirmed(
+                f"Cannot confirm termination of Java evaluation {request_id}: {error}"
+            ) from error
+        raise EvaluationTerminationUnconfirmed(
+            f"Java evaluation {request_id} did not confirm termination within {grace:g}s"
+        )
 
     @staticmethod
     def _raise_for_status_with_details(response: requests.Response) -> None:

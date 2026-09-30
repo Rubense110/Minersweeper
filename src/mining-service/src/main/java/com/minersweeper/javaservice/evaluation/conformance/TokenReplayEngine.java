@@ -1,5 +1,8 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
+import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,7 +39,12 @@ public class TokenReplayEngine {
 
     private Map<String, List<Transition>> visibleTransitionsByActivity;
     private Map<Transition, String> activityByVisibleTransition;
-    private Map<Place, Map<Place, List<Transition>>> hiddenShortestPaths;
+    private final CompiledReplayNet compiled;
+    private final Map<Place, Map<Place, HiddenPathNode>> hiddenTrees =
+        new LinkedHashMap<Place, Map<Place, HiddenPathNode>>(16, 0.75f, true);
+    private long hiddenTreeBytes;
+    private long enabledCacheBytes;
+    private static final long MAX_CACHE_BYTES = 4L * 1024L * 1024L;
     private Map<MarkingKey, Set<String>> enabledActivityCache;
 
     public TokenReplayEngine(
@@ -46,31 +54,38 @@ public class TokenReplayEngine {
         XEventClassifier classifier,
         TransEvClassMapping mapping
     ) {
+        this(net, initialMarking, finalMarking, classifier, mapping, new CompiledReplayNet(net));
+    }
+
+    public TokenReplayEngine(Petrinet net, Marking initialMarking, Marking finalMarking,
+        XEventClassifier classifier, TransEvClassMapping mapping, CompiledReplayNet compiled) {
+        this.compiled = compiled;
         this.net = net;
         this.initialMarking = initialMarking == null ? new Marking() : initialMarking;
         this.finalMarking = finalMarking == null ? new Marking() : finalMarking;
         this.classifier = classifier;
         this.mapping = mapping;
-        this.enabledActivityCache = new LinkedHashMap<MarkingKey, Set<String>>();
+        this.enabledActivityCache = new LinkedHashMap<MarkingKey, Set<String>>(16, 0.75f, true);
+    }
+
+    public LogReplayStatistics statistics(XLog log) {
+        return LogReplayStatistics.forLog(log, classifier);
     }
 
     public Map<List<String>, Integer> variantsByActivitySequence(XLog log) {
-        Map<List<String>, Integer> variants = new LinkedHashMap<List<String>, Integer>();
-        if (log == null) {
-            return variants;
-        }
-        for (XTrace trace : log) {
-            List<String> activities = activitiesOf(trace);
-            List<String> key = Collections.unmodifiableList(activities);
-            Integer count = variants.get(key);
-            variants.put(key, Integer.valueOf(count == null ? 1 : count.intValue() + 1));
-        }
-        return variants;
+        return statistics(log).variants();
+    }
+
+    public Marking initialPrefixMarking() { return copyMarking(initialMarking); }
+
+    public TraceReplay advancePrefix(Marking parent, String activity) {
+        return replayActivitiesFrom(Collections.singletonList(activity), ReplayOptions.precisionPrefix(), parent);
     }
 
     public List<String> activitiesOf(XTrace trace) {
         List<String> activities = new ArrayList<String>();
         for (XEvent event : trace) {
+            ExecutionChecks.check();
             String activity = classifier.getClassIdentity(event);
             if (activity != null) {
                 activities.add(activity);
@@ -105,14 +120,15 @@ public class TokenReplayEngine {
     }
 
     public Set<String> visibleActivitiesEventuallyEnabled(Marking sourceMarking) {
-        MarkingKey key = new MarkingKey(sourceMarking);
+        MarkingKey key = new MarkingKey(sourceMarking, compiled);
         Set<String> cached = enabledActivityCache.get(key);
         if (cached != null) {
             return cached;
         }
 
         Set<String> activities = new LinkedHashSet<String>();
-        for (Transition transition : sortedTransitions(net.getTransitions())) {
+        for (Transition transition : compiled.transitions) {
+            ExecutionChecks.check();
             if (transition.isInvisible()) {
                 continue;
             }
@@ -126,7 +142,18 @@ public class TokenReplayEngine {
             }
         }
         Set<String> immutable = Collections.unmodifiableSet(activities);
-        enabledActivityCache.put(key, immutable);
+        long bytes = key.estimatedBytes() + 96L + 48L * immutable.size();
+        if (bytes <= MAX_CACHE_BYTES) {
+            while (!enabledActivityCache.isEmpty() && enabledCacheBytes + bytes > MAX_CACHE_BYTES) {
+                ExecutionChecks.check();
+                Iterator<Map.Entry<MarkingKey, Set<String>>> it = enabledActivityCache.entrySet().iterator();
+                Map.Entry<MarkingKey, Set<String>> oldest = it.next();
+                enabledCacheBytes -= oldest.getKey().estimatedBytes() + 96L + 48L * oldest.getValue().size();
+                it.remove();
+            }
+            enabledActivityCache.put(key, immutable);
+            enabledCacheBytes += bytes;
+        }
         return immutable;
     }
 
@@ -135,7 +162,12 @@ public class TokenReplayEngine {
     }
 
     private TraceReplay replayActivities(List<String> activities, ReplayOptions options) {
-        Marking marking = copyMarking(initialMarking);
+        return replayActivitiesFrom(activities, options, initialMarking);
+    }
+
+    private TraceReplay replayActivitiesFrom(List<String> activities, ReplayOptions options, Marking start) {
+        ExecutionChecks.check();
+        Marking marking = copyMarking(start);
         Counts counts = new Counts();
         if (options.countInitialTokens) {
             counts.produced += tokenCount(initialMarking);
@@ -144,6 +176,7 @@ public class TokenReplayEngine {
         boolean fit = true;
 
         for (String activity : activities) {
+            ExecutionChecks.check();
             List<Transition> candidates = transitionsForActivity(activity);
             if (candidates.isEmpty()) {
                 counts.missing += 1L;
@@ -178,6 +211,7 @@ public class TokenReplayEngine {
 
     private Transition chooseTransition(List<Transition> candidates, Marking marking) {
         for (Transition candidate : candidates) {
+            ExecutionChecks.check();
             if (isEnabled(candidate, marking)) {
                 return candidate;
             }
@@ -185,6 +219,7 @@ public class TokenReplayEngine {
         Transition best = candidates.get(0);
         int bestDistance = Integer.MAX_VALUE;
         for (Transition candidate : candidates) {
+            ExecutionChecks.check();
             int distance = hiddenDistanceToEnable(candidate, marking);
             if (distance < bestDistance) {
                 best = candidate;
@@ -217,7 +252,9 @@ public class TokenReplayEngine {
             changed = false;
             List<List<Transition>> paths = hiddenPathsToMissingPlaces(target, marking);
             for (List<Transition> path : paths) {
+                ExecutionChecks.check();
                 for (Transition hidden : path) {
+                    ExecutionChecks.check();
                     if (hidden == target || visitedTransitions.contains(hidden)) {
                         continue;
                     }
@@ -253,10 +290,13 @@ public class TokenReplayEngine {
         Map<Transition, Integer> activations = new LinkedHashMap<Transition, Integer>();
 
         for (int iteration = 0; iteration < MAX_FINAL_MARKING_ITERATIONS && !hasFinalTokens(marking); iteration++) {
+            ExecutionChecks.check();
             boolean changed = false;
             List<List<Transition>> paths = hiddenPathsToFinalMarking(marking);
             for (List<Transition> path : paths) {
+                ExecutionChecks.check();
                 for (Transition hidden : path) {
+                    ExecutionChecks.check();
                     if (isEnabled(hidden, marking)) {
                         fire(hidden, marking, counts, activations);
                         changed = true;
@@ -280,15 +320,13 @@ public class TokenReplayEngine {
         List<List<Transition>> paths = new ArrayList<List<Transition>>();
         Collection<Place> markedPlaces = marking.baseSet();
         List<Place> missingPlaces = missingInputPlaces(target, marking);
-        Map<Place, Map<Place, List<Transition>>> shortestPaths = hiddenShortestPaths();
 
         for (Place from : sortedPlaces(markedPlaces)) {
-            Map<Place, List<Transition>> fromPaths = shortestPaths.get(from);
-            if (fromPaths == null) {
-                continue;
-            }
+            ExecutionChecks.check();
+            Map<Place, HiddenPathNode> fromPaths = hiddenPathsFrom(from);
             for (Place to : sortedPlaces(missingPlaces)) {
-                List<Transition> path = fromPaths.get(to);
+                ExecutionChecks.check();
+                List<Transition> path = materializePath(fromPaths.get(to));
                 if (path != null && !path.isEmpty()) {
                     paths.add(path);
                 }
@@ -300,14 +338,12 @@ public class TokenReplayEngine {
 
     private List<List<Transition>> hiddenPathsToFinalMarking(Marking marking) {
         List<List<Transition>> paths = new ArrayList<List<Transition>>();
-        Map<Place, Map<Place, List<Transition>>> shortestPaths = hiddenShortestPaths();
         for (Place from : sortedPlaces(marking.baseSet())) {
-            Map<Place, List<Transition>> fromPaths = shortestPaths.get(from);
-            if (fromPaths == null) {
-                continue;
-            }
+            ExecutionChecks.check();
+            Map<Place, HiddenPathNode> fromPaths = hiddenPathsFrom(from);
             for (Place to : sortedPlaces(finalMarking.baseSet())) {
-                List<Transition> path = fromPaths.get(to);
+                ExecutionChecks.check();
+                List<Transition> path = materializePath(fromPaths.get(to));
                 if (path != null && !path.isEmpty()) {
                     paths.add(path);
                 }
@@ -323,63 +359,59 @@ public class TokenReplayEngine {
         }
         int best = Integer.MAX_VALUE;
         for (List<Transition> path : hiddenPathsToMissingPlaces(transition, marking)) {
+            ExecutionChecks.check();
             best = Math.min(best, path.size());
         }
         return best;
     }
 
-    private Map<Place, Map<Place, List<Transition>>> hiddenShortestPaths() {
-        if (hiddenShortestPaths != null) {
-            return hiddenShortestPaths;
-        }
-        hiddenShortestPaths = new LinkedHashMap<Place, Map<Place, List<Transition>>>();
-        for (Place source : net.getPlaces()) {
-            Map<Place, List<Transition>> pathsFromSource = hiddenPathsFrom(source);
-            if (!pathsFromSource.isEmpty()) {
-                hiddenShortestPaths.put(source, pathsFromSource);
-            }
-        }
-        return hiddenShortestPaths;
-    }
-
-    private Map<Place, List<Transition>> hiddenPathsFrom(Place source) {
-        Map<Place, List<Transition>> paths = new LinkedHashMap<Place, List<Transition>>();
-        ArrayDeque<HiddenPathState> queue = new ArrayDeque<HiddenPathState>();
+    private Map<Place, HiddenPathNode> hiddenPathsFrom(Place source) {
+        Map<Place, HiddenPathNode> cached = hiddenTrees.get(source);
+        if (cached != null) return cached;
+        Map<Place, HiddenPathNode> paths = new LinkedHashMap<Place, HiddenPathNode>();
+        ArrayDeque<HiddenPathNode> queue = new ArrayDeque<HiddenPathNode>();
         Set<Place> visited = new HashSet<Place>();
-        queue.add(new HiddenPathState(source, new ArrayList<Transition>()));
+        queue.add(new HiddenPathNode(source, null, null));
         visited.add(source);
-
         while (!queue.isEmpty()) {
-            HiddenPathState state = queue.removeFirst();
-            for (Transition hidden : sortedTransitions(hiddenSuccessors(state.place))) {
-                for (Place target : sortedPlaces(outputPlaces(hidden))) {
-                    if (visited.contains(target)) {
-                        continue;
-                    }
-                    List<Transition> path = new ArrayList<Transition>(state.path);
-                    path.add(hidden);
-                    paths.put(target, path);
-                    visited.add(target);
-                    queue.addLast(new HiddenPathState(target, path));
+            ExecutionChecks.check();
+            HiddenPathNode state = queue.removeFirst();
+            for (Transition hidden : compiled.hiddenSuccessors.get(state.place)) {
+                ExecutionChecks.check();
+                for (Place target : compiled.targets.get(hidden)) {
+                    ExecutionChecks.check();
+                    if (!visited.add(target)) continue;
+                    HiddenPathNode next = new HiddenPathNode(target, state, hidden);
+                    paths.put(target, next);
+                    queue.addLast(next);
                 }
             }
+        }
+        long bytes = 128L + 112L * paths.size();
+        if (bytes <= MAX_CACHE_BYTES) {
+            while (!hiddenTrees.isEmpty() && hiddenTreeBytes + bytes > MAX_CACHE_BYTES) {
+                ExecutionChecks.check();
+                Iterator<Map<Place, HiddenPathNode>> it = hiddenTrees.values().iterator();
+                hiddenTreeBytes -= 128L + 112L * it.next().size(); it.remove();
+            }
+            hiddenTrees.put(source, paths); hiddenTreeBytes += bytes;
         }
         return paths;
     }
 
-    private Collection<Transition> hiddenSuccessors(Place place) {
-        List<Transition> successors = new ArrayList<Transition>();
-        for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getOutEdges(place)) {
-            PetrinetNode target = edge.getTarget();
-            if (target instanceof Transition && ((Transition) target).isInvisible()) {
-                successors.add((Transition) target);
-            }
+    private List<Transition> materializePath(HiddenPathNode node) {
+        if (node == null) return null;
+        List<Transition> path = new ArrayList<Transition>(node.depth);
+        for (HiddenPathNode current = node; current.transition != null; current = current.parent) {
+            ExecutionChecks.check(); path.add(current.transition);
         }
-        return successors;
+        Collections.reverse(path);
+        return path;
     }
 
     private boolean isEnabled(Transition transition, Marking marking) {
         for (Arc arc : inputArcs(transition)) {
+            ExecutionChecks.check();
             Place place = (Place) arc.getSource();
             if (marking.occurrences(place).intValue() < arc.getWeight()) {
                 return false;
@@ -391,6 +423,7 @@ public class TokenReplayEngine {
     private long addMissingTokens(Transition transition, Marking marking) {
         long missing = 0L;
         for (Arc arc : inputArcs(transition)) {
+            ExecutionChecks.check();
             Place place = (Place) arc.getSource();
             int available = marking.occurrences(place).intValue();
             int needed = arc.getWeight();
@@ -412,9 +445,11 @@ public class TokenReplayEngine {
         long consumed = consumedTokens(transition);
         long produced = producedTokens(transition);
         for (Arc arc : inputArcs(transition)) {
+            ExecutionChecks.check();
             marking.add((Place) arc.getSource(), Integer.valueOf(-arc.getWeight()));
         }
         for (Arc arc : outputArcs(transition)) {
+            ExecutionChecks.check();
             marking.add((Place) arc.getTarget(), Integer.valueOf(arc.getWeight()));
         }
         counts.consumed += consumed;
@@ -425,6 +460,7 @@ public class TokenReplayEngine {
     private long consumedTokens(Transition transition) {
         long consumed = 0L;
         for (Arc arc : inputArcs(transition)) {
+            ExecutionChecks.check();
             consumed += arc.getWeight();
         }
         return consumed;
@@ -433,42 +469,19 @@ public class TokenReplayEngine {
     private long producedTokens(Transition transition) {
         long produced = 0L;
         for (Arc arc : outputArcs(transition)) {
+            ExecutionChecks.check();
             produced += arc.getWeight();
         }
         return produced;
     }
 
-    private List<Arc> inputArcs(Transition transition) {
-        List<Arc> arcs = new ArrayList<Arc>();
-        for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getInEdges(transition)) {
-            if (edge instanceof Arc && edge.getSource() instanceof Place) {
-                arcs.add((Arc) edge);
-            }
-        }
-        return arcs;
-    }
-
-    private List<Arc> outputArcs(Transition transition) {
-        List<Arc> arcs = new ArrayList<Arc>();
-        for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getOutEdges(transition)) {
-            if (edge instanceof Arc && edge.getTarget() instanceof Place) {
-                arcs.add((Arc) edge);
-            }
-        }
-        return arcs;
-    }
-
-    private List<Place> outputPlaces(Transition transition) {
-        List<Place> places = new ArrayList<Place>();
-        for (Arc arc : outputArcs(transition)) {
-            places.add((Place) arc.getTarget());
-        }
-        return places;
-    }
+    private List<Arc> inputArcs(Transition transition) { return compiled.inputs.get(transition); }
+    private List<Arc> outputArcs(Transition transition) { return compiled.outputs.get(transition); }
 
     private List<Place> missingInputPlaces(Transition transition, Marking marking) {
         List<Place> places = new ArrayList<Place>();
         for (Arc arc : inputArcs(transition)) {
+            ExecutionChecks.check();
             Place place = (Place) arc.getSource();
             if (marking.occurrences(place).intValue() < arc.getWeight()) {
                 places.add(place);
@@ -480,6 +493,7 @@ public class TokenReplayEngine {
     private long missingFinalTokens(Marking marking) {
         long missing = 0L;
         for (Place place : finalMarking.baseSet()) {
+            ExecutionChecks.check();
             int current = marking.occurrences(place).intValue();
             int expected = finalMarking.occurrences(place).intValue();
             if (current < expected) {
@@ -492,6 +506,7 @@ public class TokenReplayEngine {
     private long remainingTokens(Marking marking) {
         long remaining = 0L;
         for (Place place : marking.baseSet()) {
+            ExecutionChecks.check();
             int current = marking.occurrences(place).intValue();
             int expected = finalMarking.occurrences(place).intValue();
             if (current > expected) {
@@ -503,6 +518,7 @@ public class TokenReplayEngine {
 
     private boolean hasFinalTokens(Marking marking) {
         for (Place place : finalMarking.baseSet()) {
+            ExecutionChecks.check();
             if (marking.occurrences(place).intValue() < finalMarking.occurrences(place).intValue()) {
                 return false;
             }
@@ -516,6 +532,7 @@ public class TokenReplayEngine {
         }
         long count = 0L;
         for (Place place : marking.baseSet()) {
+            ExecutionChecks.check();
             count += marking.occurrences(place).intValue();
         }
         return count;
@@ -532,7 +549,8 @@ public class TokenReplayEngine {
         }
         visibleTransitionsByActivity = new LinkedHashMap<String, List<Transition>>();
         activityByVisibleTransition = new LinkedHashMap<Transition, String>();
-        for (Transition transition : sortedTransitions(net.getTransitions())) {
+        for (Transition transition : compiled.transitions) {
+            ExecutionChecks.check();
             if (transition.isInvisible()) {
                 continue;
             }
@@ -596,6 +614,7 @@ public class TokenReplayEngine {
         int multiplicity
     ) {
         for (Map.Entry<Transition, Integer> entry : source.entrySet()) {
+            ExecutionChecks.check();
             addActivation(target, entry.getKey(), entry.getValue().intValue() * multiplicity);
         }
     }
@@ -670,13 +689,14 @@ public class TokenReplayEngine {
         }
     }
 
-    private static class HiddenPathState {
+    private static class HiddenPathNode {
         final Place place;
-        final List<Transition> path;
-
-        HiddenPathState(Place place, List<Transition> path) {
-            this.place = place;
-            this.path = path;
+        final HiddenPathNode parent;
+        final Transition transition;
+        final int depth;
+        HiddenPathNode(Place place, HiddenPathNode parent, Transition transition) {
+            this.place = place; this.parent = parent; this.transition = transition;
+            depth = parent == null ? 0 : parent.depth + 1;
         }
     }
 
@@ -705,33 +725,23 @@ public class TokenReplayEngine {
     }
 
     private static class MarkingKey {
-        private final String key;
-
-        MarkingKey(Marking marking) {
-            List<String> parts = new ArrayList<String>();
-            if (marking != null) {
-                for (Place place : marking.baseSet()) {
-                    parts.add(place.getId().toString() + ":" + marking.occurrences(place));
-                }
+        private final long[] tokens;
+        private final int hash;
+        MarkingKey(Marking marking, CompiledReplayNet compiled) {
+            tokens = new long[marking.baseSet().size()];
+            int index = 0;
+            for (Place place : marking.baseSet()) {
+                ExecutionChecks.check();
+                tokens[index++] = (((long) compiled.placeIndexes.get(place).intValue()) << 32)
+                    | (marking.occurrences(place).intValue() & 0xffffffffL);
             }
-            Collections.sort(parts);
-            StringBuilder builder = new StringBuilder();
-            for (String part : parts) {
-                if (builder.length() > 0) {
-                    builder.append('|');
-                }
-                builder.append(part);
-            }
-            key = builder.toString();
+            Arrays.sort(tokens); hash = Arrays.hashCode(tokens);
         }
-
-        public boolean equals(Object other) {
-            return other instanceof MarkingKey && key.equals(((MarkingKey) other).key);
+        long estimatedBytes() { return 48L + 8L * tokens.length; }
+        @Override public boolean equals(Object other) {
+            return other instanceof MarkingKey && Arrays.equals(tokens, ((MarkingKey) other).tokens);
         }
-
-        public int hashCode() {
-            return key.hashCode();
-        }
+        @Override public int hashCode() { return hash; }
     }
 
     private static class TransitionPathComparator implements java.util.Comparator<List<Transition>> {
@@ -746,6 +756,7 @@ public class TokenReplayEngine {
         private static String pathKey(List<Transition> path) {
             StringBuilder builder = new StringBuilder();
             for (Transition transition : path) {
+                ExecutionChecks.check();
                 if (builder.length() > 0) {
                     builder.append('|');
                 }

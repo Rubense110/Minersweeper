@@ -101,6 +101,7 @@ public final class RequestValidator {
         if (payload.evaluation_ids == null || payload.evaluation_ids.isEmpty()) {
             throw new BadRequestException("evaluation_ids must contain at least one value");
         }
+        if (payload.evaluation_ids.size() > 32) throw new BadRequestException("evaluation_ids must contain at most 32 values; use batches");
         for (String evaluationId : payload.evaluation_ids) {
             if (isBlank(evaluationId)) {
                 throw new BadRequestException("evaluation_ids cannot contain empty values");

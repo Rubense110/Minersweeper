@@ -11,7 +11,8 @@ public final class DiscoveryArtifact {
     private final Marking initialMarking;
     private final Marking evaluationFinalMarking;
     private final List<Marking> finalMarkings;
-    private final String pnml;
+    private String pnml;
+    private java.util.concurrent.Callable<String> exporter;
 
     public DiscoveryArtifact(Petrinet net, Marking initialMarking, Marking finalMarking, String pnml) {
         this(net, initialMarking, finalMarking == null ? Collections.emptyList() : Collections.singletonList(finalMarking), pnml);
@@ -30,6 +31,12 @@ public final class DiscoveryArtifact {
         this.pnml = pnml;
     }
 
+    public DiscoveryArtifact(Petrinet net, Marking initial, List<Marking> finals,
+        java.util.concurrent.Callable<String> exporter) {
+        this(net, initial, finals, (String) null);
+        this.exporter = exporter;
+    }
+
     public Petrinet getNet() {
         return net;
     }
@@ -46,7 +53,11 @@ public final class DiscoveryArtifact {
         return finalMarkings;
     }
 
-    public String getPnml() {
+    public synchronized String getPnml() {
+        if (pnml == null && exporter != null) {
+            try { pnml = exporter.call(); exporter = null; }
+            catch (Exception error) { throw new IllegalStateException("PNML export failed", error); }
+        }
         return pnml;
     }
 }

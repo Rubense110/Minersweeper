@@ -1,5 +1,7 @@
 package com.minersweeper.javaservice.evaluation.serialization;
 
+import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+
 import com.minersweeper.javaservice.api.dto.ArtifactBulkResponse;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,9 +26,14 @@ public final class PetriNetSemanticsSerializer {
             throw new IllegalArgumentException("Petri net and marking are required");
         }
         Set<Place> netPlaces = new HashSet<Place>(net.getPlaces());
-        java.util.Map<String, String> exportedPlaceIds = exportedNodeIds(pnml, "place");
+        return serializeMarking(net, marking, netPlaces, exportedNodeIds(parseDocument(pnml), "place"));
+    }
+
+    private List<ArtifactBulkResponse.MarkingEntry> serializeMarking(Petrinet net, Marking marking,
+        Set<Place> netPlaces, java.util.Map<String, String> exportedPlaceIds) {
         List<ArtifactBulkResponse.MarkingEntry> entries = new ArrayList<ArtifactBulkResponse.MarkingEntry>();
         for (Place place : marking.baseSet()) {
+            ExecutionChecks.check();
             if (place == null || !netPlaces.contains(place) || place.getLocalID() == null) {
                 throw new IllegalStateException("Marking contains a place not exported by the Petri net");
             }
@@ -55,6 +62,7 @@ public final class PetriNetSemanticsSerializer {
             throw new IllegalArgumentException("Final markings are required");
         }
         for (Marking marking : markings) {
+            ExecutionChecks.check();
             result.add(serializeMarking(net, pnml, marking));
         }
         return result;
@@ -64,9 +72,14 @@ public final class PetriNetSemanticsSerializer {
         if (net == null) {
             throw new IllegalArgumentException("Petri net is required");
         }
+        return serializeTransitions(net, exportedNodeIds(parseDocument(pnml), "transition"));
+    }
+
+    private List<ArtifactBulkResponse.TransitionEntry> serializeTransitions(Petrinet net,
+        java.util.Map<String, String> exportedTransitionIds) {
         List<ArtifactBulkResponse.TransitionEntry> transitions = new ArrayList<ArtifactBulkResponse.TransitionEntry>();
-        java.util.Map<String, String> exportedTransitionIds = exportedNodeIds(pnml, "transition");
         for (Transition transition : net.getTransitions()) {
+            ExecutionChecks.check();
             if (transition == null || transition.getLocalID() == null) {
                 throw new IllegalStateException("Petri net contains a transition without an ID");
             }
@@ -95,6 +108,7 @@ public final class PetriNetSemanticsSerializer {
         }
         int visible = 0;
         for (Transition transition : net.getTransitions()) {
+            ExecutionChecks.check();
             if (!transition.isInvisible()) {
                 visible++;
             }
@@ -102,22 +116,49 @@ public final class PetriNetSemanticsSerializer {
         return visible;
     }
 
-    private static java.util.Map<String, String> exportedNodeIds(String pnml, String nodeName) {
-        if (pnml == null || pnml.trim().isEmpty()) {
-            throw new IllegalArgumentException("Exported PNML is required");
+    public SerializedSemantics serializeAll(Petrinet net, String pnml, Marking initial, List<Marking> finals) {
+        if (net == null || initial == null || finals == null || finals.isEmpty())
+            throw new IllegalArgumentException("Petri net and accepting markings are required");
+        Document document = parseDocument(pnml);
+        java.util.Map<String, String> placeIds = exportedNodeIds(document, "place");
+        Set<Place> places = new HashSet<Place>(net.getPlaces());
+        List<List<ArtifactBulkResponse.MarkingEntry>> finalPayload = new ArrayList<List<ArtifactBulkResponse.MarkingEntry>>();
+        for (Marking marking : finals) finalPayload.add(serializeMarking(net, marking, places, placeIds));
+        return new SerializedSemantics(serializeMarking(net, initial, places, placeIds), finalPayload,
+            serializeTransitions(net, exportedNodeIds(document, "transition")));
+    }
+
+    public static final class SerializedSemantics {
+        public final List<ArtifactBulkResponse.MarkingEntry> initial;
+        public final List<List<ArtifactBulkResponse.MarkingEntry>> finals;
+        public final List<ArtifactBulkResponse.TransitionEntry> transitions;
+        SerializedSemantics(List<ArtifactBulkResponse.MarkingEntry> initial,
+            List<List<ArtifactBulkResponse.MarkingEntry>> finals, List<ArtifactBulkResponse.TransitionEntry> transitions) {
+            this.initial = initial; this.finals = finals; this.transitions = transitions;
         }
+    }
+
+    private static Document parseDocument(String pnml) {
+        if (pnml == null || pnml.trim().isEmpty()) throw new IllegalArgumentException("Exported PNML is required");
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
-            Document document = factory.newDocumentBuilder().parse(
-                new java.io.ByteArrayInputStream(pnml.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))
-            );
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            return factory.newDocumentBuilder().parse(new org.xml.sax.InputSource(new java.io.StringReader(pnml)));
+        } catch (Exception error) {
+            throw new IllegalStateException("Unable to parse exported PNML", error);
+        }
+    }
+
+    private static java.util.Map<String, String> exportedNodeIds(Document document, String nodeName) {
+        try {
             java.util.Map<String, String> ids = new java.util.HashMap<String, String>();
             NodeList nodes = document.getElementsByTagNameNS("*", nodeName);
             if (nodes.getLength() == 0) {
                 nodes = document.getElementsByTagName(nodeName);
             }
             for (int index = 0; index < nodes.getLength(); index++) {
+                ExecutionChecks.check();
                 Element node = (Element) nodes.item(index);
                 String exportedId = node.getAttribute("id");
                 String localNodeId = localNodeId(node);
@@ -139,6 +180,7 @@ public final class PetriNetSemanticsSerializer {
             descendants = node.getElementsByTagName("toolspecific");
         }
         for (int index = 0; index < descendants.getLength(); index++) {
+            ExecutionChecks.check();
             Node descendant = descendants.item(index);
             if (descendant instanceof Element) {
                 String value = ((Element) descendant).getAttribute("localNodeID");

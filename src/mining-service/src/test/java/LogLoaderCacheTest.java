@@ -18,6 +18,26 @@ import static org.junit.Assert.assertTrue;
 public class LogLoaderCacheTest {
 
     @Test
+    public void failedParseCanBeRetriedWithoutEvictingExperiment() throws Exception {
+        Path tempDir = Files.createTempDirectory("log-loader-retry");
+        try {
+            Path log = TestFixtures.createTinyLog(tempDir, "retry.xes");
+            AtomicInteger calls = new AtomicInteger();
+            LogLoader loader = new LogLoader(tempDir) {
+                @Override public XLog loadLog(File file) throws Exception {
+                    if (calls.incrementAndGet() == 1) throw new IOException("temporary read failure");
+                    return super.loadLog(file);
+                }
+            };
+            try { loader.loadForExperiment("retry", log.getFileName().toString()); org.junit.Assert.fail(); }
+            catch (IOException expected) { }
+            assertFalse(loader.loadForExperiment("retry", log.getFileName().toString()).cacheHit());
+            assertTrue(loader.loadForExperiment("retry", log.getFileName().toString()).cacheHit());
+            assertEquals(2, calls.get());
+        } finally { deleteRecursively(tempDir); }
+    }
+
+    @Test
     public void sameExperimentAndPathHitsCacheOnSecondCall() throws Exception {
         Path tempDir = Files.createTempDirectory("log-loader-cache-test");
         try {

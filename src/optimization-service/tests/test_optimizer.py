@@ -50,6 +50,18 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
             rng=random.Random(seed) if seed is not None else None,
         )
 
+    def test_direct_optimizer_caps_workers_and_closes_executor_after_run(self):
+        from unittest.mock import patch
+        problem = self._build_problem()
+        with patch.dict(os.environ, {"OPT_MAX_EVALUATION_WORKERS": "2"}), patch("optimizer.os.cpu_count", return_value=16):
+            optimizer = PipelineNSGAIIIOptimizer(problem=problem, max_evaluations=4, population_size=4, n_partitions=1, n_workers=16)
+            self.assertEqual(2, optimizer.effective_config["n_workers"])
+            evaluator = optimizer.algorithm.population_evaluator
+            self.assertEqual(2, evaluator.max_workers)
+            optimizer.run()
+            with self.assertRaises(RuntimeError):
+                evaluator.executor.submit(lambda: None)
+
     def test_optimizer_runs_and_returns_non_dominated(self):
         problem = self._build_problem()
 

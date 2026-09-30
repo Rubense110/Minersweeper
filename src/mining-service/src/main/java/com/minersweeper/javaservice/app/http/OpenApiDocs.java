@@ -89,6 +89,7 @@ public final class OpenApiDocs {
         paths.put("/artifacts/bulk", artifactsBulkPath());
         paths.put("/experiments/{experimentId}/cancel", cancelPath());
         paths.put("/experiments/{experimentId}/evaluations/{requestId}/cancel", evaluationCancelPath());
+        paths.put("/experiments/{experimentId}/evaluations/{requestId}/status", evaluationStatusPath());
         paths.put("/experiments/{experimentId}/cleanup", cleanupPath());
         return paths;
     }
@@ -111,7 +112,7 @@ public final class OpenApiDocs {
         operation.put("operationId", "evaluatePipeline");
         operation.put(
             "description",
-            "Discovers a Petri net from the requested preprocessing/miner pipeline and computes the requested metrics."
+            "Discovers a Petri net and checks feasibility. Rejected models return empty metrics and metrics_status=skipped_infeasible; admitted models compute requested metrics."
         );
         operation.put("requestBody", jsonRequestBody(schemaRef("PipelineRequest"), true));
 
@@ -168,6 +169,31 @@ public final class OpenApiDocs {
         responseMap.put("500", errorResponse("Cancellation request failed"));
         operation.put("responses", responseMap);
         return singleMethod("post", operation);
+    }
+
+    private static Map<String, Object> evaluationStatusPath() {
+        Map<String, Object> operation = new LinkedHashMap<String, Object>();
+        operation.put("tags", Arrays.<Object>asList("experiments"));
+        operation.put("summary", "Check whether a registered evaluation has terminated");
+        operation.put("operationId", "getEvaluationStatus");
+        operation.put("parameters", Arrays.<Object>asList(experimentIdParameter(), requestIdParameter()));
+        Map<String, Object> schema = objectSchema("experiment_id", "request_id", "termination_confirmed");
+        schema.put("properties", properties(property("experiment_id", scalarSchema("string")),
+            property("request_id", scalarSchema("string")), property("termination_confirmed", terminationSchema())));
+        Map<String, Object> responses = new LinkedHashMap<String, Object>();
+        responses.put("200", response(200, "True only after execution has left its registered scope; null means unknown", schema));
+        responses.put("400", errorResponse("Invalid identifiers"));
+        operation.put("responses", responses);
+        return singleMethod("get", operation);
+    }
+    private static Map<String, Object> terminationSchema() {
+        Map<String, Object> schema = new LinkedHashMap<String, Object>();
+        schema.put("type", Arrays.<Object>asList("boolean", "null"));
+        return schema;
+    }
+    private static Map<String, Object> conformanceModeSchema() {
+        Map<String, Object> schema = stringEnumSchema("alignment", "replay", "replay-token");
+        schema.put("default", "replay-token"); return schema;
     }
 
     private static Map<String, Object> cleanupPath() {
@@ -253,7 +279,7 @@ public final class OpenApiDocs {
                 property("experiment_id", scalarSchema("string")),
                 property("request_id", scalarSchema("string")),
                 property("log_path", scalarSchema("string")),
-                property("conformance_mode", stringEnumSchema("alignment", "replay", "replay-token")),
+                property("conformance_mode", conformanceModeSchema()),
                 property("pipeline", schemaRef("PipelineConfig")),
                 property("metrics", arraySchema(scalarSchema("string"))),
                 property("excluded_miners", arraySchema(scalarSchema("string")))
@@ -280,6 +306,7 @@ public final class OpenApiDocs {
                 property("evaluation_id", scalarSchema("string")),
                 property("fingerprint", scalarSchema("string")),
                 property("metrics", numberMapSchema()),
+                property("metrics_status", stringEnumSchema("computed", "skipped_infeasible")),
                 property("model_schema_version", scalarSchema("integer", "int32")),
                 property("visible_transition_count", scalarSchema("integer", "int32")),
                 property("is_feasible", scalarSchema("boolean")),
@@ -341,6 +368,7 @@ public final class OpenApiDocs {
                 property("log_path", scalarSchema("string")),
                 property("created_at_epoch_ms", scalarSchema("integer", "int64")),
                 property("metrics", numberMapSchema()),
+                property("metrics_status", stringEnumSchema("computed", "skipped_infeasible")),
                 property("pipeline", schemaRef("PipelineConfig")),
                 property("model_schema_version", scalarSchema("integer", "int32")),
                 property("visible_transition_count", scalarSchema("integer", "int32")),
@@ -400,6 +428,7 @@ public final class OpenApiDocs {
             properties(
                 property("experiment_id", scalarSchema("string")),
                 property("request_id", scalarSchema("string")),
+                property("termination_confirmed", terminationSchema()),
                 property("cancel_requested", scalarSchema("boolean"))
             )
         );

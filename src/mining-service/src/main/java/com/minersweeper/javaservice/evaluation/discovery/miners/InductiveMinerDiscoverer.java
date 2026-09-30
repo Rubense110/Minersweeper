@@ -56,7 +56,8 @@ public final class InductiveMinerDiscoverer implements MinerDiscoverer {
             abstractParams.setClassifier(new XEventNameClassifier());
             abstractParams.setNoiseThreshold(ParameterReader.floatParam(request.pipeline.miner.parameters, "noise_threshold", 0.2f));
             abstractParams.setDebug(ParameterReader.boolParam(request.pipeline.miner.parameters, "is_debug", false));
-            abstractParams.setUseMultithreading(ParameterReader.boolParam(request.pipeline.miner.parameters, "use_multithreading", true));
+            abstractParams.setUseMultithreading(ParameterReader.boolParam(request.pipeline.miner.parameters, "use_multithreading", false)
+                && Boolean.parseBoolean(System.getenv("PROM_ALLOW_MINER_MULTITHREADING")));
         }
 
         XEventClassifier classifier = new XEventNameClassifier();
@@ -75,13 +76,7 @@ public final class InductiveMinerDiscoverer implements MinerDiscoverer {
         };
 
         AcceptingPetriNet apn = InductiveMinerPlugin.minePetriNet(imLog, params, canceller);
-        // Keep parity with previous behavior: export PNML using a fresh CLI context.
-        return artifactFactory.fromResultArray(createContext(), new Object[] { apn });
-    }
-
-    private PluginContext createContext() {
-        CLIContext global = new CLIContext();
-        return new CLIPluginContext(global, "minersweeper");
+        return artifactFactory.fromResultArray(context, new Object[] { apn });
     }
 
     private MiningParameters createInductiveParams(String variantLabel) {

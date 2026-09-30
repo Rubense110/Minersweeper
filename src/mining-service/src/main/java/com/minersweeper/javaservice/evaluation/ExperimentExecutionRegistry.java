@@ -12,6 +12,8 @@ public final class ExperimentExecutionRegistry {
     private final Map<String, Set<Thread>> threadsByExperiment = new LinkedHashMap<String, Set<Thread>>();
     private final Map<String, Set<Thread>> threadsByEvaluation = new LinkedHashMap<String, Set<Thread>>();
     private final Set<String> cancelledEvaluations = new LinkedHashSet<String>();
+    private final Set<String> closedExperiments = new LinkedHashSet<String>();
+    private final Set<String> completedEvaluations = new LinkedHashSet<String>();
 
     public EvaluationLease registerEvaluation(String experimentId) {
         return registerEvaluation(experimentId, null);
@@ -23,6 +25,14 @@ public final class ExperimentExecutionRegistry {
         Thread thread = Thread.currentThread();
 
         synchronized (this) {
+            if (closedExperiments.contains(normalizedExperiment))
+                throw new ExperimentCancelledException("experiment '" + normalizedExperiment + "' has been cleaned up");
+            throwIfCancellationRequested(normalizedExperiment, normalizedRequest);
+            if (normalizedRequest != null) {
+                String key = evaluationKey(normalizedExperiment, normalizedRequest);
+                if (completedEvaluations.contains(key) || threadsByEvaluation.containsKey(key))
+                    throw new IllegalArgumentException("request_id already used: " + normalizedRequest);
+            }
             Set<Thread> experimentThreads = threadsByExperiment.get(normalizedExperiment);
             if (experimentThreads == null) {
                 experimentThreads = new LinkedHashSet<Thread>();
@@ -113,9 +123,20 @@ public final class ExperimentExecutionRegistry {
         }
     }
 
+    public synchronized Boolean terminationConfirmed(String experimentId, String requestId) {
+        String experiment = normalizeExperimentId(experimentId);
+        String key = evaluationKey(experiment, normalizeRequestId(requestId));
+        Set<Thread> threads = threadsByEvaluation.get(key);
+        if (threads != null && !threads.isEmpty()) return Boolean.FALSE;
+        if (completedEvaluations.contains(key) || cancelledEvaluations.contains(key)
+            || closedExperiments.contains(experiment)) return Boolean.TRUE;
+        return null; // Unknown is not proof that a request cannot arrive later.
+    }
+
     public void cleanupExperiment(String experimentId) throws InterruptedException {
         String normalized = normalizeExperimentId(experimentId);
         synchronized (this) {
+            closedExperiments.add(normalized); // Reject late arrivals before waiting.
             while (hasActiveEvaluations(normalized)) {
                 wait();
             }
@@ -141,7 +162,8 @@ public final class ExperimentExecutionRegistry {
                 evaluationThreads.remove(thread);
                 if (evaluationThreads.isEmpty()) {
                     threadsByEvaluation.remove(key);
-                    cancelledEvaluations.remove(key);
+                    completedEvaluations.add(key);
+                    while (completedEvaluations.size() > 4096) completedEvaluations.remove(completedEvaluations.iterator().next());
                 }
             }
         }
@@ -161,10 +183,9 @@ public final class ExperimentExecutionRegistry {
                 keysToRemove.add(key);
             }
         }
-        for (String key : keysToRemove) {
-            threadsByEvaluation.remove(key);
-            cancelledEvaluations.remove(key);
-        }
+        for (String key : keysToRemove) threadsByEvaluation.remove(key);
+        cancelledEvaluations.removeIf(key -> key.startsWith(prefix));
+        completedEvaluations.removeIf(key -> key.startsWith(prefix));
     }
 
     private static void interruptAll(Set<Thread> threads) {

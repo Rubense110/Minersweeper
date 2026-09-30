@@ -102,11 +102,6 @@ public final class PreprocessingPipeline {
             return (XLog) inputLog.clone();
         }
 
-        List<String> allEventClasses = new ArrayList<String>();
-        for (XEventClass eventClass : eventClasses.getClasses()) {
-            allEventClasses.add(eventClass.toString());
-        }
-
         ParameterOneFromSet rate = new ParameterOneFromSet(
             "rate",
             "Choose rate type",
@@ -120,26 +115,22 @@ public final class PreprocessingPipeline {
             Arrays.asList(Integer.valueOf(0), Integer.valueOf(100)),
             Integer.TYPE
         );
-        ParameterOneFromSet selectionType = new ParameterOneFromSet(
-            "selectionType",
-            "Selection type",
-            "Filter in",
-            Arrays.asList("Filter in", "Filter out")
-        );
         List<String> desiredEventClasses = Toolbox.computeDesiredEventsFromThreshold(threshold, rate, eventClasses);
-        ParameterMultipleFromSet desiredEvents = new ParameterMultipleFromSet(
-            "desiredEvents",
-            "Selected classes according to threshold",
-            allEventClasses,
-            desiredEventClasses
-        );
-
-        List<Parameter> parameters = new ArrayList<Parameter>();
-        parameters.add(rate);
-        parameters.add(threshold);
-        parameters.add(selectionType);
-        parameters.add(desiredEvents);
-        return new FilterdEventRateFilter().filter(inputLog, parameters);
+        // The former ParameterMultipleFromSet call supplied all classes as
+        // its chosen/default argument, making every threshold a no-op.
+        Set<String> chosen = new HashSet<String>(desiredEventClasses);
+        XLog output = Toolbox.initializeLog(inputLog);
+        org.deckfour.xes.factory.XFactory factory = org.deckfour.xes.factory.XFactoryRegistry.instance().currentDefault();
+        for (org.deckfour.xes.model.XTrace trace : inputLog) {
+            com.minersweeper.javaservice.evaluation.ExecutionChecks.check();
+            org.deckfour.xes.model.XTrace selected = factory.createTrace(trace.getAttributes());
+            for (org.deckfour.xes.model.XEvent event : trace) {
+                com.minersweeper.javaservice.evaluation.ExecutionChecks.check();
+                if (chosen.contains(eventClasses.getClassOf(event).toString())) selected.add(event);
+            }
+            if (!selected.isEmpty()) output.add(selected);
+        }
+        return output;
     }
 
     private static XLog applyVariantFilter(XLog sourceLog, PipelineRequest.PreprocessingConfig preprocessing) {

@@ -54,6 +54,8 @@ public final class TimingTrace {
             return;
         }
         durationsMs.put(phaseKey, Long.valueOf(durationMs));
+        Runtime runtime = Runtime.getRuntime();
+        putField(phaseKey + "_heap_used_bytes", Long.toString(runtime.totalMemory() - runtime.freeMemory()));
     }
 
     public void putField(String key, String value) {
@@ -85,6 +87,15 @@ public final class TimingTrace {
             return;
         }
 
+        long collections = 0L;
+        long collectionMs = 0L;
+        for (java.lang.management.GarbageCollectorMXBean collector : java.lang.management.ManagementFactory.getGarbageCollectorMXBeans()) {
+            collections += Math.max(0L, collector.getCollectionCount());
+            collectionMs += Math.max(0L, collector.getCollectionTime());
+        }
+        putField("jvm_gc_count", Long.toString(collections));
+        putField("jvm_gc_ms", Long.toString(collectionMs));
+        putField("jvm_threads", Integer.toString(java.lang.management.ManagementFactory.getThreadMXBean().getThreadCount()));
         StringBuilder line = new StringBuilder(512);
         appendField(line, "trace_id", traceId);
         appendField(line, "event", "evaluation_summary");

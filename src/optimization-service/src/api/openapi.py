@@ -59,8 +59,8 @@ def _components() -> Dict[str, Any]:
                     },
                     "conformance_mode": {
                         "type": "string",
-                        "enum": ["alignment", "replay", "replay_token"],
-                        "example": "alignment",
+                        "enum": ["alignment", "replay", "replay-token"],
+                        "default": "replay-token", "example": "replay-token",
                     },
                     "excluded_miners": {
                         "type": "array",

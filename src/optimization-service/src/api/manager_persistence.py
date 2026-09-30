@@ -74,16 +74,36 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             experiment_id=str(request_data.get("execution_name") or ""),
             timeout_seconds=manager.java_service_timeout_seconds,
         )
-        artifacts = client.fetch_artifacts(
-            evaluation_ids=evaluation_ids,
-            include_pnml=True,
-            experiment_id=str(request_data.get("execution_name") or ""),
-        )
-        for artifact in artifacts:
-            evaluation_id = artifact.get("evaluation_id")
-            if not evaluation_id:
-                continue
-            artifacts_by_evaluation_id[str(evaluation_id)] = artifact
+        for offset in range(0, len(evaluation_ids), 16):
+            control.raise_if_cancel_requested()
+            artifacts = client.fetch_artifacts(
+                evaluation_ids=evaluation_ids[offset:offset + 16], include_pnml=True,
+                experiment_id=str(request_data.get("execution_name") or ""),
+            )
+            for artifact in artifacts:
+                evaluation_id = artifact.get("evaluation_id")
+                if not evaluation_id:
+                    continue
+                schema = artifact.get("model_schema_version")
+                if schema in (2, 3):
+                    graph = _petri_from_v2_artifact(artifact)
+                elif schema is None:
+                    places, transitions, arcs, initial, finals = _petri_from_pnml(str(artifact.get("pnml") or ""))
+                    initial = artifact["initial_marking"] if isinstance(artifact.get("initial_marking"), list) else initial
+                    finals = artifact["final_markings"] if isinstance(artifact.get("final_markings"), list) else finals
+                    graph = (places, transitions, arcs, initial, finals[0] if finals else [], finals)
+                else:
+                    raise ValueError(f"unsupported model_schema_version: {schema}")
+                # Keep the parsed graph once, never the PNML plus all repeated parses.
+                artifacts_by_evaluation_id[str(evaluation_id)] = {
+                    key: artifact.get(key) for key in (
+                        "model_schema_version", "visible_transition_count", "is_feasible", "constraint_violations"
+                    )
+                }
+                artifacts_by_evaluation_id[str(evaluation_id)]["_graph"] = graph
+            if artifacts:
+                del artifact
+            del artifacts
     control.raise_if_cancel_requested()
 
     parsed_solutions: List[Dict[str, Any]] = []
@@ -120,7 +140,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
                         initial_marking,
                         final_marking,
                         final_markings,
-                    ) = _petri_from_v2_artifact(artifact)
+                    ) = artifact["_graph"]
                     visible_transition_count = artifact.get("visible_transition_count")
                     is_feasible = artifact.get("is_feasible")
                     constraint_violations = artifact.get("constraint_violations")
@@ -138,13 +158,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
                         ):
                             raise ValueError("v2 artifact has inconsistent feasibility metadata")
                 elif model_schema_version is None:
-                    pnml_text = str(artifact.get("pnml") or "")
-                    places, transitions, arcs, initial_marking, final_markings = _petri_from_pnml(pnml_text)
-                    if isinstance(artifact.get("initial_marking"), list):
-                        initial_marking = list(artifact.get("initial_marking") or [])
-                    if isinstance(artifact.get("final_markings"), list):
-                        final_markings = list(artifact.get("final_markings") or [])
-                    final_marking = final_markings[0] if final_markings else []
+                    places, transitions, arcs, initial_marking, final_marking, final_markings = artifact["_graph"]
                 else:
                     raise ValueError(f"unsupported model_schema_version: {model_schema_version}")
             elif model_schema_version in (2, 3):
@@ -154,6 +168,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "variables": solution.get("variables", []),
             "objectives": solution.get("objectives", []),
             "metrics": solution.get("metrics", {}),
+            "metrics_status": solution.get("metrics_status", "computed"),
             "pipeline": _compact_pipeline_for_storage(solution.get("pipeline")),
             "pipeline_full": solution.get("pipeline") if isinstance(solution.get("pipeline"), dict) else None,
             "evaluation_id": evaluation_id,
@@ -209,7 +224,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
         "metrics": result.get("metrics_order") or request_data.get("metrics") or [],
         "workers": int(discover.get("n_workers") or 1),
         "actual_evaluations": _to_int_or_none(result.get("actual_evaluations")),
-        "conformance_mode": request_data.get("conformance_mode") or "alignment",
+        "conformance_mode": request_data.get("conformance_mode") or "replay-token",
         "log_sha256": result.get("log_sha256"),
         "optimizer_source_sha256": result.get("optimizer_source_sha256"),
         "prom_revision": result.get("prom_revision"),

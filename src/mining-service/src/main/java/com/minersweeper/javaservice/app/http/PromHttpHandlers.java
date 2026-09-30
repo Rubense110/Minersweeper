@@ -58,10 +58,13 @@ public final class PromHttpHandlers {
                 evaluation.is_feasible,
                 evaluation.constraint_violations
             );
+            response.metrics_status = evaluation.metrics_status;
             return HttpResponses.respondJson(res, 200, response, mapper);
         } catch (ExperimentCancelledException e) {
             clearInterruptedStatus();
             return HttpResponses.respondError(res, 409, "experiment_cancelled", HttpResponses.buildErrorMessage(e));
+        } catch (com.minersweeper.javaservice.evaluation.EvaluationAdmission.CapacityExceeded e) {
+            return HttpResponses.respondError(res, 503, "capacity_exceeded", e.getMessage());
         } catch (IllegalArgumentException e) {
             ServerErrorLogger.log("invalid_request", e, verboseExceptions);
             return HttpResponses.respondError(res, 400, "invalid_request", HttpResponses.buildErrorMessage(e));
@@ -131,10 +134,25 @@ public final class PromHttpHandlers {
             response.put("experiment_id", experimentId);
             response.put("request_id", requestId);
             response.put("cancel_requested", Boolean.TRUE);
+            response.put("termination_confirmed", pipelineEvaluator.terminationConfirmed(experimentId, requestId));
             return HttpResponses.respondJson(res, 200, response, mapper);
         } catch (Exception e) {
             ServerErrorLogger.log("evaluation_cancel_failed", e, verboseExceptions);
             return HttpResponses.respondError(res, 500, "evaluation_cancel_failed", HttpResponses.buildErrorMessage(e));
+        }
+    }
+
+    public Object handleEvaluationStatus(spark.Request req, spark.Response res) throws Exception {
+        String experimentId = req.params(":experimentId"), requestId = req.params(":requestId");
+        try {
+            RequestValidator.validateExperimentIdPath(experimentId);
+            RequestValidator.validateRequestIdPath(requestId);
+            Map<String, Object> response = new LinkedHashMap<String, Object>();
+            response.put("experiment_id", experimentId); response.put("request_id", requestId);
+            response.put("termination_confirmed", pipelineEvaluator.terminationConfirmed(experimentId, requestId));
+            return HttpResponses.respondJson(res, 200, response, mapper);
+        } catch (BadRequestException error) {
+            return HttpResponses.respondError(res, 400, "invalid_request", error.getMessage());
         }
     }
 

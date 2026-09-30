@@ -40,7 +40,7 @@ class OptimizedProcessMiner:
         self.required_metrics = list(self.metrics_list)
         self.service_url = service_url
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
-        self.conformance_mode = (conformance_mode or "").strip() or None
+        self.conformance_mode = (conformance_mode or "replay-token").strip() or "replay-token"
         self.excluded_miners = tuple(excluded_miners or ())
         self.excluded_preprocessings = tuple(excluded_preprocessings or ())
         self.execution_control = execution_control or ExecutionControl()
@@ -90,6 +90,7 @@ class OptimizedProcessMiner:
             maximize_metrics=[True] * len(self.metrics_list),
             on_evaluation=progress_callback,
             rng=self.rng,
+            execution_control=self.execution_control,
         )
 
         self.optimizer = PipelineNSGAIIIOptimizer(

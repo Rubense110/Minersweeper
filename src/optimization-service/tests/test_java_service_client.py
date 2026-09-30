@@ -212,6 +212,7 @@ class ProMServiceClientTest(unittest.TestCase):
             "experiment_id": "exp-1",
             "request_id": "req-timeout",
             "cancel_requested": True,
+            "termination_confirmed": True,
         }
         cancel_response.raise_for_status.return_value = None
         mock_post.side_effect = [timeout, cancel_response]

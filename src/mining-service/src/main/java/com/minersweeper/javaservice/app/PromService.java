@@ -31,6 +31,10 @@ public class PromService {
 
         int port = Integer.parseInt(env("PORT", "7070"));
         Spark.port(port);
+        // Admission keeps at most 3 * slots evaluation handlers occupied. Reserve
+        // HTTP threads for cancellation/status while those evaluations wait.
+        int slots = com.minersweeper.javaservice.evaluation.EvaluationAdmission.positiveEnv("PROM_MAX_CONCURRENT_EVALUATIONS", 4);
+        Spark.threadPool(Math.max(32, 3 * slots + 8));
         System.out.println("prom_service: listening on port " + port);
 
         get("/health", (req, res) -> {
@@ -49,6 +53,7 @@ public class PromService {
         post("/pipeline", (req, res) -> HTTP_HANDLERS.handlePipeline(req, res));
         post("/artifacts/bulk", (req, res) -> HTTP_HANDLERS.handleArtifactsBulk(req, res));
         post("/experiments/:experimentId/cancel", (req, res) -> HTTP_HANDLERS.handleCancel(req, res));
+        get("/experiments/:experimentId/evaluations/:requestId/status", (req, res) -> HTTP_HANDLERS.handleEvaluationStatus(req, res));
         post("/experiments/:experimentId/evaluations/:requestId/cancel", (req, res) -> HTTP_HANDLERS.handleEvaluationCancel(req, res));
         post("/experiments/:experimentId/cleanup", (req, res) -> HTTP_HANDLERS.handleCleanup(req, res));
     }

@@ -8,6 +8,7 @@ public class PipelineResponse {
     public String evaluation_id;
     public String fingerprint;
     public Map<String, Double> metrics;
+    public String metrics_status;
     public Integer model_schema_version;
     public Integer visible_transition_count;
     public Boolean is_feasible;

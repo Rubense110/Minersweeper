@@ -53,6 +53,8 @@ class Experiment(Base):
     quality_policy_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     optimizer_config: Mapped[Any] = mapped_column(JSON, nullable=True)
 
+    models: Mapped[List["ModelArtifact"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
+
     solutions: Mapped[List["Solution"]] = relationship(
         back_populates="experiment",
         cascade="all, delete-orphan",
@@ -65,6 +67,16 @@ class Experiment(Base):
         back_populates="experiment",
         cascade="all, delete-orphan",
     )
+
+
+class ModelArtifact(Base):
+    __tablename__ = "model_artifacts"
+    __table_args__ = (Index("ux_model_artifacts_evaluation", "experiment_id", "evaluation_id", unique=True),)
+    model_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    experiment_id: Mapped[str] = mapped_column(String(64), ForeignKey("experiments.experiment_id", ondelete="CASCADE"), nullable=False)
+    evaluation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[Any] = mapped_column(JSON, nullable=False)
+    experiment: Mapped["Experiment"] = relationship(back_populates="models")
 
 
 class PopulationSnapshot(Base):
@@ -120,6 +132,9 @@ class Solution(Base):
     fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
     evaluation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     evaluation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    metrics_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_artifacts.model_id"), nullable=True)
+    model: Mapped[ModelArtifact | None] = relationship(lazy="selectin")
 
     experiment: Mapped[Experiment] = relationship(back_populates="solutions")
 
@@ -163,6 +178,9 @@ class SnapshotSolution(Base):
     fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
     evaluation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     evaluation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    metrics_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_artifacts.model_id"), nullable=True)
+    model: Mapped[ModelArtifact | None] = relationship(lazy="selectin")
 
     experiment: Mapped[Experiment] = relationship(back_populates="snapshot_solutions")
     snapshot: Mapped[PopulationSnapshot | None] = relationship(back_populates="members")
@@ -244,6 +262,8 @@ class JobStore:
                     "fingerprint": "TEXT",
                     "evaluation_error": "TEXT",
                     "evaluation_status": "VARCHAR(32)",
+                    "metrics_status": "VARCHAR(32)",
+                    "model_id": "INTEGER REFERENCES model_artifacts(model_id)",
                 }.items():
                     if name not in solution_columns:
                         connection.execute(text(f"ALTER TABLE solutions ADD COLUMN {name} {sql_type}"))
@@ -282,6 +302,8 @@ class JobStore:
                     "fingerprint": "TEXT",
                     "evaluation_error": "TEXT",
                     "evaluation_status": "VARCHAR(32)",
+                    "metrics_status": "VARCHAR(32)",
+                    "model_id": "INTEGER REFERENCES model_artifacts(model_id)",
                 }.items():
                     if name not in snapshot_columns:
                         connection.execute(text(f"ALTER TABLE snapshot_solutions ADD COLUMN {name} {sql_type}"))
@@ -404,7 +426,27 @@ class JobStore:
                     snapshot_rows[index] = snapshot
                 session.flush()
 
+                model_ids = {}
+                graph_keys = ("places", "transitions", "arcs", "initial_marking", "final_marking", "final_markings")
+                def model_id_for(item):
+                    evaluation = item.get("evaluation_id")
+                    if not evaluation:
+                        return None
+                    payload = {key: item.get(key, None if key == "final_marking" else []) for key in graph_keys}
+                    previous = model_ids.get(evaluation)
+                    if previous is not None:
+                        if payload != previous[1]:
+                            raise ValueError("conflicting graphs for the same evaluation_id")
+                        return previous[0]
+                    model = ModelArtifact(experiment_id=experiment_id, evaluation_id=evaluation, payload=self._sanitize_json(payload))
+                    session.add(model)
+                    session.flush()
+                    model_ids[evaluation] = (model.model_id, payload)
+                    return model.model_id
+
+                inserted_rows = 0
                 for item in solutions:
+                    model_id = model_id_for(item)
                     session.add(
                         Solution(
                             experiment_id=experiment_id,
@@ -414,25 +456,32 @@ class JobStore:
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
-                            places=self._sanitize_json(item.get("places", [])),
-                            transitions=self._sanitize_json(item.get("transitions", [])),
-                            arcs=self._sanitize_json(item.get("arcs", [])),
+                            places=[] if model_id is not None else self._sanitize_json(item.get("places", [])),
+                            transitions=[] if model_id is not None else self._sanitize_json(item.get("transitions", [])),
+                            arcs=[] if model_id is not None else self._sanitize_json(item.get("arcs", [])),
                             visible_transition_count=self._to_int_or_none(item.get("visible_transition_count")),
                             is_feasible=item.get("is_feasible") if isinstance(item.get("is_feasible"), bool) else None,
                             constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
                             model_schema_version=self._to_int_or_none(item.get("model_schema_version")),
-                            initial_marking=self._sanitize_json(item.get("initial_marking", [])),
-                            final_marking=self._sanitize_json(item.get("final_marking")),
-                            final_markings=self._sanitize_json(item.get("final_markings", [])),
+                            initial_marking=[] if model_id is not None else self._sanitize_json(item.get("initial_marking", [])),
+                            final_marking=None if model_id is not None else self._sanitize_json(item.get("final_marking")),
+                            final_markings=[] if model_id is not None else self._sanitize_json(item.get("final_markings", [])),
                             pipeline_full=self._sanitize_json(item.get("pipeline_full")),
                             evaluation_id=item.get("evaluation_id"),
                             fingerprint=item.get("fingerprint"),
                             evaluation_error=item.get("evaluation_error"),
                             evaluation_status=item.get("evaluation_status"),
+                            metrics_status=item.get("metrics_status"),
+                            model_id=model_id,
                         )
                     )
 
+                    inserted_rows += 1
+                    if inserted_rows % 64 == 0:
+                        session.flush()
+
                 for item in snapshot_solutions or []:
+                    model_id = model_id_for(item)
                     session.add(
                         SnapshotSolution(
                             experiment_id=experiment_id,
@@ -446,23 +495,29 @@ class JobStore:
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
                             is_pareto=bool(item.get("is_pareto")),
-                            places=self._sanitize_json(item.get("places", [])),
-                            transitions=self._sanitize_json(item.get("transitions", [])),
-                            arcs=self._sanitize_json(item.get("arcs", [])),
+                            places=[] if model_id is not None else self._sanitize_json(item.get("places", [])),
+                            transitions=[] if model_id is not None else self._sanitize_json(item.get("transitions", [])),
+                            arcs=[] if model_id is not None else self._sanitize_json(item.get("arcs", [])),
                             visible_transition_count=self._to_int_or_none(item.get("visible_transition_count")),
                             is_feasible=item.get("is_feasible") if isinstance(item.get("is_feasible"), bool) else None,
                             constraint_violations=self._sanitize_json(item.get("constraint_violations", [])),
                             model_schema_version=self._to_int_or_none(item.get("model_schema_version")),
-                            initial_marking=self._sanitize_json(item.get("initial_marking", [])),
-                            final_marking=self._sanitize_json(item.get("final_marking")),
-                            final_markings=self._sanitize_json(item.get("final_markings", [])),
+                            initial_marking=[] if model_id is not None else self._sanitize_json(item.get("initial_marking", [])),
+                            final_marking=None if model_id is not None else self._sanitize_json(item.get("final_marking")),
+                            final_markings=[] if model_id is not None else self._sanitize_json(item.get("final_markings", [])),
                             pipeline_full=self._sanitize_json(item.get("pipeline_full")),
                             evaluation_id=item.get("evaluation_id"),
                             fingerprint=item.get("fingerprint"),
                             evaluation_error=item.get("evaluation_error"),
                             evaluation_status=item.get("evaluation_status"),
+                            metrics_status=item.get("metrics_status"),
+                            model_id=model_id,
                         )
                     )
+
+                    inserted_rows += 1
+                    if inserted_rows % 64 == 0:
+                        session.flush()
 
     def delete_experiment(self, experiment_id: str) -> bool:
         with self._session_factory() as session:
@@ -512,6 +567,7 @@ class JobStore:
 
     @staticmethod
     def _serialize_solution(solution: Solution) -> Dict[str, Any]:
+        graph = solution.model.payload if solution.model is not None else {}
         return {
             "solution_id": int(solution.solution_id),
             "experiment_id": solution.experiment_id,
@@ -525,25 +581,27 @@ class JobStore:
                 and solution.evaluation_error is None
                 and solution.evaluation_status != "error"
             ),
-            "places": solution.places or [],
-            "transitions": solution.transitions or [],
-            "arcs": solution.arcs or [],
+            "places": graph.get("places", solution.places) or [],
+            "transitions": graph.get("transitions", solution.transitions) or [],
+            "arcs": graph.get("arcs", solution.arcs) or [],
             "visible_transition_count": solution.visible_transition_count,
             "is_feasible": solution.is_feasible,
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
-            "initial_marking": solution.initial_marking or [],
-            "final_marking": solution.final_marking,
-            "final_markings": solution.final_markings or [],
+            "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
+            "final_marking": graph.get("final_marking", solution.final_marking),
+            "final_markings": graph.get("final_markings", solution.final_markings) or [],
             "pipeline_full": solution.pipeline_full,
             "evaluation_id": solution.evaluation_id,
             "fingerprint": solution.fingerprint,
             "evaluation_error": solution.evaluation_error,
             "evaluation_status": solution.evaluation_status,
+            "metrics_status": solution.metrics_status or "computed",
         }
 
     @staticmethod
     def _serialize_snapshot_solution(solution: SnapshotSolution) -> Dict[str, Any]:
+        graph = solution.model.payload if solution.model is not None else {}
         return {
             "snapshot_solution_id": int(solution.snapshot_solution_id),
             "snapshot_id": solution.snapshot_id,
@@ -561,21 +619,22 @@ class JobStore:
                 and solution.evaluation_error is None
                 and solution.evaluation_status != "error"
             ),
-            "places": solution.places or [],
-            "transitions": solution.transitions or [],
-            "arcs": solution.arcs or [],
+            "places": graph.get("places", solution.places) or [],
+            "transitions": graph.get("transitions", solution.transitions) or [],
+            "arcs": graph.get("arcs", solution.arcs) or [],
             "visible_transition_count": solution.visible_transition_count,
             "is_feasible": solution.is_feasible,
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
-            "initial_marking": solution.initial_marking or [],
-            "final_marking": solution.final_marking,
-            "final_markings": solution.final_markings or [],
+            "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
+            "final_marking": graph.get("final_marking", solution.final_marking),
+            "final_markings": graph.get("final_markings", solution.final_markings) or [],
             "pipeline_full": solution.pipeline_full,
             "evaluation_id": solution.evaluation_id,
             "fingerprint": solution.fingerprint,
             "evaluation_error": solution.evaluation_error,
             "evaluation_status": solution.evaluation_status,
+            "metrics_status": solution.metrics_status or "computed",
         }
 
     def list_experiments(self) -> List[Dict[str, Any]]:

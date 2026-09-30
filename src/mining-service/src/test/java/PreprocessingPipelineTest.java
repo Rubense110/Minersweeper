@@ -14,6 +14,36 @@ import org.junit.Test;
 
 public class PreprocessingPipelineTest {
     @Test
+    public void projectionMatchesCorrectlyConfiguredDependencyForSeveralThresholds() throws Exception {
+        Path dir = Files.createTempDirectory("projection-parity");
+        try {
+            Path file = TestFixtures.createTinyLog(dir, "tiny.xes");
+            XLog log = new XesXmlParser().parse(file.toFile()).get(0);
+            org.deckfour.xes.classification.XEventClasses classes = org.deckfour.xes.info.impl.XLogInfoImpl.create(log, org.deckfour.xes.info.impl.XLogInfoImpl.STANDARD_CLASSIFIER).getEventClasses();
+            java.util.List<String> all = new java.util.ArrayList<String>();
+            for (org.deckfour.xes.classification.XEventClass eventClass : classes.getClasses()) all.add(eventClass.toString());
+            for (int value : new int[]{1, 25, 50, 75, 100}) {
+                org.processmining.filterd.parameters.ParameterOneFromSet rate = new org.processmining.filterd.parameters.ParameterOneFromSet("rate", "rate", "Frequency", java.util.Arrays.asList("Frequency", "Occurrence"));
+                org.processmining.filterd.parameters.ParameterValueFromRange<Integer> threshold = new org.processmining.filterd.parameters.ParameterValueFromRange<Integer>("threshold", "threshold", value, java.util.Arrays.asList(0, 100), Integer.TYPE);
+                java.util.List<String> desired = org.processmining.filterd.tools.Toolbox.computeDesiredEventsFromThreshold(threshold, rate, classes);
+                java.util.List<org.processmining.filterd.parameters.Parameter> parameters = java.util.Arrays.<org.processmining.filterd.parameters.Parameter>asList(rate, threshold,
+                    new org.processmining.filterd.parameters.ParameterOneFromSet("selectionType", "selection", "Filter in", java.util.Arrays.asList("Filter in", "Filter out")),
+                    new org.processmining.filterd.parameters.ParameterMultipleFromSet("desiredEvents", "desired", desired, all));
+                XLog expected = new org.processmining.filterd.filters.FilterdEventRateFilter().filter(log, parameters);
+                PipelineRequest.PreprocessingConfig preprocessing = TestFixtures.allPreprocessings().stream().filter(config -> "projection_filter".equals(config.key)).findFirst().get();
+                preprocessing.parameters.put("keep_threshold_p", value);
+                PipelineRequest request = TestFixtures.buildRequest("parity", file.toString(), preprocessing, TestFixtures.inductiveImf(), TestFixtures.defaultMetrics());
+                if (expected.isEmpty()) {
+                    try { new PreprocessingPipeline().apply(null, log, request); Assert.fail(); }
+                    catch (IllegalArgumentException empty) { Assert.assertTrue(empty.getMessage().contains("empty log")); }
+                } else {
+                    Assert.assertEquals(serialize(expected), serialize(new PreprocessingPipeline().apply(null, log, request)));
+                }
+            }
+        } finally { Files.deleteIfExists(dir.resolve("tiny.xes")); Files.deleteIfExists(dir); }
+    }
+
+    @Test
     public void preprocessingFamiliesDoNotMutateOriginalLog() throws Exception {
         Path dir = Files.createTempDirectory("preprocessing-immutability-test");
         try {

@@ -1,6 +1,7 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.app.logging.TimingTrace;
+import com.minersweeper.javaservice.evaluation.ExecutionChecks;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,13 +50,19 @@ public class TokenReplayComputation {
         TransEvClassMapping mapping,
         TimingTrace timing
     ) {
+        this(log, net, initialMarking, finalMarkings, classifier, mapping, timing, new CompiledReplayNet(net));
+    }
+
+    public TokenReplayComputation(XLog log, Petrinet net, Marking initialMarking,
+        List<Marking> finalMarkings, XEventClassifier classifier, TransEvClassMapping mapping,
+        TimingTrace timing, CompiledReplayNet compiled) {
         if (finalMarkings == null || finalMarkings.isEmpty()) {
             throw new IllegalArgumentException("at least one final marking is required");
         }
         this.log = log;
         this.finalEngines = new ArrayList<TokenReplayEngine>();
         for (Marking fin : finalMarkings) {
-            this.finalEngines.add(new TokenReplayEngine(net, initialMarking, fin, classifier, mapping));
+            this.finalEngines.add(new TokenReplayEngine(net, initialMarking, fin, classifier, mapping, compiled));
         }
         this.engine = this.finalEngines.get(0);
         this.timing = timing;
@@ -73,6 +80,7 @@ public class TokenReplayComputation {
         long fitTraces = 0L;
 
         for (Map.Entry<List<String>, Integer> variant : variants.entrySet()) {
+            ExecutionChecks.check();
             TokenReplayEngine.TraceReplay traceReplay = bestReplay(variant.getKey());
             int multiplicity = variant.getValue().intValue();
             totals.add(traceReplay.counts(), multiplicity);

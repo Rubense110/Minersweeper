@@ -48,6 +48,7 @@ public class ConformanceComputation {
     private PNRepResult replayResult;
     private AlignmentPrecGenRes alignment;
     private TokenReplayEngine tokenReplayEngine;
+    private CompiledReplayNet compiledReplayNet;
     private TokenReplayResult tokenReplayResult;
     private TokenReplayPrecisionResult tokenReplayPrecisionResult;
     private Double replayPrecision;
@@ -97,7 +98,7 @@ public class ConformanceComputation {
         this.initialMarking = initialMarking;
         this.finalMarkings = Collections.unmodifiableList(new ArrayList<Marking>(finalMarkings));
         this.finalMarking = this.finalMarkings.get(0);
-        this.conformanceMode = conformanceMode == null ? ConformanceMode.ALIGNMENT : conformanceMode;
+        this.conformanceMode = conformanceMode == null ? ConformanceMode.REPLAY_TOKEN : conformanceMode;
         this.timing = timing;
     }
 
@@ -199,7 +200,7 @@ public class ConformanceComputation {
             return tokenReplayResult;
         }
         TokenReplayComputation computation = new TokenReplayComputation(
-            log, net, initialMarking, finalMarkings, getClassifier(), getMapping(), timing
+            log, net, initialMarking, finalMarkings, getClassifier(), getMapping(), timing, getCompiledReplayNet()
         );
         tokenReplayResult = computation.compute();
         return tokenReplayResult;
@@ -225,10 +226,16 @@ public class ConformanceComputation {
                 initialMarking,
                 finalMarking,
                 getClassifier(),
-                getMapping()
+                getMapping(),
+                getCompiledReplayNet()
             );
         }
         return tokenReplayEngine;
+    }
+
+    private CompiledReplayNet getCompiledReplayNet() {
+        if (compiledReplayNet == null) compiledReplayNet = new CompiledReplayNet(net);
+        return compiledReplayNet;
     }
 
     public synchronized AlignmentPrecGenRes getAlignment() throws Exception {
@@ -380,8 +387,14 @@ public class ConformanceComputation {
 
     private XEventClasses getEventClasses() {
         if (eventClasses == null) {
-            XLogInfo logInfo = XLogInfoFactory.createLogInfo(log, getClassifier());
-            eventClasses = logInfo.getEventClasses();
+            if (conformanceMode.isReplayToken()) {
+                eventClasses = LogReplayStatistics.forLog(log, getClassifier()).eventClasses;
+            } else {
+                synchronized (log) {
+                    XLogInfo logInfo = XLogInfoFactory.createLogInfo(log, getClassifier());
+                    eventClasses = logInfo.getEventClasses();
+                }
+            }
         }
         return eventClasses;
     }

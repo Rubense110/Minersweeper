@@ -53,6 +53,7 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "fingerprint": attrs.get("fingerprint"),
         "pipeline": attrs.get("pipeline", {}),
         "metrics": attrs.get("metrics", {}),
+        "metrics_status": attrs.get("metrics_status", "computed"),
         "objective_metrics": attrs.get("objective_metrics", {}),
         "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),

@@ -82,7 +82,7 @@ public class ConformanceMetricsCalculator {
             if (metric.boundedUnitInterval()) {
                 value = MetricUtils.clamp01(value);
             } else if (!Double.isFinite(value)) {
-                value = 0.0;
+                throw new IllegalStateException("non-finite metric '" + metricKey + "': " + value);
             }
             metrics.put(metricKey, value);
             if (timing != null) {

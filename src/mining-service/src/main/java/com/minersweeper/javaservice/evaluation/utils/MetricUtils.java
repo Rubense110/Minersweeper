@@ -9,19 +9,21 @@ public class MetricUtils {
         double parsed;
         if (value instanceof Number) {
             parsed = ((Number) value).doubleValue();
-            return Double.isFinite(parsed) ? parsed : fallback;
+            if (!Double.isFinite(parsed)) throw new IllegalStateException("non-finite metric value: " + value);
+            return parsed;
         }
         try {
             parsed = Double.parseDouble(String.valueOf(value));
-            return Double.isFinite(parsed) ? parsed : fallback;
-        } catch (Exception ignored) {
+            if (!Double.isFinite(parsed)) throw new IllegalStateException("non-finite metric value: " + value);
+            return parsed;
+        } catch (NumberFormatException ignored) {
             return fallback;
         }
     }
 
     public static double clamp01(double value) {
         if (!Double.isFinite(value)) {
-            return 0.0;
+            throw new IllegalStateException("non-finite metric value: " + value);
         }
         if (value < 0.0) {
             return 0.0;

@@ -245,7 +245,52 @@ For normal operation:
 
 Although the backend also exposes HTTP endpoints, the repository is documented around the web workflow because that is the intended user interaction path.
 
+### Resource limits and cancellation
+
+Evaluation uses `replay-token` when the mode is omitted. The service skips scoring
+models rejected by the quality policy and returns `metrics: {}` with
+`metrics_status: "skipped_infeasible"`; these are unmeasured metrics. The optimizer
+uses penalty objectives for these candidates, which can change the search trajectory.
+Projection now applies its requested frequency threshold. The former adapter
+inverted the selection/options arguments and inadvertently kept every activity;
+this correction can change discovered models.
+
+The Compose defaults admit four Java evaluations, four Python evaluation workers,
+and one optimization job at a time. Adjust these variables together:
+
+| Variable | Default | Role |
+|---|---:|---|
+| `PROM_MAX_CONCURRENT_EVALUATIONS` | 4 | Java evaluation slots; released after execution and owned tasks stop |
+| `PROM_EVALUATION_RESERVE_MB` | 512 | Heap headroom signal; not a bound on plugin allocation |
+| `OPT_MAX_EVALUATION_WORKERS` | 4 | Worker cap for the API and direct optimizer |
+| `OPT_MAX_CONCURRENT_JOBS` | 1 | Optimization jobs allowed to run together |
+| `OPT_MAX_QUEUED_JOBS` | 16 | Jobs allowed to wait for execution |
+| `PROM_ALLOW_MINER_MULTITHREADING` | false | Enables IM internal threads only if requested by the pipeline too |
+| `JAVA_CANCEL_GRACE_SECONDS` | 10 | Time to confirm termination after an ambiguous HTTP failure |
+
+The Java waiting queue is bounded. Insufficient heap headroom for five seconds
+rejects admission rather than waiting indefinitely. For a 32 GB machine, begin
+with 2–4 evaluations and leave memory for Python, PostgreSQL, native memory, and
+the OS. A slot limit does not guarantee that one very large plugin call fits.
+
+On timeout or connection failure, Python cancels the request and checks its
+termination status. Failure to confirm stops that optimization. This is cooperative
+cancellation in a shared JVM: forcibly stopping an uncooperative plugin requires
+process isolation. Experiment execution names cannot be reused after cleanup;
+use a fresh execution name for each run.
+
+With `PROM_TIMING_ENABLED=true`, phase records include heap usage at phase
+boundaries, active/waiting evaluations, and JVM thread and cumulative GC counters.
+These are JVM-wide observations, not per-evaluation peak memory or GC attribution.
+
 ## Persistence and Outputs
+
+New persisted results store each evaluation graph once in `model_artifacts`.
+Population and snapshot members reference it. Existing inline graphs remain
+readable; schema initialization adds nullable references without rewriting old
+experiments. Artifact transfer uses batches of 16; Java bulk requests accept at
+most 32 IDs. Completed jobs release their populations and load results from the
+database when requested.
 
 Completed experiments are stored in PostgreSQL by the optimization service.
 

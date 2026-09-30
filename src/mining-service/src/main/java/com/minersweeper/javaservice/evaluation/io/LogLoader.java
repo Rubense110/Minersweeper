@@ -1,6 +1,7 @@
 package com.minersweeper.javaservice.evaluation.io;
 
 import java.io.File;
+import com.minersweeper.javaservice.evaluation.conformance.LogReplayStatistics;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ExecutionException;
@@ -81,6 +82,9 @@ public class LogLoader {
             Thread.currentThread().interrupt();
             throw error;
         } catch (ExecutionException error) {
+            synchronized (this) {
+                if (loadingByExperiment.get(key) == loading) loadingByExperiment.remove(key);
+            }
             Throwable cause = error.getCause();
             if (cause instanceof Exception) {
                 throw (Exception) cause;
@@ -116,7 +120,8 @@ public class LogLoader {
 
     public synchronized void evictExperiment(String experimentId) {
         String normalized = normalizeExperimentId(experimentId);
-        logsByExperiment.remove(normalized);
+        CachedLog evicted = logsByExperiment.remove(normalized);
+        if (evicted != null) LogReplayStatistics.evict(evicted.log);
         loadingByExperiment.remove(normalized);
     }
 
@@ -126,8 +131,9 @@ public class LogLoader {
             if (!iterator.hasNext()) {
                 break;
             }
-            iterator.next();
+            CachedLog evicted = iterator.next().getValue();
             iterator.remove();
+            LogReplayStatistics.evict(evicted.log);
         }
     }
 

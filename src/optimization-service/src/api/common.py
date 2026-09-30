@@ -63,7 +63,8 @@ def _normalize_n_workers(value: Any) -> int:
     requested = _to_int(value, 1)
     if requested < 1:
         requested = 1
-    return min(requested, _logical_cpu_count())
+    configured_limit = max(1, _to_int(os.getenv("OPT_MAX_EVALUATION_WORKERS"), 4))
+    return min(requested, _logical_cpu_count(), configured_limit)
 
 
 def _normalize_log_path(value: Any) -> str:

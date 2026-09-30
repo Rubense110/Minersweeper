@@ -110,7 +110,7 @@ public class PromPipelineEvaluatorRealTest {
                 assertNotNull(result.evaluation_id);
                 assertTrue(result.fingerprint.contains(miner.key));
                 assertEquals(Integer.valueOf(3), result.model_schema_version);
-                TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
+                assertEvaluationMetrics(result);
 
                 ArtifactBulkResponse bulk = store.readBulk(experimentId, Arrays.asList(result.evaluation_id), true);
                 assertEquals(1, bulk.artifacts.size());
@@ -187,7 +187,7 @@ public class PromPipelineEvaluatorRealTest {
                 );
                 request.conformance_mode = mode;
                 EvaluationResult result = evaluator.evaluate(request);
-                TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
+                assertEvaluationMetrics(result);
                 ArtifactBulkResponse bulk = store.readBulk(
                     experimentId, Arrays.asList(result.evaluation_id), true
                 );
@@ -219,12 +219,22 @@ public class PromPipelineEvaluatorRealTest {
             EvaluationResult result = evaluator.evaluate(request);
             assertEquals(experimentId, result.experiment_id);
             assertTrue(result.fingerprint.contains(preprocessing.key));
-            TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
+            assertEvaluationMetrics(result);
 
             ArtifactBulkResponse bulk = store.readBulk(experimentId, Arrays.asList(result.evaluation_id), true);
             assertEquals(1, bulk.artifacts.size());
             assertEquals(preprocessing.key, bulk.artifacts.get(0).pipeline.preprocessing.key);
             assertTrue(bulk.artifacts.get(0).pnml.contains("pnml"));
+        }
+    }
+
+    private static void assertEvaluationMetrics(EvaluationResult result) {
+        if (Boolean.FALSE.equals(result.is_feasible)) {
+            assertEquals("skipped_infeasible", result.metrics_status);
+            assertTrue(result.metrics.isEmpty());
+        } else {
+            assertEquals("computed", result.metrics_status);
+            TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
         }
     }
 
