@@ -62,6 +62,10 @@ From the **New Experiment** page, the user selects:
 
 The optimization service then creates an optimization job and starts evaluating candidate pipelines.
 
+The default search uses **36 candidates**, **4 reference partitions** (`n_partitions`, giving 35 directions for the four quality objectives), and **1,836 evaluations**. This budget covers the initial population and 50 complete offspring generations. The web form sends these defaults, and the API and Python entry points use them when the settings are omitted. The number of directions depends on the number of selected objectives. Cache hits and failed evaluations also consume the evaluation budget.
+
+The search keeps SBX crossover with probability 0.9 and distribution index 20, and polynomial mutation with probability `1 / number_of_genes` and distribution index 20. These are initial settings to measure, rather than an established optimum for every log. Population, budget and reference partitions can be overridden through the API.
+
 ### 2. Search the pipeline space
 
 The optimizer explores combinations of:

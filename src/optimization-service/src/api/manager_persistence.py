@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from java_service_client import ProMServiceClient
 from model_quality import validate_v3_feasibility
+from pareto import has_evaluation_error
 
 from .common import LOGGER, _parse_utc_iso, _to_int_or_none
 from .petri import _petri_from_pnml, _petri_from_v2_artifact
@@ -159,12 +160,16 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "fingerprint": solution.get("fingerprint"),
             "evaluation_error": solution.get("evaluation_error"),
             "evaluation_status": (
-                "error" if solution.get("evaluation_error") else
+                "error" if has_evaluation_error(solution) else
                 "feasible" if is_feasible is True else
                 "infeasible" if is_feasible is False else "unknown"
             ),
             "runtime_ms": _to_int_or_none(solution.get("runtime_ms")),
-            "is_pareto": bool(solution.get("is_pareto")) and is_feasible is not False,
+            "is_pareto": (
+                bool(solution.get("is_pareto"))
+                and is_feasible is not False
+                and not has_evaluation_error(solution)
+            ),
             "places": places,
             "transitions": transitions,
             "arcs": arcs,

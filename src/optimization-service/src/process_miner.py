@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from execution_control import ExecutionControl
 from java_service_client import ProMServiceClient
+from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
 from optimizer import PipelineNSGAIIIOptimizer
 from pipeline_space import PipelineSearchSpace
 from problem import PipelineOptimizationProblem
@@ -57,9 +58,9 @@ class OptimizedProcessMiner:
     def discover(
         self,
         service_url: Optional[str] = None,
-        max_evaluations: int = 1000,
-        population_size: int | None = 100,
-        n_partitions: int | None = None,
+        max_evaluations: int = DEFAULT_MAX_EVALUATIONS,
+        population_size: int | None = DEFAULT_POPULATION_SIZE,
+        n_partitions: int | None = DEFAULT_N_PARTITIONS,
         n_workers: int = 1,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):

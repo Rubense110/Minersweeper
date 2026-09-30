@@ -389,7 +389,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertIn("evaluation_error", evaluated.attributes)
         self.assertIn("runtime_ms", evaluated.attributes)
         self.assertGreaterEqual(evaluated.attributes["runtime_ms"], 0)
-        self.assertEqual([0.0], evaluated.constraints)
+        self.assertEqual([-1.0], evaluated.constraints)
         self.assertNotIn("NO_VISIBLE_TRANSITIONS", evaluated.attributes.get("constraint_violations", []))
 
     def test_infeasible_parent_metadata_is_cleared_when_child_evaluation_fails(self):
@@ -412,7 +412,7 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
 
         evaluated = problem.evaluate(child)
 
-        self.assertEqual([0.0], evaluated.constraints)
+        self.assertEqual([-1.0], evaluated.constraints)
         self.assertEqual("child failed", evaluated.attributes["evaluation_error"])
         for key in (
             "evaluation_id", "experiment_id", "fingerprint", "model_schema_version",
@@ -535,6 +535,40 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(evaluated.objectives[0], -0.5)
         self.assertEqual(evaluated.objectives[1], -0.0)
         self.assertIn("evaluation_error", evaluated.attributes)
+        self.assertEqual([-1.0], evaluated.constraints)
+
+    def test_invalid_metrics_penalize_even_a_feasible_versioned_model(self):
+        space = PipelineSearchSpace(excluded_miners=("ilp", "hybrid_ilp"))
+        for schema in (2, 3):
+            for invalid in (None, "invalid", float("nan"), float("inf"), float("-inf")):
+                with self.subTest(schema=schema, metric=invalid):
+                    payload = self._v2_payload("invalid-metric", 1)
+                    payload["model_schema_version"] = schema
+                    payload["metrics"]["fitness"] = invalid
+                    problem = PipelineOptimizationProblem(
+                        log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+                        search_space=space, evaluator=lambda *_: payload,
+                    )
+                    evaluated = problem.evaluate(problem.create_solution())
+                    self.assertEqual([-1.0], evaluated.constraints)
+                    self.assertTrue(evaluated.attributes["is_feasible"])
+                    self.assertEqual([], evaluated.attributes["constraint_violations"])
+                    self.assertIn("evaluation_error", evaluated.attributes)
+                    self.assertFalse(_serialize_solution(evaluated, {"invalid-metric"})["is_pareto"])
+                    self.assertEqual({}, problem.evaluation_cache)
+
+    def test_exception_without_message_is_still_recorded_as_error(self):
+        def evaluator(*_):
+            raise RuntimeError()
+
+        problem = PipelineOptimizationProblem(
+            log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
+            search_space=PipelineSearchSpace(), evaluator=evaluator,
+        )
+        evaluated = problem.evaluate(problem.create_solution())
+        self.assertEqual([-1.0], evaluated.constraints)
+        self.assertEqual("RuntimeError", evaluated.attributes["evaluation_error"])
+        self.assertEqual({}, problem.evaluation_cache)
 
     def test_job_cancelled_is_propagated(self):
         space = PipelineSearchSpace(excluded_miners=("split",))

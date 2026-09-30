@@ -222,7 +222,7 @@ class PipelineOptimizationProblem(FloatProblem):
             experiment_id = None
             fingerprint = None
             model_schema_version = None
-            evaluation_error = str(error)
+            evaluation_error = str(error) or type(error).__name__
             visible_transition_count = None
             is_feasible = None
             constraint_violations = None
@@ -287,6 +287,9 @@ class PipelineOptimizationProblem(FloatProblem):
         else:
             solution.constraints[0] = 0.0
         if evaluation_error is not None:
+            # A technical failure cannot compete as an unconstrained candidate,
+            # even if the returned net passed the model-quality checks.
+            solution.constraints[0] = -1.0
             solution.attributes["evaluation_error"] = evaluation_error
         if evaluation_id:
             solution.attributes["evaluation_id"] = evaluation_id

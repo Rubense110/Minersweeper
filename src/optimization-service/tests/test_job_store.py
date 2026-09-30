@@ -209,6 +209,32 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertEqual([None, True], [item["is_feasible"] for item in pareto_solutions])
             self.assertEqual(2, store.get_experiment("exp-1")["counts"]["pareto_solutions"])
 
+            with store._session_factory() as session:
+                for failure in ({"evaluation_error": "invalid metric"}, {"evaluation_error": ""}, {"evaluation_status": "error"}):
+                    session.add(Solution(
+                        experiment_id="exp-1", variables=[], objectives=[-1.0], metrics={"fitness": 1.0},
+                        pipeline={}, is_pareto=True, places=[], transitions=[], arcs=[], is_feasible=True,
+                        **failure,
+                    ))
+                session.commit()
+            all_solutions = store.get_experiment_solutions("exp-1", scope="all")
+            self.assertEqual(6, len(all_solutions))
+            errors = [item for item in all_solutions if item["evaluation_error"] is not None or item["evaluation_status"] == "error"]
+            self.assertEqual(3, len(errors))
+            self.assertTrue(all(item["is_pareto"] is False for item in errors))
+            self.assertEqual(2, len(store.get_experiment_solutions("exp-1", scope="pareto")))
+            self.assertEqual(2, store.get_experiment("exp-1")["counts"]["pareto_solutions"])
+            self.assertEqual(2, store.list_experiments()[0]["counts"]["pareto_solutions"])
+
+    def test_snapshot_serialization_excludes_historical_errors_from_pareto(self):
+        for failure in ({"evaluation_error": "invalid metric"}, {"evaluation_error": ""}, {"evaluation_status": "error"}):
+            with self.subTest(failure=failure):
+                solution = SnapshotSolution(
+                    snapshot_solution_id=1, snapshot_index=0, evaluations_done=1,
+                    member_index=0, is_pareto=True, is_feasible=True, **failure,
+                )
+                self.assertFalse(JobStore._serialize_snapshot_solution(solution)["is_pareto"])
+
     def test_init_adds_runtime_ms_column_for_existing_schema(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = os.path.join(tmp_dir, "legacy.db")

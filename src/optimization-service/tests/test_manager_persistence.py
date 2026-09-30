@@ -23,6 +23,30 @@ class _FakeManager:
 
 
 class ManagerPersistenceTest(unittest.TestCase):
+    def test_persist_failed_evaluations_clears_pareto_in_population_and_snapshots(self):
+        manager = _FakeManager()
+        failed = {"evaluation_error": "invalid metric", "is_pareto": True, "is_feasible": True}
+        manager._jobs["job-1"] = {
+            "started_at": "2026-06-14T11:29:25+00:00", "finished_at": "2026-06-14T11:29:33+00:00",
+            "request": {
+                "execution_name": "exp-1", "log_path": "/data/log.xes",
+                "metrics": ["fitness"], "discover": {"max_evaluations": 1, "n_workers": 1},
+            },
+            "result": {
+                "all_solutions": [failed],
+                "population_snapshots": [{"snapshot_index": 1, "evaluations_done": 1, "solutions": [failed]}],
+            },
+            "_control": ExecutionControl(),
+        }
+        with patch("api.manager_persistence.ProMServiceClient"):
+            persist_completed_experiment(manager, "job-1")
+        _experiment, solutions, members, _snapshots = manager.job_store.save_completed_experiment.call_args.args
+        for solution in solutions + members:
+            self.assertFalse(solution["is_pareto"])
+            self.assertEqual("error", solution["evaluation_status"])
+            self.assertTrue(solution["is_feasible"])
+            self.assertEqual("invalid metric", solution["evaluation_error"])
+
     def test_persist_completed_experiment_cleans_remote_artifacts_after_save(self):
         manager = _FakeManager()
         manager._jobs["job-1"] = {

@@ -19,6 +19,7 @@ from jmetal.util.termination_criterion import StoppingByEvaluations
 
 from problem import PipelineOptimizationProblem
 from pareto import CONSTRAINT_DOMINANCE_COMPARATOR, feasible_non_dominated
+from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
 
 
 class SeededBinaryTournamentSelection:
@@ -224,9 +225,9 @@ class PipelineNSGAIIIOptimizer:
     def __init__(
         self,
         problem: PipelineOptimizationProblem,
-        max_evaluations: int = 300,
-        population_size: int | None = None,
-        n_partitions: int | None = None,
+        max_evaluations: int = DEFAULT_MAX_EVALUATIONS,
+        population_size: int | None = DEFAULT_POPULATION_SIZE,
+        n_partitions: int | None = DEFAULT_N_PARTITIONS,
         crossover_probability: float = 0.9,
         crossover_distribution_index: float = 20.0,
         mutation_probability: float | None = None,
@@ -244,10 +245,11 @@ class PipelineNSGAIIIOptimizer:
         self.seed = seed
         self.rng = rng or random.Random(seed)
 
-        n_obj = self.problem.number_of_objectives()
         if n_partitions is None:
-            n_partitions = 8 if n_obj >= 4 else 12
-        self.reference_directions = UniformReferenceDirectionFactory(n_dim=n_obj, n_partitions=n_partitions)
+            n_partitions = DEFAULT_N_PARTITIONS
+        self.reference_directions = UniformReferenceDirectionFactory(
+            n_dim=self.problem.number_of_objectives(), n_partitions=n_partitions
+        )
 
         if population_size is None:
             population_size = len(self.reference_directions.compute())

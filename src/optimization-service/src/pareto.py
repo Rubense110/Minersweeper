@@ -11,6 +11,11 @@ from jmetal.util.ranking import FastNonDominatedRanking
 CONSTRAINT_DOMINANCE_COMPARATOR = DominanceWithConstraintsComparator()
 
 
+def has_evaluation_error(payload: dict[str, Any]) -> bool:
+    """Recognize failed evaluations independently of model feasibility."""
+    return payload.get("evaluation_error") is not None or payload.get("evaluation_status") == "error"
+
+
 def is_feasible_solution(solution: Any) -> bool:
     """Return whether a solution is eligible for the public Pareto front.
 
@@ -18,6 +23,8 @@ def is_feasible_solution(solution: Any) -> bool:
     constraint.  Missing metadata/constraints remains readable as legacy data.
     """
     attributes = getattr(solution, "attributes", {}) or {}
+    if has_evaluation_error(attributes):
+        return False
     if attributes.get("is_feasible") is False:
         return False
     if getattr(solution, "constraints", None) is None:

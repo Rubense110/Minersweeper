@@ -520,7 +520,11 @@ class JobStore:
             "metrics": solution.metrics or {},
             "pipeline": solution.pipeline or {},
             "runtime_ms": solution.runtime_ms,
-            "is_pareto": bool(solution.is_pareto),
+            "is_pareto": (
+                bool(solution.is_pareto)
+                and solution.evaluation_error is None
+                and solution.evaluation_status != "error"
+            ),
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
@@ -552,7 +556,11 @@ class JobStore:
             "metrics": solution.metrics or {},
             "pipeline": solution.pipeline or {},
             "runtime_ms": solution.runtime_ms,
-            "is_pareto": bool(solution.is_pareto),
+            "is_pareto": (
+                bool(solution.is_pareto)
+                and solution.evaluation_error is None
+                and solution.evaluation_status != "error"
+            ),
             "places": solution.places or [],
             "transitions": solution.transitions or [],
             "arcs": solution.arcs or [],
@@ -584,6 +592,8 @@ class JobStore:
                         Solution.experiment_id == experiment.experiment_id,
                         Solution.is_pareto.is_(True),
                         or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
+                        Solution.evaluation_error.is_(None),
+                        or_(Solution.evaluation_status.is_(None), Solution.evaluation_status != "error"),
                     )
                 ).scalar_one()
                 payload = self._serialize_experiment(experiment)
@@ -608,6 +618,8 @@ class JobStore:
                     Solution.experiment_id == experiment_id,
                     Solution.is_pareto.is_(True),
                     or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
+                    Solution.evaluation_error.is_(None),
+                    or_(Solution.evaluation_status.is_(None), Solution.evaluation_status != "error"),
                 )
             ).scalar_one()
             payload = self._serialize_experiment(experiment)
@@ -645,6 +657,8 @@ class JobStore:
                 stmt = stmt.where(
                     Solution.is_pareto.is_(True),
                     or_(Solution.is_feasible.is_(True), Solution.is_feasible.is_(None)),
+                    Solution.evaluation_error.is_(None),
+                    or_(Solution.evaluation_status.is_(None), Solution.evaluation_status != "error"),
                 )
             solutions = session.execute(stmt).scalars().all()
             return [self._serialize_solution(item) for item in solutions]

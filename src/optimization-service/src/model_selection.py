@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 from pymoo.decomposition.asf import ASF
 
+from pareto import has_evaluation_error
+
 
 DEFAULT_SLIDER_WEIGHT = 50.0
 MIN_ASF_WEIGHT = 1e-12
@@ -92,6 +94,8 @@ def select_weighted_model(
     valid_candidates: List[Dict[str, Any]] = []
     objective_vectors: List[List[float]] = []
     for solution in solutions:
+        if has_evaluation_error(solution):
+            continue
         if solution.get("is_feasible") is False:
             continue
         objective_vector = _coerce_objective_vector(list(solution.get("objectives") or []), metrics)

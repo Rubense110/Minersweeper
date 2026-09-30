@@ -113,6 +113,25 @@ class ModelSelectionTest(unittest.TestCase):
         self.assertEqual("asf", payload["selection_method"])
         self.assertEqual(1, payload["selected_solution_id"])
 
+    def test_select_weighted_model_excludes_errors_before_normalizing_objectives(self):
+        for failure in ({"evaluation_error": "invalid metric"}, {"evaluation_error": ""}, {"evaluation_status": "error"}):
+            for scope in ("all", "pareto"):
+                with self.subTest(failure=failure, scope=scope):
+                    failed = {"solution_id": 2, "objectives": [-1.0, -1.0], "is_feasible": True, **failure}
+                    payload = select_weighted_model(
+                        experiment={"experiment_id": "exp-1", "metrics": ["fitness", "precision"]},
+                        solutions=[{"solution_id": 1, "objectives": [-0.5, -0.5]}, failed],
+                        raw_weights={}, scope=scope,
+                    )
+                    self.assertEqual(1, payload["selected_solution_id"])
+                    self.assertEqual(1, payload["candidate_count"])
+                    self.assertEqual([-0.5, -0.5], payload["approx_ideal"])
+                    with self.assertRaises(ModelSelectionUnavailable):
+                        select_weighted_model(
+                            experiment={"experiment_id": "exp-1", "metrics": ["fitness", "precision"]},
+                            solutions=[failed], raw_weights={}, scope=scope,
+                        )
+
 
 if __name__ == "__main__":
     unittest.main()

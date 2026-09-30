@@ -20,6 +20,9 @@ const METRIC_OPTIONS = [
   { value: 'splits', label: 'splits' },
 ]
 const DEFAULT_SELECTED_METRICS = ['fitness', 'precision', 'simplicity', 'generalisation']
+const DEFAULT_POPULATION_SIZE = 36
+const DEFAULT_N_PARTITIONS = 4
+const DEFAULT_MAX_EVALUATIONS = DEFAULT_POPULATION_SIZE * 51
 const CONFORMANCE_MODE_OPTIONS = [
   { value: 'alignment', label: 'Alignments' },
   { value: 'replay', label: 'Replay' },
@@ -69,8 +72,8 @@ export default function RunPage() {
   const [executionName, setExecutionName] = useState(`run_${Date.now()}`)
   const [logPath, setLogPath] = useState('')
   const [availableLogs, setAvailableLogs] = useState([])
-  const [maxEvaluations, setMaxEvaluations] = useState(100)
-  const [populationSize, setPopulationSize] = useState(20)
+  const [maxEvaluations, setMaxEvaluations] = useState(DEFAULT_MAX_EVALUATIONS)
+  const [populationSize, setPopulationSize] = useState(DEFAULT_POPULATION_SIZE)
   const [nWorkers, setNWorkers] = useState(HW_CONCURRENCY)
   const [seed, setSeed] = useState('')
   const [conformanceMode, setConformanceMode] = useState('replay-token')
@@ -170,6 +173,7 @@ export default function RunPage() {
         conformance_mode: conformanceMode,
         max_evaluations: parsedMaxEvaluations,
         population_size: parsedPopulationSize,
+        n_partitions: DEFAULT_N_PARTITIONS,
         n_workers: normalizeWorkers(parsedWorkers),
         ...(parsedSeed === null ? {} : { seed: parsedSeed }),
         excluded_miners: ['ilp', 'hybrid_ilp'],

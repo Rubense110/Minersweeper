@@ -91,6 +91,23 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
 
         self.assertEqual([], optimizer._calculate_non_dominated([first, second]))
 
+    def test_valid_solution_dominates_failed_evaluation_with_better_objectives(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(), max_evaluations=4, n_partitions=1)
+        valid = self._solution("valid", [-0.5] * 4, 0.0, True)
+        failed = self._solution("failed", [-1.0] * 4, -1.0, True)
+        failed.attributes["evaluation_error"] = "invalid metric"
+        self.assertEqual(-1, optimizer.algorithm.dominance_comparator.compare(valid, failed))
+        self.assertEqual([valid], optimizer._calculate_non_dominated([valid, failed]))
+
+    def test_public_front_excludes_errors_even_with_legacy_zero_constraint(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(), max_evaluations=4, n_partitions=1)
+        valid = self._solution("valid", [-0.5] * 4, 0.0, True)
+        failed = self._solution("failed", [-1.0] * 4, 0.0, True)
+        failed.attributes["evaluation_error"] = "invalid metric"
+        self.assertEqual([valid], optimizer._calculate_non_dominated([valid, failed]))
+        self.assertEqual([], optimizer._calculate_non_dominated([failed]))
+        self.assertEqual({"valid"}, feasible_non_dominated_evaluation_ids([valid, failed]))
+
     def test_optimizer_uses_sequential_evaluator_by_default(self):
         problem = self._build_problem()
         optimizer = PipelineNSGAIIIOptimizer(problem=problem, max_evaluations=4, n_partitions=1)

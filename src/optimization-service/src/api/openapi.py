@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from flask import Blueprint, Response, jsonify, request
+from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
 
 
 bp = Blueprint("optimization_openapi", __name__)
@@ -66,9 +67,15 @@ def _components() -> Dict[str, Any]:
                         "items": {"type": "string"},
                         "example": ["ilp"],
                     },
-                    "max_evaluations": {"type": "integer", "example": 1000},
-                    "population_size": {"type": "integer", "example": 100},
-                    "n_partitions": {"type": "integer", "nullable": True, "example": 4},
+                    "max_evaluations": {
+                        "type": "integer", "default": DEFAULT_MAX_EVALUATIONS, "example": DEFAULT_MAX_EVALUATIONS,
+                    },
+                    "population_size": {
+                        "type": "integer", "default": DEFAULT_POPULATION_SIZE, "example": DEFAULT_POPULATION_SIZE,
+                    },
+                    "n_partitions": {
+                        "type": "integer", "nullable": True, "default": DEFAULT_N_PARTITIONS, "example": DEFAULT_N_PARTITIONS,
+                    },
                     "n_workers": {"type": "integer", "example": 2},
                     "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991, "example": 123456789},
                 },
