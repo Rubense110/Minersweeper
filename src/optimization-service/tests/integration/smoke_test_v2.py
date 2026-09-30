@@ -26,6 +26,7 @@ POLL_SECONDS = float(os.environ.get("SMOKE_POLL_SECONDS", "2"))
 POPULATION_SIZE = int(os.environ.get("SMOKE_POPULATION_SIZE", "4"))
 N_PARTITIONS = int(os.environ.get("SMOKE_N_PARTITIONS", "1"))
 MAX_EVALUATIONS = int(os.environ.get("SMOKE_MAX_EVALUATIONS", "8"))
+N_WORKERS = int(os.environ.get("SMOKE_N_WORKERS", "1"))
 SEED = int(os.environ.get("SMOKE_SEED", "20260916"))
 EXCLUDED_MINERS = sorted({"ilp", "hybrid_ilp"} | {
     item.strip() for item in os.environ.get("SMOKE_EXCLUDED_MINERS", "").split(",") if item.strip()
@@ -242,7 +243,7 @@ def main() -> int:
         "max_evaluations": MAX_EVALUATIONS,
         "population_size": POPULATION_SIZE,
         "n_partitions": N_PARTITIONS,
-        "n_workers": 1,
+        "n_workers": N_WORKERS,
         "seed": SEED,
         "excluded_miners": EXCLUDED_MINERS,
     }
@@ -278,10 +279,14 @@ def main() -> int:
         if schema_version == 3:
             validate_solution(solution, f"solution[{index}]")
             metrics = solution.get("metrics") or {}
-            require(all(isinstance(metrics.get(metric), (int, float))
-                        and not isinstance(metrics.get(metric), bool)
-                        and math.isfinite(metrics[metric]) and 0 <= metrics[metric] <= 1 for metric in METRICS),
-                    f"solution[{index}]: requested token-replay metrics are missing or invalid")
+            if solution.get("metrics_status") == "skipped_infeasible":
+                require(solution.get("is_feasible") is False and not metrics,
+                        f"solution[{index}]: skipped metrics require an infeasible model and an empty payload")
+            else:
+                require(all(isinstance(metrics.get(metric), (int, float))
+                            and not isinstance(metrics.get(metric), bool)
+                            and math.isfinite(metrics[metric]) and 0 <= metrics[metric] <= 1 for metric in METRICS),
+                        f"solution[{index}]: requested token-replay metrics are missing or invalid")
             miner = (solution.get("pipeline") or {}).get("miner") or {}
             require(miner.get("key") not in EXCLUDED_MINERS
                     and miner.get("variant") not in {"Alpha#", "Alpha$"},

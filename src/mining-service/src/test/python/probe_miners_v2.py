@@ -197,7 +197,7 @@ def main() -> int:
         }
         if status == 200:
             metrics = response.get("metrics") or {}
-            row["metrics_valid"] = all(
+            row["metrics_valid"] = (response.get("is_feasible") is False and not metrics) if response.get("metrics_status") == "skipped_infeasible" else all(
                 isinstance(metrics.get(metric), (int, float))
                 and not isinstance(metrics.get(metric), bool)
                 and math.isfinite(metrics[metric]) and 0 <= metrics[metric] <= 1
