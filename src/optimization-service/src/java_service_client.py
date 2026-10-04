@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
 
 
 LOGGER = logging.getLogger("optimization_service.jobs")
@@ -115,6 +115,10 @@ class ProMServiceClient:
         return {
             "metrics": extracted_metrics,
             "metrics_status": metrics_status,
+            "evaluation_policy_version": body.get("evaluation_policy_version"),
+            "model_semantic_sha256": body.get("model_semantic_sha256"),
+            "evaluation_environment": body.get("evaluation_environment"),
+            "discovery_metadata": body.get("discovery_metadata"),
             "experiment_id": body.get("experiment_id", resolved_experiment_id),
             "evaluation_id": body.get("evaluation_id"),
             "fingerprint": body.get("fingerprint"),
@@ -226,13 +230,15 @@ class ProMServiceClient:
                 if isinstance(payload, dict):
                     code = payload.get("error")
                     message = payload.get("message")
+                    if str(code).startswith("REPRODUCIBILITY_"):
+                        raise ReproducibilityError(message or code)
                     if response.status_code == 409 and code == "experiment_cancelled":
                         raise JobCancelled(message or "job cancelled")
                     if code or message:
                         details = f"{code}: {message}".strip()
                 elif payload is not None:
                     details = str(payload)
-            except JobCancelled:
+            except (JobCancelled, ReproducibilityError):
                 raise
             except Exception:
                 text = (response.text or "").strip()

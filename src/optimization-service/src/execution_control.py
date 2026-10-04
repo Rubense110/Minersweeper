@@ -13,6 +13,10 @@ class EvaluationTerminationUnconfirmed(RuntimeError):
     """Fatal: the remote evaluation may still be alive; stop this job."""
 
 
+class ReproducibilityError(RuntimeError):
+    """Fatal: evaluation hit a safety cutoff or cannot order the net exactly."""
+
+
 class ExecutionControl:
     """Thread-safe control channel for a single optimization job."""
 
@@ -24,10 +28,12 @@ class ExecutionControl:
     def request_cancel(self) -> None:
         self._cancel_event.set()
 
-    def request_failure(self, error: EvaluationTerminationUnconfirmed) -> None:
+    def request_failure(self, error: RuntimeError) -> None:
         with self._lock:
             if self._failure is None:
-                self._failure = str(error)
+                # Preserve the error category without retaining its traceback,
+                # workers, solutions and HTTP payloads for the lifetime of the job.
+                self._failure = (type(error), str(error))
             self._cancel_event.set()
 
     def is_cancel_requested(self) -> bool:
@@ -37,6 +43,7 @@ class ExecutionControl:
         with self._lock:
             failure = self._failure
         if failure is not None:
-            raise EvaluationTerminationUnconfirmed(failure)
+            error_type, message = failure
+            raise error_type(message)
         if self.is_cancel_requested():
             raise JobCancelled("job cancelled")

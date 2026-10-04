@@ -156,6 +156,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "evaluation_id": "eval-final",
                     "fingerprint": "fp-final",
                     "evaluation_status": "feasible",
+                    "logical_attempt_id": 7,
+                    "constraints": [0.0],
+                    "evaluation_policy_version": "minersweeper-evaluation-v1",
+                    "model_semantic_sha256": "d" * 64,
                     "runtime_ms": 245,
                     "is_pareto": True,
                     "places": [],
@@ -173,6 +177,11 @@ class JobStoreRuntimeTest(unittest.TestCase):
 
             experiment = store.get_experiment("exp-1")
             self.assertEqual(123456789, experiment["seed"])
+            saved = store.get_experiment_solutions("exp-1", scope="all")[0]
+            self.assertEqual(7, saved["logical_attempt_id"])
+            self.assertEqual([0.0], saved["constraints"])
+            self.assertEqual("minersweeper-evaluation-v1", saved["evaluation_policy_version"])
+            self.assertEqual("d" * 64, saved["model_semantic_sha256"])
 
             with store._session_factory() as session:
                 session.add_all(
@@ -305,6 +314,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertIn("final_marking", columns)
             self.assertIn("final_markings", columns)
             self.assertIn("model_schema_version", columns)
+            self.assertIn("reproducibility_metadata", columns)
             self.assertIn("visible_transition_count", columns)
             self.assertIn("is_feasible", columns)
             self.assertIn("constraint_violations", columns)
@@ -415,6 +425,10 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "pipeline": {"miner": {"variant": "Inductive Miner (IM)", "parameters": {}}},
                     "pipeline_full": {"miner": {"key": "inductive", "variant": "Inductive Miner (IM)", "parameters": {}}},
                     "evaluation_id": "eval-snapshot",
+                    "logical_attempt_id": 4,
+                    "constraints": [0.0],
+                    "evaluation_policy_version": "minersweeper-evaluation-v1",
+                    "model_semantic_sha256": "e" * 64,
                     "fingerprint": "fp-snapshot",
                     "evaluation_status": "feasible",
                     "runtime_ms": 200,
@@ -487,6 +501,9 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertTrue(exported[0]["is_feasible"])
             self.assertEqual([[{"place_id": "p2", "tokens": 1}]], exported[0]["final_markings"])
             self.assertEqual("eval-snapshot", exported[0]["evaluation_id"])
+            self.assertEqual(4, exported[0]["logical_attempt_id"])
+            self.assertEqual([0.0], exported[0]["constraints"])
+            self.assertEqual("e" * 64, exported[0]["model_semantic_sha256"])
             self.assertEqual("inductive", exported[0]["pipeline_full"]["miner"]["key"])
             experiment = store.get_experiment("exp-snap")
             self.assertEqual("replay-token", experiment["conformance_mode"])

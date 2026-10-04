@@ -10,7 +10,7 @@ import time
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Sequence
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ExecutionControl
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, ExecutionControl
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 from model_quality import validate_v3_feasibility
@@ -40,6 +40,10 @@ class PipelineOptimizationProblem(FloatProblem):
         "constraint_violations",
         "visible_transition_count",
         "is_pareto",
+        "evaluation_policy_version",
+        "model_semantic_sha256",
+        "evaluation_environment",
+        "discovery_metadata",
     )
 
     def __init__(
@@ -155,7 +159,11 @@ class PipelineOptimizationProblem(FloatProblem):
                 solution.attributes["is_feasible"] = cached["is_feasible"]
                 solution.attributes["constraint_violations"] = list(cached["constraint_violations"])
                 solution.attributes["visible_transition_count"] = cached["visible_transition_count"]
+            for key in ("evaluation_policy_version", "model_semantic_sha256", "evaluation_environment", "discovery_metadata"):
+                if cached.get(key) is not None:
+                    solution.attributes[key] = cached[key]
             self._notify_evaluation(
+                logical_attempt_id=solution.attributes.get("logical_attempt_id"),
                 cache_hit=True,
                 has_error=bool(cached.get("evaluation_error")),
                 evaluation_error=cached.get("evaluation_error"),
@@ -166,6 +174,10 @@ class PipelineOptimizationProblem(FloatProblem):
                 evaluation_id=cached.get("evaluation_id"),
                 experiment_id=cached.get("experiment_id"),
                 fingerprint=cached.get("fingerprint"),
+                evaluation_policy_version=cached.get("evaluation_policy_version"),
+                model_semantic_sha256=cached.get("model_semantic_sha256"),
+                evaluation_environment=cached.get("evaluation_environment"),
+                discovery_metadata=cached.get("discovery_metadata"),
             )
             return solution
 
@@ -213,7 +225,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 is_feasible = None
                 constraint_violations = None
             evaluation_error = None
-        except EvaluationTerminationUnconfirmed as error:
+        except (EvaluationTerminationUnconfirmed, ReproducibilityError) as error:
             if self.execution_control is not None:
                 self.execution_control.request_failure(error)
             raise
@@ -262,6 +274,10 @@ class PipelineOptimizationProblem(FloatProblem):
             objective_metrics[metric_name] = value
             objectives.append(-value if maximize else value)
 
+        if evaluation_error is None and isinstance(evaluation_payload, dict):
+            for key in ("evaluation_policy_version", "model_semantic_sha256", "evaluation_environment", "discovery_metadata"):
+                if evaluation_payload.get(key) is not None:
+                    solution.attributes[key] = evaluation_payload[key]
         solution.objectives = objectives
         solution.attributes["pipeline"] = decoded_pipeline
         solution.attributes["metrics"] = metric_values
@@ -312,6 +328,10 @@ class PipelineOptimizationProblem(FloatProblem):
         if cache_key is not None and evaluation_error is None:
             cached_result = {
                 "objectives": objectives,
+                "evaluation_policy_version": solution.attributes.get("evaluation_policy_version"),
+                "model_semantic_sha256": solution.attributes.get("model_semantic_sha256"),
+                "evaluation_environment": solution.attributes.get("evaluation_environment"),
+                "discovery_metadata": solution.attributes.get("discovery_metadata"),
                 "constraints": list(solution.constraints),
                 "pipeline": deepcopy(decoded_pipeline),
                 "metrics": dict(metric_values),
@@ -330,6 +350,7 @@ class PipelineOptimizationProblem(FloatProblem):
             with self._cache_lock:
                 self.evaluation_cache[cache_key] = cached_result
         self._notify_evaluation(
+            logical_attempt_id=solution.attributes.get("logical_attempt_id"),
             cache_hit=False,
             has_error=bool(evaluation_error),
             evaluation_error=evaluation_error,
@@ -340,6 +361,10 @@ class PipelineOptimizationProblem(FloatProblem):
             evaluation_id=evaluation_id,
             experiment_id=experiment_id,
             fingerprint=fingerprint,
+            evaluation_policy_version=solution.attributes.get("evaluation_policy_version"),
+            model_semantic_sha256=solution.attributes.get("model_semantic_sha256"),
+            evaluation_environment=solution.attributes.get("evaluation_environment"),
+            discovery_metadata=solution.attributes.get("discovery_metadata"),
         )
         return solution
 
@@ -369,6 +394,11 @@ class PipelineOptimizationProblem(FloatProblem):
         evaluation_id: str | None = None,
         experiment_id: str | None = None,
         fingerprint: str | None = None,
+        logical_attempt_id: int | None = None,
+        evaluation_policy_version: str | None = None,
+        model_semantic_sha256: str | None = None,
+        evaluation_environment: Dict[str, Any] | None = None,
+        discovery_metadata: Dict[str, Any] | None = None,
     ) -> None:
         if self.on_evaluation is None:
             return
@@ -381,6 +411,11 @@ class PipelineOptimizationProblem(FloatProblem):
             self.on_evaluation(
                 {
                     "evaluations_done": done,
+                    "logical_attempt_id": logical_attempt_id,
+                    "evaluation_policy_version": evaluation_policy_version,
+                    "model_semantic_sha256": model_semantic_sha256,
+                    "evaluation_environment": evaluation_environment,
+                    "discovery_metadata": discovery_metadata,
                     "cache_hit": cache_hit,
                     "has_error": has_error,
                     "evaluation_error": evaluation_error,

@@ -9,7 +9,7 @@ if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
 import api
-from api.manager import MAX_SAFE_SEED, _normalize_seed
+from api.manager import MAX_SAFE_SEED, _normalize_seed, OptimizationJobManager
 from api.serialization import _non_dominated_evaluation_ids
 from jmetal.core.solution import FloatSolution
 
@@ -112,6 +112,18 @@ class FakeManager:
             raise KeyError(experiment_id)
         self.deleted_experiment_id = experiment_id
         return {"experiment_id": experiment_id, "deleted": True}
+
+
+class PopulationNormalizationTest(unittest.TestCase):
+    def test_queued_job_records_effective_and_requested_population(self):
+        with mock.patch('api.manager.JobStore'), mock.patch('api.manager.threading.Thread'):
+            manager = OptimizationJobManager('http://java-service', 'unused', 30)
+            for requested, effective in ((1,2), (5,6), (6,6), (None,None)):
+                with self.subTest(requested=requested):
+                    job = manager.submit({'log_path':'dummy.xes', 'population_size':requested})
+                    config = job['request']['discover']
+                    self.assertEqual(requested, config['requested_population_size'])
+                    self.assertEqual(effective, config['population_size'])
 
 
 class SeedNormalizationTest(unittest.TestCase):

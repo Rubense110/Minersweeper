@@ -11,7 +11,7 @@ from execution_control import ExecutionControl, JobCancelled
 from job_store import JobStore
 from java_service_client import ProMServiceClient
 from model_selection import select_weighted_model
-from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
+from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE, normalize_population_size
 
 from .common import LOGGER, _logical_cpu_count, _normalize_log_path, _normalize_n_workers, _to_int, _utc_now_iso
 from .manager_persistence import persist_completed_experiment
@@ -56,7 +56,8 @@ class OptimizationJobManager:
         normalized_n_workers = _normalize_n_workers(requested_n_workers)
         discover_cfg = {
             "max_evaluations": int(payload.get("max_evaluations", DEFAULT_MAX_EVALUATIONS)),
-            "population_size": payload.get("population_size", DEFAULT_POPULATION_SIZE),
+            "population_size": normalize_population_size(payload.get("population_size", DEFAULT_POPULATION_SIZE)),
+            "requested_population_size": payload.get("population_size", DEFAULT_POPULATION_SIZE),
             "n_partitions": payload.get("n_partitions", DEFAULT_N_PARTITIONS),
             "n_workers": normalized_n_workers,
             "seed": seed,

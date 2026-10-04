@@ -10,8 +10,8 @@ SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src
 if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
-from execution_control import ExecutionControl
-from api.manager_runtime import finalize_cancelled_job, request_java_experiment_cancel
+from execution_control import ExecutionControl, ReproducibilityError
+from api.manager_runtime import finalize_cancelled_job, request_java_experiment_cancel, run_job
 from api.manager_state import publish_event, subscribe_events, unsubscribe_events, update_progress
 
 
@@ -92,6 +92,20 @@ class ManagerStateTest(unittest.TestCase):
 
 
 class ManagerRuntimeTest(unittest.TestCase):
+    def test_reproducibility_cutoff_fails_job_and_cancels_remaining_remote_evaluations(self):
+        manager = _FakeManager()
+        manager._jobs["job-1"] = {
+            "job_id": "job-1", "status": "queued", "_control": ExecutionControl(),
+            "request": {"execution_name": "exp-1", "service_url": "http://service"},
+        }
+        with patch("api.manager_runtime.execute_job", side_effect=ReproducibilityError("REPRODUCIBILITY_TIME_LIMIT")), \
+             patch("api.manager_runtime.request_java_experiment_cancel") as cancel, \
+             patch("api.manager_runtime.publish_event"):
+            run_job(manager, "job-1")
+        self.assertEqual("failed", manager._jobs["job-1"]["status"])
+        self.assertEqual("ReproducibilityError", manager._jobs["job-1"]["error"]["type"])
+        cancel.assert_called_once()
+
     def test_finalize_cancelled_job_resets_job_and_publishes_events(self):
         manager = _FakeManager()
         manager._jobs["job-1"] = {

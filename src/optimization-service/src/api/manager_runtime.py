@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import platform
 import threading
 import traceback
 from importlib.metadata import version
 from typing import Any, Dict
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
 from java_service_client import ProMServiceClient
 from parameters.miners import MINER_CATALOG
 from pareto import feasible_non_dominated
@@ -125,7 +126,7 @@ def run_job(manager: Any, job_id: str) -> None:
     except JobCancelled:
         manager._finalize_cancelled_job(job_id)
     except Exception as exc:
-        if isinstance(exc, EvaluationTerminationUnconfirmed):
+        if isinstance(exc, (EvaluationTerminationUnconfirmed, ReproducibilityError)):
             request_java_experiment_cancel(manager, job_id, request_data)
         with manager._lock:
             job = manager._jobs.get(job_id)
@@ -184,6 +185,10 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
                 "cache_hit": bool(event.get("cache_hit")),
                 "has_error": bool(event.get("has_error")),
                 "pipeline_key": pipeline_key,
+                "evaluation_policy_version": event.get("evaluation_policy_version"),
+                "model_semantic_sha256": event.get("model_semantic_sha256"),
+                "evaluation_environment": event.get("evaluation_environment"),
+                "discovery_metadata": event.get("discovery_metadata"),
             })
         update_progress(manager, job_id, evaluations_done)
         try:
@@ -285,8 +290,8 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
     effective_config = dict(miner.optimizer.effective_config)
     effective_config.update({
         "max_evaluations": max_evaluations,
-        "n_workers": int(discover["n_workers"]),
-        "seed": discover.get("seed"),
+        "requested_population_size": discover.get("requested_population_size", discover["population_size"]),
+        "requested_n_workers": int(discover["n_workers"]),
         "variable_count": miner.problem.number_of_variables(),
         "python_version": platform.python_version(),
         "jmetalpy_version": version("jmetalpy"),
@@ -302,6 +307,30 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         },
     })
 
+    # Hash scientific outcomes in logical population order, not UUID/timing order.
+    stable_keys = ("variables", "pipeline", "objectives", "constraints", "is_feasible",
+                   "constraint_violations", "model_semantic_sha256", "discovery_metadata")
+    final_state = [{key: solution.get(key) for key in stable_keys} for solution in all_solutions]
+    effective_config["result_sha256"] = hashlib.sha256(
+        json.dumps(final_state, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    policies = sorted({e["evaluation_policy_version"] for e in evaluation_events if e.get("evaluation_policy_version")})
+    effective_config["evaluation_policy_versions"] = policies
+    environments = {json.dumps(event["evaluation_environment"], sort_keys=True, separators=(",", ":"))
+                    for event in evaluation_events if event.get("evaluation_environment")}
+    effective_config["evaluation_environments"] = [json.loads(value) for value in sorted(environments)]
+    effective_config["reproducibility_scope"] = "seeded_search_and_own_evaluation"
+    # A technical failure or older Java response must not be advertised as certified.
+    effective_config["reproducibility_status"] = (
+        "controlled" if effective_config.get("python_rng_from_seed")
+        and (config.get("conformance_mode") or "replay-token") == "replay-token"
+        and len(environments) == 1
+        and policies == ["minersweeper-evaluation-v2"]
+        and all(s.get("evaluation_policy_version") and s.get("model_semantic_sha256") for s in all_solutions)
+        and all(e.get("evaluation_policy_version") == "minersweeper-evaluation-v2"
+                and e.get("model_semantic_sha256") and e.get("evaluation_environment") for e in evaluation_events)
+        and not any(event["has_error"] for event in evaluation_events) else "not_certified"
+    )
     control.raise_if_cancel_requested()
     return {
         "execution_name": config["execution_name"],

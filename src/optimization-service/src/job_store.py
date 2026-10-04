@@ -123,6 +123,7 @@ class Solution(Base):
     visible_transition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_feasible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    reproducibility_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
     model_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
     final_marking: Mapped[Any] = mapped_column(JSON, nullable=True)
@@ -169,6 +170,7 @@ class SnapshotSolution(Base):
     visible_transition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_feasible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     constraint_violations: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    reproducibility_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
     model_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     initial_marking: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
     final_marking: Mapped[Any] = mapped_column(JSON, nullable=True)
@@ -263,6 +265,7 @@ class JobStore:
                     "evaluation_error": "TEXT",
                     "evaluation_status": "VARCHAR(32)",
                     "metrics_status": "VARCHAR(32)",
+                    "reproducibility_metadata": "JSON",
                     "model_id": "INTEGER REFERENCES model_artifacts(model_id)",
                 }.items():
                     if name not in solution_columns:
@@ -303,6 +306,7 @@ class JobStore:
                     "evaluation_error": "TEXT",
                     "evaluation_status": "VARCHAR(32)",
                     "metrics_status": "VARCHAR(32)",
+                    "reproducibility_metadata": "JSON",
                     "model_id": "INTEGER REFERENCES model_artifacts(model_id)",
                 }.items():
                     if name not in snapshot_columns:
@@ -472,6 +476,9 @@ class JobStore:
                             evaluation_error=item.get("evaluation_error"),
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
+                            reproducibility_metadata=self._sanitize_json({
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")
+                            }),
                             model_id=model_id,
                         )
                     )
@@ -511,6 +518,9 @@ class JobStore:
                             evaluation_error=item.get("evaluation_error"),
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
+                            reproducibility_metadata=self._sanitize_json({
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")
+                            }),
                             model_id=model_id,
                         )
                     )
@@ -588,6 +598,8 @@ class JobStore:
             "is_feasible": solution.is_feasible,
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
+            **{key: (solution.reproducibility_metadata or {}).get(key)
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")},
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],
@@ -626,6 +638,8 @@ class JobStore:
             "is_feasible": solution.is_feasible,
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
+            **{key: (solution.reproducibility_metadata or {}).get(key)
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")},
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],

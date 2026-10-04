@@ -49,6 +49,7 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
     evaluation_id = attrs.get("evaluation_id")
     payload = {
         "evaluation_id": evaluation_id,
+        "logical_attempt_id": attrs.get("logical_attempt_id"),
         "experiment_id": attrs.get("experiment_id"),
         "fingerprint": attrs.get("fingerprint"),
         "pipeline": attrs.get("pipeline", {}),
@@ -57,6 +58,10 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "objective_metrics": attrs.get("objective_metrics", {}),
         "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),
+        "constraints": list(getattr(solution, "constraints", []) or []),
+        "evaluation_policy_version": attrs.get("evaluation_policy_version"),
+        "model_semantic_sha256": attrs.get("model_semantic_sha256"),
+        "discovery_metadata": attrs.get("discovery_metadata"),
         "variables": list(getattr(solution, "variables", []) or []),
         "is_pareto": bool(is_feasible_solution(solution) and evaluation_id and evaluation_id in pareto_ids),
         "model_schema_version": attrs.get("model_schema_version"),

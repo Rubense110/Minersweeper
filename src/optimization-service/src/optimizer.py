@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 import random
+import secrets
+import numpy as np
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List
 
-from execution_control import ExecutionControl, JobCancelled, EvaluationTerminationUnconfirmed
-from jmetal.algorithm.multiobjective.nsgaiii import NSGAIII, UniformReferenceDirectionFactory
+from execution_control import ExecutionControl, JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
+from jmetal.algorithm.multiobjective.nsgaiii import UniformReferenceDirectionFactory
+from seeded_nsgaiii import SeededNSGAIII, RNG_POLICY_VERSION
 from jmetal.operator.crossover import SBXCrossover
 from jmetal.operator.mutation import PolynomialMutation
 from jmetal.util.comparator import MultiComparator
@@ -20,7 +24,7 @@ from jmetal.util.termination_criterion import StoppingByEvaluations
 
 from problem import PipelineOptimizationProblem
 from pareto import CONSTRAINT_DOMINANCE_COMPARATOR, feasible_non_dominated
-from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
+from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE, normalize_population_size
 
 
 class SeededBinaryTournamentSelection:
@@ -168,7 +172,7 @@ class ThreadPoolEvaluator(Evaluator):
                 except CancelledError as error:
                     raise JobCancelled("job cancelled") from error
             self.raise_if_cancel_requested()
-        except (JobCancelled, EvaluationTerminationUnconfirmed):
+        except (JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError):
             for future in futures:
                 future.cancel()
             raise
@@ -191,7 +195,7 @@ class ThreadPoolEvaluator(Evaluator):
             pass
 
 
-class CancelAwareNSGAIII(NSGAIII):
+class CancelAwareNSGAIII(SeededNSGAIII):
     def __init__(
         self,
         *args,
@@ -202,6 +206,14 @@ class CancelAwareNSGAIII(NSGAIII):
         super().__init__(*args, **kwargs)
         self.execution_control = execution_control
         self.snapshot_callback = snapshot_callback
+        self._attempt_counter = 0
+
+    def evaluate(self, population):
+        # Assigned before scheduling; independent of completion order and cache misses.
+        for solution in population:
+            self._attempt_counter += 1
+            solution.attributes["logical_attempt_id"] = self._attempt_counter
+        return super().evaluate(population)
 
     def stopping_condition_is_met(self) -> bool:
         if self.execution_control is not None and self.execution_control.is_cancel_requested():
@@ -243,8 +255,13 @@ class PipelineNSGAIIIOptimizer:
         self.execution_control = execution_control
         self.snapshot_callback = snapshot_callback
         self.population_snapshots: List[Dict[str, Any]] = []
-        self.seed = seed
-        self.rng = rng or random.Random(seed)
+        self.seed = seed if seed is not None else secrets.randbits(53)
+        self.rng = rng if rng is not None else random.Random(self.seed)
+        # Direct construction must control create_solution() as well as operators.
+        self.problem.rng = self.rng
+        self.niching_rng = np.random.Generator(
+            np.random.PCG64(np.random.SeedSequence([self.seed, 0x4E534741]))
+        )
 
         if n_partitions is None:
             n_partitions = DEFAULT_N_PARTITIONS
@@ -252,14 +269,27 @@ class PipelineNSGAIIIOptimizer:
             n_dim=self.problem.number_of_objectives(), n_partitions=n_partitions
         )
 
+        requested_population_size = population_size
         if population_size is None:
             population_size = len(self.reference_directions.compute())
+        population_size = normalize_population_size(population_size)
 
         if mutation_probability is None:
             mutation_probability = 1.0 / max(1, self.problem.number_of_variables())
 
         self.effective_config = {
+            "seed": self.seed,
+            "rng_policy_version": RNG_POLICY_VERSION,
+            "python_rng": "MT19937",
+            "python_rng_from_seed": self.rng.getstate() == random.Random(self.seed).getstate(),
+            "python_rng_initial_state_sha256": hashlib.sha256(repr(self.rng.getstate()).encode()).hexdigest(),
+            "niching_rng": "PCG64",
+            "numpy_version": np.__version__,
+            "numpy_blas": {key: np.__config__.CONFIG.get("Build Dependencies", {}).get("blas", {}).get(key)
+                           for key in ("name", "version", "openblas configuration")},
+            "requested_n_workers": n_workers,
             "population_size": population_size,
+            "requested_population_size": requested_population_size,
             "n_partitions": n_partitions,
             "reference_direction_count": len(self.reference_directions.compute()),
             "crossover_probability": crossover_probability,
@@ -283,6 +313,7 @@ class PipelineNSGAIIIOptimizer:
         )
 
         self.algorithm = CancelAwareNSGAIII(
+            niching_rng=self.niching_rng,
             reference_directions=self.reference_directions,
             problem=self.problem,
             population_size=population_size,

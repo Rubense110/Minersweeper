@@ -454,13 +454,16 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
             self._v2_payload("cached-target", 1),
             self._v2_payload("infeasible-parent", 0),
         ]
+        responses[0]["discovery_metadata"] = {"policy_version": "minersweeper-split-v1", "route": "safe-dfg"}
+        responses[1]["discovery_metadata"] = {"policy_version": "minersweeper-split-v1", "route": "standard"}
+        events = []
 
         def evaluator(_log, _pipeline, _metrics):
             return responses.pop(0)
 
         problem = PipelineOptimizationProblem(
             log_path="dummy.xes", metrics_list=["fitness"], required_metrics=["fitness"],
-            search_space=space, evaluator=evaluator,
+            search_space=space, evaluator=evaluator, on_evaluation=events.append,
         )
         cached_target = problem.create_solution()
         cached_target.variables = [bound for bound in cached_target.lower_bound]
@@ -480,6 +483,9 @@ class PipelineOptimizationProblemTest(unittest.TestCase):
         self.assertEqual(1, evaluated.attributes["visible_transition_count"])
         self.assertEqual([0.0], evaluated.constraints)
         self.assertNotIn("evaluation_error", evaluated.attributes)
+        self.assertEqual("safe-dfg", evaluated.attributes["discovery_metadata"]["route"])
+        self.assertEqual("safe-dfg", events[-1]["discovery_metadata"]["route"])
+        self.assertEqual("safe-dfg", _serialize_solution(evaluated, set())["discovery_metadata"]["route"])
 
     def test_successful_reevaluation_replaces_previous_evaluation_state(self):
         space = PipelineSearchSpace(excluded_miners=("split",))

@@ -22,6 +22,7 @@ class ProMServiceClientTest(unittest.TestCase):
             "experiment_id": "exp-1",
             "evaluation_id": "eval-1",
             "fingerprint": "fp-1",
+            "discovery_metadata": {"policy_version": "minersweeper-split-v1", "route": "safe-dfg"},
             "model_schema_version": 2,
             "visible_transition_count": 0,
             "is_feasible": False,
@@ -51,6 +52,8 @@ class ProMServiceClientTest(unittest.TestCase):
         self.assertEqual(result["metrics"]["generalisation"], 0.6)
         self.assertEqual(result["evaluation_id"], "eval-1")
         self.assertEqual(result["fingerprint"], "fp-1")
+        self.assertEqual(result["discovery_metadata"],
+                         {"policy_version": "minersweeper-split-v1", "route": "safe-dfg"})
         self.assertEqual(2, result["model_schema_version"])
         self.assertEqual(0, result["visible_transition_count"])
         self.assertFalse(result["is_feasible"])

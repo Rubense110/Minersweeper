@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import secrets
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from execution_control import ExecutionControl
@@ -44,8 +45,8 @@ class OptimizedProcessMiner:
         self.excluded_miners = tuple(excluded_miners or ())
         self.excluded_preprocessings = tuple(excluded_preprocessings or ())
         self.execution_control = execution_control or ExecutionControl()
-        self.seed = seed
-        self.rng = random.Random(seed)
+        self.seed = seed if seed is not None else secrets.randbits(53)
+        self.rng = random.Random(self.seed)
 
         self.search_space: Optional[PipelineSearchSpace] = None
         self.problem: Optional[PipelineOptimizationProblem] = None
@@ -68,6 +69,8 @@ class OptimizedProcessMiner:
         if not url:
             raise ValueError("service_url is required to evaluate candidate pipelines")
 
+        # A discover call starts a fresh random stream, even on a reused object.
+        self.rng = random.Random(self.seed)
         self.search_space = PipelineSearchSpace(
             excluded_miners=self.excluded_miners,
             log_path=self.log_path,

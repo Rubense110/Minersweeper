@@ -16,7 +16,7 @@ from execution_control import ExecutionControl
 
 
 class PopulationSnapshotStatsTest(unittest.TestCase):
-    def test_runtime_records_effective_config_and_snapshot_intervals(self):
+    def _run(self, evaluation, workers=1, max_workers=4):
         with tempfile.TemporaryDirectory() as temporary_directory:
             log_path = os.path.join(temporary_directory, "tiny.xes")
             with open(log_path, "w", encoding="utf-8") as handle:
@@ -36,10 +36,10 @@ class PopulationSnapshotStatsTest(unittest.TestCase):
                 "service_url": "http://unused", "metrics": ["fitness", "precision", "simplicity", "generalisation"],
                 "conformance_mode": "replay-token", "excluded_miners": ["ilp", "hybrid_ilp"],
                 "discover": {"max_evaluations": 8, "population_size": 4, "n_partitions": 1,
-                             "n_workers": 1, "seed": 7},
+                             "n_workers": workers, "seed": 7},
             }
-            evaluation = {"metrics": {name: 0.8 for name in config["metrics"]}}
-            with patch("java_service_client.ProMServiceClient.evaluate_pipeline", return_value=evaluation) as mocked:
+            with patch.dict(os.environ, {"OPT_MAX_EVALUATION_WORKERS": str(max_workers)}), \
+                 patch("java_service_client.ProMServiceClient.evaluate_pipeline", return_value=evaluation) as mocked:
                 result = execute_job(manager, "job-1", config)
 
             self.assertGreater(mocked.call_count, 0)
@@ -55,6 +55,22 @@ class PopulationSnapshotStatsTest(unittest.TestCase):
                 8 - mocked.call_count,
                 sum(item["cache_hits_since_previous"] for item in result["population_snapshots"]),
             )
+            return result
+
+    def test_runtime_records_effective_config_and_snapshot_intervals(self):
+        result = self._run({"metrics": {name: .8 for name in ["fitness", "precision", "simplicity", "generalisation"]}})
+        self.assertEqual("not_certified", result["optimizer_config"]["reproducibility_status"])
+
+    def test_effective_workers_and_scientific_result_fingerprint_are_recorded(self):
+        evaluation = {"metrics": {name: .8 for name in ["fitness", "precision", "simplicity", "generalisation"]},
+                      "evaluation_policy_version": "minersweeper-evaluation-v2", "model_semantic_sha256": "a"*64,
+                      "evaluation_environment": {"java_version": "test", "java_classpath_sha256": "b"*64}}
+        serial = self._run(evaluation, workers=1)
+        parallel = self._run(evaluation, workers=16, max_workers=2)
+        self.assertEqual(16, parallel["optimizer_config"]["requested_n_workers"])
+        self.assertEqual(2, parallel["optimizer_config"]["n_workers"])
+        self.assertEqual("controlled", parallel["optimizer_config"]["reproducibility_status"])
+        self.assertEqual(serial["optimizer_config"]["result_sha256"], parallel["optimizer_config"]["result_sha256"])
 
     def test_counts_attempts_not_only_population_survivors(self):
         events = [
@@ -76,6 +92,16 @@ class PopulationSnapshotStatsTest(unittest.TestCase):
             "errors_since_previous": 1,
             "unique_pipelines_since_previous": 2,
         }, _interval_evaluation_stats(events, 2, 4))
+
+    def test_previous_evaluation_policy_is_preserved_but_not_announced_as_controlled(self):
+        result = self._run({
+            "metrics": {name: .8 for name in ["fitness", "precision", "simplicity", "generalisation"]},
+            "evaluation_policy_version": "minersweeper-evaluation-v1",
+            "model_semantic_sha256": "a" * 64,
+            "evaluation_environment": {"java_version": "test", "java_classpath_sha256": "b" * 64},
+        })
+        self.assertEqual(["minersweeper-evaluation-v1"], result["optimizer_config"]["evaluation_policy_versions"])
+        self.assertEqual("not_certified", result["optimizer_config"]["reproducibility_status"])
 
 
 if __name__ == "__main__":

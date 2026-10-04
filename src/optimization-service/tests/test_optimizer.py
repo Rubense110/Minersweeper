@@ -135,6 +135,20 @@ class PipelineNSGAIIIOptimizerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             PipelineNSGAIIIOptimizer(problem=problem, n_workers=0)
 
+    def test_population_derived_from_odd_reference_count_is_rounded_up(self):
+        optimizer = PipelineNSGAIIIOptimizer(problem=self._build_problem(),
+            population_size=None, n_partitions=4, max_evaluations=72, seed=42)
+        self.assertEqual(35, optimizer.effective_config['reference_direction_count'])
+        self.assertIsNone(optimizer.effective_config['requested_population_size'])
+        self.assertEqual(36, optimizer.effective_config['population_size'])
+        optimizer.run()
+        self.assertEqual([36,72], [s['evaluations_done'] for s in optimizer.get_population_snapshots()])
+
+    def test_population_rejects_invalid_sizes_before_evaluation(self):
+        for size in (0, -3, 2.5, True, 'bad'):
+            with self.subTest(size=size), self.assertRaisesRegex(ValueError, 'population_size'):
+                PipelineNSGAIIIOptimizer(problem=self._build_problem(), population_size=size)
+
     def test_optimizer_captures_generation_snapshots(self):
         problem = self._build_problem()
 
