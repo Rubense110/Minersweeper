@@ -45,3 +45,6 @@ __pycache__/*
 /src/frontend-service/.vite/
 /src/frontend-service/.cache/
 /scripts/
+
+# Local working documentation
+/docs/
