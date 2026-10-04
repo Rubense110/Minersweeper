@@ -229,7 +229,8 @@ class ManagerPersistenceTest(unittest.TestCase):
                 "metrics": ["fitness"], "discover": {"max_evaluations": 1, "population_size": 1, "n_workers": 1},
             },
             "result": {
-                "all_solutions": [{"evaluation_id": "eval-1", "variables": [], "objectives": [], "metrics": {}, "pipeline": {}}],
+                "all_solutions": [{"evaluation_id": "eval-1", "variables": [], "objectives": [], "metrics": {}, "pipeline": {},
+                                   "discovery_metadata": {"policy_version": "fixture", "route": "standard"}}],
                 "population_snapshots": [], "catalogs": {"miners": [], "preprocessing": []}, "metrics_order": ["fitness"],
             },
             "_control": ExecutionControl(),
@@ -245,14 +246,19 @@ class ManagerPersistenceTest(unittest.TestCase):
             "is_feasible": False,
             "constraint_violations": ["MULTIPLE_COMPONENTS"],
         }
+        client = Mock()
+        client.fetch_artifacts.return_value = [artifact]
         with patch("api.manager_persistence.ProMServiceClient") as client_cls:
-            client_cls.return_value.fetch_artifacts.return_value = [artifact]
-            persist_completed_experiment(manager, "job-1")
+            persist_completed_experiment(manager, "job-1", artifact_client=client, cleanup_artifacts=False)
+            client_cls.assert_not_called()
+        client.cleanup_experiment.assert_not_called()
 
         _experiment_data, solutions, _snapshots, _snapshot_stats = manager.job_store.save_completed_experiment.call_args.args
         self.assertEqual(3, solutions[0]["model_schema_version"])
         self.assertFalse(solutions[0]["is_feasible"])
         self.assertEqual(["MULTIPLE_COMPONENTS"], solutions[0]["constraint_violations"])
+
+        self.assertEqual({"policy_version": "fixture", "route": "standard"}, solutions[0]["discovery_metadata"])
 
 
 if __name__ == "__main__":

@@ -158,6 +158,11 @@ def _build_experiment_export_archive(
         "fingerprint",
         "evaluation_error",
         "evaluation_status",
+        "logical_attempt_id",
+        "constraints",
+        "evaluation_policy_version",
+        "model_semantic_sha256",
+        "discovery_metadata",
     ]
     snapshot_solution_fields = [
         "snapshot_solution_id",
@@ -187,6 +192,11 @@ def _build_experiment_export_archive(
         "fingerprint",
         "evaluation_error",
         "evaluation_status",
+        "logical_attempt_id",
+        "constraints",
+        "evaluation_policy_version",
+        "model_semantic_sha256",
+        "discovery_metadata",
     ]
     population_snapshot_fields = [
         "snapshot_id",

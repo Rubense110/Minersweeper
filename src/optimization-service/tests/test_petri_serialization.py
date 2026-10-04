@@ -7,7 +7,7 @@ SERVICE_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src
 if SERVICE_SRC not in sys.path:
     sys.path.insert(0, SERVICE_SRC)
 
-from api.petri import _petri_from_pnml, _petri_from_v2_artifact
+from api.petri import _build_petri_net_from_payload, _petri_from_pnml, _petri_from_v2_artifact
 
 
 class PetriPnmlSerializationTest(unittest.TestCase):
@@ -57,8 +57,8 @@ class PetriPnmlSerializationTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                {"id": "a1", "source": "p_start", "target": "t_visible"},
-                {"id": "a2", "source": "t_visible", "target": "p_end"},
+                {"id": "a1", "source": "p_start", "target": "t_visible", "weight": 1},
+                {"id": "a2", "source": "t_visible", "target": "p_end", "weight": 1},
             ],
             arcs,
         )
@@ -95,7 +95,8 @@ class PetriPnmlSerializationTest(unittest.TestCase):
                   <place id="p0"/><place id="p1"/>
                   <transition id="t_tau"><name><text>not authoritative</text></name></transition>
                   <transition id="t_hidden"><name><text>also not authoritative</text></name></transition>
-                  <arc id="a1" source="p0" target="t_tau"/><arc id="a2" source="t_tau" target="p1"/>
+                  <arc id="a1" source="p0" target="t_tau"><inscription><text>2</text></inscription></arc>
+                  <arc id="a2" source="t_tau" target="p1"><inscription><text>3</text></inscription></arc>
                   <finalmarkings><marking><place idref="p1"><text>4</text></place></marking><marking/></finalmarkings>
                 </net></pnml>
             """,
@@ -111,12 +112,16 @@ class PetriPnmlSerializationTest(unittest.TestCase):
             "constraint_violations": [],
         }
 
-        places, transitions, _arcs, initial, final, finals = _petri_from_v2_artifact(artifact)
+        places, transitions, arcs, initial, final, finals = _petri_from_v2_artifact(artifact)
 
         self.assertEqual({"p0", "p1"}, {place["id"] for place in places})
         self.assertEqual(artifact["initial_marking"], initial)
         self.assertEqual(artifact["final_marking"], final)
         self.assertEqual(artifact["final_markings"], finals)
+        self.assertEqual([2, 3], [arc["weight"] for arc in arcs])
+        net, _ = _build_petri_net_from_payload(places, transitions, arcs)
+        self.assertEqual([2, 3], sorted(arc.weight for arc in net.arcs))
+        self.assertEqual({"t_tau": "tau", "t_hidden": None}, {t.name: t.label for t in net.transitions})
         self.assertEqual(
             [
                 {"id": "t_tau", "label": "tau", "invisible": False},

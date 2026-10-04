@@ -62,6 +62,20 @@ def _marking_entry(place_id: str, tokens: int) -> Dict[str, Any] | None:
     return {"place_id": place_id, "tokens": int(tokens)}
 
 
+def _arc_weight(element: ET.Element) -> int:
+    for child in element:
+        if _local_xml_name(child.tag) == "inscription":
+            texts = [node.text for node in child.iter() if _local_xml_name(node.tag) == "text"]
+            try:
+                weight = int(texts[0])
+            except (IndexError, TypeError, ValueError):
+                raise ValueError("PNML arc has an invalid weight") from None
+            if weight < 1:
+                raise ValueError("PNML arc weight must be positive")
+            return weight
+    return 1
+
+
 def _is_invisible_transition(label: str, transition: ET.Element) -> bool:
     explicit = _xml_bool_descendant(transition, {"invisible", "isinvisible"})
     if explicit is not None:
@@ -128,6 +142,7 @@ def _petri_from_pnml(
                     "id": (node.attrib.get("id") or "").strip(),
                     "source": (node.attrib.get("source") or "").strip(),
                     "target": (node.attrib.get("target") or "").strip(),
+                    "weight": _arc_weight(node),
                 }
             )
 
@@ -176,6 +191,7 @@ def _petri_structure_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], Li
                     "id": (node.attrib.get("id") or "").strip(),
                     "source": (node.attrib.get("source") or "").strip(),
                     "target": (node.attrib.get("target") or "").strip(),
+                    "weight": _arc_weight(node),
                 }
             )
     return places, transitions, arcs
@@ -384,7 +400,10 @@ def _build_petri_net_from_payload(
         if is_source_place == is_target_place:
             continue
 
-        add_arc_from_to(source_node, target_node, net)
+        weight = item.get("weight", 1)
+        if isinstance(weight, bool) or not isinstance(weight, int) or weight < 1:
+            raise ValueError("arc weight must be a positive integer")
+        add_arc_from_to(source_node, target_node, net, weight=weight)
 
     return net, place_nodes
 

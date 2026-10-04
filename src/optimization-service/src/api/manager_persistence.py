@@ -34,7 +34,18 @@ def _cleanup_persisted_experiment_artifacts(manager: Any, request_data: Dict[str
         )
 
 
-def persist_completed_experiment(manager: Any, job_id: str) -> None:
+def persist_completed_experiment(
+    manager: Any,
+    job_id: str,
+    *,
+    artifact_client: Any = None,
+    cleanup_artifacts: bool = True,
+) -> None:
+    """Persist through the same path for live jobs and offline recovery.
+
+    An offline caller may supply an artifact reader and retain its source files.
+    Live application jobs use the ProM client and cleanup policy by default.
+    """
     with manager._lock:
         job = manager._jobs.get(job_id)
         if not job:
@@ -69,7 +80,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
 
     artifacts_by_evaluation_id: Dict[str, Dict[str, Any]] = {}
     if evaluation_ids:
-        client = ProMServiceClient(
+        client = artifact_client if artifact_client is not None else ProMServiceClient(
             base_url=str(request_data.get("service_url") or manager.default_service_url),
             experiment_id=str(request_data.get("execution_name") or ""),
             timeout_seconds=manager.java_service_timeout_seconds,
@@ -189,7 +200,7 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
             "transitions": transitions,
             "arcs": arcs,
             "model_schema_version": model_schema_version,
-            **{key: solution.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")},
+            **{key: solution.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")},
             "visible_transition_count": visible_transition_count,
             "is_feasible": is_feasible,
             "constraint_violations": constraint_violations,
@@ -245,4 +256,5 @@ def persist_completed_experiment(manager: Any, job_id: str) -> None:
     manager.job_store.save_completed_experiment(
         experiment_data, parsed_solutions, parsed_snapshot_solutions, parsed_population_snapshots
     )
-    _cleanup_persisted_experiment_artifacts(manager, request_data, job_id)
+    if cleanup_artifacts:
+        _cleanup_persisted_experiment_artifacts(manager, request_data, job_id)

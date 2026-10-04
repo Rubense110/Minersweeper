@@ -15,6 +15,12 @@ from api.serialization import _build_experiment_export_archive
 
 class ExportMarkingsTest(unittest.TestCase):
     def test_export_includes_experiment_provenance_and_snapshot_interval_stats(self):
+        provenance = {
+            'logical_attempt_id': 7, 'constraints': [0.0],
+            'evaluation_policy_version': 'minersweeper-evaluation-v2',
+            'model_semantic_sha256': 'b' * 64,
+            'discovery_metadata': {'policy_version': 'minersweeper-split-v2', 'route': 'standard'},
+        }
         payload, _ = _build_experiment_export_archive(
             {
                 'experiment_id': 'test', 'experiment_name': 'provenance',
@@ -28,8 +34,8 @@ class ExportMarkingsTest(unittest.TestCase):
                 }],
             },
             [{'solution_id': 1, 'evaluation_id': 'eval-1', 'evaluation_status': 'feasible',
-              'pipeline_full': {'miner': {'key': 'alpha'}}}],
-            [{'snapshot_solution_id': 2, 'snapshot_id': 7, 'evaluation_id': 'eval-1'}],
+              'pipeline_full': {'miner': {'key': 'alpha'}}, **provenance}],
+            [{'snapshot_solution_id': 2, 'snapshot_id': 7, 'evaluation_id': 'eval-1', **provenance}],
         )
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             self.assertIn('population_snapshots.csv', archive.namelist())
@@ -43,6 +49,12 @@ class ExportMarkingsTest(unittest.TestCase):
             self.assertEqual(solution['evaluation_id'], 'eval-1')
             self.assertEqual(json.loads(solution['pipeline_full']), {'miner': {'key': 'alpha'}})
             self.assertEqual(member['snapshot_id'], '7')
+            for row in (solution, member):
+                self.assertEqual('7', row['logical_attempt_id'])
+                self.assertEqual(provenance['evaluation_policy_version'], row['evaluation_policy_version'])
+                self.assertEqual(provenance['model_semantic_sha256'], row['model_semantic_sha256'])
+                self.assertEqual(provenance['constraints'], json.loads(row['constraints']))
+                self.assertEqual(provenance['discovery_metadata'], json.loads(row['discovery_metadata']))
 
     def test_solution_and_snapshot_exports_preserve_alternative_final_markings(self):
         initial = [{'place_id': 'p_start', 'tokens': 2}]

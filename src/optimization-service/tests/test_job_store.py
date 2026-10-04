@@ -160,6 +160,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "constraints": [0.0],
                     "evaluation_policy_version": "minersweeper-evaluation-v1",
                     "model_semantic_sha256": "d" * 64,
+                    "discovery_metadata": {"policy_version": "minersweeper-split-v2", "route": "standard"},
                     "runtime_ms": 245,
                     "is_pareto": True,
                     "places": [],
@@ -182,6 +183,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertEqual([0.0], saved["constraints"])
             self.assertEqual("minersweeper-evaluation-v1", saved["evaluation_policy_version"])
             self.assertEqual("d" * 64, saved["model_semantic_sha256"])
+            self.assertEqual(solutions[0]["discovery_metadata"], saved["discovery_metadata"])
 
             with store._session_factory() as session:
                 session.add_all(
@@ -429,6 +431,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
                     "constraints": [0.0],
                     "evaluation_policy_version": "minersweeper-evaluation-v1",
                     "model_semantic_sha256": "e" * 64,
+                    "discovery_metadata": {"policy_version": "minersweeper-split-v2", "route": "standard"},
                     "fingerprint": "fp-snapshot",
                     "evaluation_status": "feasible",
                     "runtime_ms": 200,
@@ -504,6 +507,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
             self.assertEqual(4, exported[0]["logical_attempt_id"])
             self.assertEqual([0.0], exported[0]["constraints"])
             self.assertEqual("e" * 64, exported[0]["model_semantic_sha256"])
+            self.assertEqual(snapshot_solutions[0]["discovery_metadata"], exported[0]["discovery_metadata"])
             self.assertEqual("inductive", exported[0]["pipeline_full"]["miner"]["key"])
             experiment = store.get_experiment("exp-snap")
             self.assertEqual("replay-token", experiment["conformance_mode"])

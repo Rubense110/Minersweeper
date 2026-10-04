@@ -477,7 +477,7 @@ class JobStore:
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
                             reproducibility_metadata=self._sanitize_json({
-                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")
                             }),
                             model_id=model_id,
                         )
@@ -519,7 +519,7 @@ class JobStore:
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
                             reproducibility_metadata=self._sanitize_json({
-                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")
                             }),
                             model_id=model_id,
                         )
@@ -599,7 +599,7 @@ class JobStore:
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
             **{key: (solution.reproducibility_metadata or {}).get(key)
-               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")},
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")},
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],
@@ -639,7 +639,7 @@ class JobStore:
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
             **{key: (solution.reproducibility_metadata or {}).get(key)
-               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints")},
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")},
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],
