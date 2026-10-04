@@ -116,6 +116,19 @@ public class PromHttpHandlersTest {
         assertTrue(String.valueOf(payload).contains("\"deleted_paths\":0"));
     }
 
+    @Test
+    public void safetyCutoffReturnsExplicitReproducibilityError() throws Exception {
+        PromHttpHandlers handlers = new PromHttpHandlers(new ObjectMapper(), new NoopPipelineEvaluator() {
+            @Override public EvaluationResult evaluate(com.minersweeper.javaservice.api.dto.PipelineRequest request) {
+                throw new com.minersweeper.javaservice.evaluation.ExecutionChecks.DeadlineExceeded();
+            }
+        }, new ArtifactStore(Files.createTempDirectory("repro-timeout").toString()), false);
+        FakeResponse response = new FakeResponse();
+        Object payload = handlers.handlePipeline(new FakeRequest(validPipelineJson()), response);
+        assertEquals(503, response.status());
+        assertTrue(payload.toString().contains("REPRODUCIBILITY_TIME_LIMIT"));
+    }
+
     private static String validPipelineJson() {
         return "{"
             + "\"experiment_id\":\"run_1\","
@@ -128,7 +141,7 @@ public class PromHttpHandlersTest {
             + "}";
     }
 
-    private static final class NoopPipelineEvaluator implements PipelineEvaluator {
+    private static class NoopPipelineEvaluator implements PipelineEvaluator {
         @Override
         public EvaluationResult evaluate(com.minersweeper.javaservice.api.dto.PipelineRequest request) {
             Map<String, Double> metrics = new LinkedHashMap<String, Double>();

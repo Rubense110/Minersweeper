@@ -120,6 +120,7 @@ public final class OpenApiDocs {
         responseMap.put("200", response(200, "Pipeline evaluation completed", schemaRef("PipelineResponse")));
         responseMap.put("400", errorResponse("Invalid JSON or invalid request payload"));
         responseMap.put("409", errorResponse("Experiment was cancelled while the evaluation was running"));
+        responseMap.put("503", errorResponse("Evaluation admission failure or explicit reproducibility safety cutoff"));
         responseMap.put("500", errorResponse("Unexpected evaluation failure"));
         operation.put("responses", responseMap);
         return singleMethod("post", operation);
@@ -305,6 +306,10 @@ public final class OpenApiDocs {
                 property("experiment_id", scalarSchema("string")),
                 property("evaluation_id", scalarSchema("string")),
                 property("fingerprint", scalarSchema("string")),
+                property("evaluation_policy_version", scalarSchema("string")),
+                property("model_semantic_sha256", scalarSchema("string")),
+                property("evaluation_environment", objectSchema()),
+                property("discovery_metadata", objectSchema()),
                 property("metrics", numberMapSchema()),
                 property("metrics_status", stringEnumSchema("computed", "skipped_infeasible")),
                 property("model_schema_version", scalarSchema("integer", "int32")),

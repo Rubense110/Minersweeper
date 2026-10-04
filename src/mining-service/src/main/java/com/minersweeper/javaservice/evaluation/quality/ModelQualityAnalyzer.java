@@ -1,6 +1,7 @@
 package com.minersweeper.javaservice.evaluation.quality;
 
 import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+import com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder;
 import com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -25,7 +26,8 @@ import org.processmining.models.semantics.petrinet.Marking;
 public final class ModelQualityAnalyzer {
     private static final int DEFAULT_MAX_STATES = 5000;
     private static final int DEFAULT_MAX_TOKENS_PER_PLACE = 10;
-    private static final long DEFAULT_MAX_NANOS = 2_000_000_000L;
+    // Scientific results are bounded by logical work, independent of CPU/GC load.
+    private static final long DEFAULT_MAX_NANOS = 0L;
 
     private final int maxStates;
     private final int maxTokensPerPlace;
@@ -36,8 +38,8 @@ public final class ModelQualityAnalyzer {
     }
 
     public ModelQualityAnalyzer(int maxStates, int maxTokensPerPlace, long maxNanos) {
-        if (maxStates < 1 || maxTokensPerPlace < 1 || maxNanos < 1) {
-            throw new IllegalArgumentException("Quality analysis limits must be positive");
+        if (maxStates < 1 || maxTokensPerPlace < 1 || maxNanos < 0) {
+            throw new IllegalArgumentException("State/token limits must be positive; deadline must be nonnegative");
         }
         this.maxStates = maxStates;
         this.maxTokensPerPlace = maxTokensPerPlace;
@@ -49,6 +51,7 @@ public final class ModelQualityAnalyzer {
         public final boolean multipleComponents;
         public final boolean inconclusive;
         public final int exploredStates;
+        public String modelSemanticHash;
 
         Result(List<String> defects, boolean multipleComponents, boolean inconclusive, int exploredStates) {
             this.defects = Collections.unmodifiableList(new ArrayList<String>(defects));
@@ -77,21 +80,28 @@ public final class ModelQualityAnalyzer {
 
     public Result analyze(Petrinet net, Marking initial, List<Marking> finals) {
         Budget budget = new Budget(maxNanos);
-        try {
-            return analyzeBounded(net, initial, finals, budget);
+        CanonicalNetOrder order = null;
+        try (ExecutionChecks.Deadline ignored = maxNanos == 0L ? null : ExecutionChecks.within(maxNanos)) {
+            if (net == null || initial == null || finals == null) throw new IllegalArgumentException("Net and markings required");
+            order = new CanonicalNetOrder(net, initial, finals);
+            Result result = analyzeBounded(net, initial, finals, budget, order);
+            result.modelSemanticHash = order.semanticHash();
+            return result;
         } catch (Inconclusive | ArithmeticException limit) {
-            return new Result(Collections.<String>emptyList(), budget.multipleComponents, true, budget.states);
+            Result result = new Result(Collections.<String>emptyList(), budget.multipleComponents, true, budget.states);
+            if (order != null) result.modelSemanticHash = order.semanticHash();
+            return result;
         }
     }
 
-    private Result analyzeBounded(Petrinet net, Marking initial, List<Marking> finals, Budget budget) {
+    private Result analyzeBounded(Petrinet net, Marking initial, List<Marking> finals, Budget budget, CanonicalNetOrder order) {
         budget.check();
         if (net == null || initial == null || finals == null) {
             throw new IllegalArgumentException("Net and markings are required");
         }
 
-        List<Place> places = new ArrayList<Place>(net.getPlaces());
-        List<Transition> transitions = new ArrayList<Transition>(net.getTransitions());
+        List<Place> places = order.places();
+        List<Transition> transitions = order.transitions();
         Map<Place, Integer> placeIndex = new HashMap<Place, Integer>();
         for (int index = 0; index < places.size(); index++) {
             budget.check();
@@ -217,7 +227,7 @@ public final class ModelQualityAnalyzer {
     }
 
     private static boolean hasMultipleComponents(Petrinet net, List<Place> places, List<Transition> transitions, Budget budget) {
-        Set<PetrinetNode> all = new HashSet<PetrinetNode>();
+        Set<PetrinetNode> all = new LinkedHashSet<PetrinetNode>();
         all.addAll(places);
         all.addAll(transitions);
         if (all.isEmpty()) return false;

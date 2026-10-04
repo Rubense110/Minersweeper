@@ -77,8 +77,10 @@ public final class DiscoveryArtifactFactory {
             throw new IllegalStateException("Miner result has no accepting Petri-net semantics (initial/final marking)");
         }
         final Petrinet exportedNet = net;
+        final Marking exportedInitial = initialMarking;
+        final List<Marking> exportedFinals = finalMarkings;
         return new DiscoveryArtifact(net, initialMarking, finalMarkings,
-            () -> pmnlExporter.exportPnml(context, exportedNet));
+            () -> pmnlExporter.exportPnml(context, exportedNet, exportedInitial, exportedFinals));
     }
 
     private Marking initialMarkingFromConnection(PluginContext context, Petrinet net) throws Exception {

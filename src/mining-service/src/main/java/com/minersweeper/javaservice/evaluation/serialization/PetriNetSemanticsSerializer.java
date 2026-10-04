@@ -160,6 +160,8 @@ public final class PetriNetSemanticsSerializer {
             for (int index = 0; index < nodes.getLength(); index++) {
                 ExecutionChecks.check();
                 Element node = (Element) nodes.item(index);
+                // Final-marking references are not net node declarations.
+                if (node.hasAttribute("idref")) continue;
                 String exportedId = node.getAttribute("id");
                 String localNodeId = localNodeId(node);
                 if (exportedId == null || exportedId.isEmpty() || localNodeId == null || ids.put(localNodeId, exportedId) != null) {

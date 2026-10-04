@@ -89,6 +89,8 @@ def _petri_from_pnml(
 
     for node in root.iter():
         tag = _local_xml_name(node.tag)
+        if tag == "place" and "idref" in node.attrib:
+            continue  # Accepting-marking references do not declare graph nodes.
         if tag == "place":
             place_id = (node.attrib.get("id") or "").strip()
             initial_entries: List[Dict[str, Any]] = []
@@ -162,6 +164,8 @@ def _petri_structure_from_pnml(pnml_text: str) -> Tuple[List[Dict[str, Any]], Li
     arcs: List[Dict[str, Any]] = []
     for node in root.iter():
         tag = _local_xml_name(node.tag)
+        if tag == "place" and "idref" in node.attrib:
+            continue
         if tag == "place":
             places.append({"id": (node.attrib.get("id") or "").strip(), "label": _xml_node_label(node)})
         elif tag == "transition":

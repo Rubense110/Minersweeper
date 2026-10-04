@@ -1,6 +1,9 @@
 package com.minersweeper.javaservice.evaluation.conformance.metrics;
 
 import com.minersweeper.javaservice.evaluation.conformance.ConformanceComputation;
+import com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -33,17 +36,28 @@ public class EdgeLoadCentrality implements ConformanceMetric {
         }
 
         Graph<PetrinetNode, DefaultEdge> graph = new DirectedMultigraph<PetrinetNode, DefaultEdge>(DefaultEdge.class);
-        for (Place place : net.getPlaces()) {
+        final CanonicalNetOrder order = new CanonicalNetOrder(net, null, null);
+        for (Place place : order.places()) {
             graph.addVertex(place);
         }
-        for (Transition transition : net.getTransitions()) {
+        for (Transition transition : order.transitions()) {
             graph.addVertex(transition);
         }
-        for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : net.getEdges()) {
+        List<PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode>> orderedEdges =
+            new ArrayList<PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode>>(net.getEdges());
+        Collections.sort(orderedEdges, new Comparator<PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode>>() {
+            @Override public int compare(PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> a,
+                PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> b) {
+                int from = Integer.compare(order.index(a.getSource()), order.index(b.getSource()));
+                return from != 0 ? from : Integer.compare(order.index(a.getTarget()), order.index(b.getTarget()));
+            }
+        });
+        for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : orderedEdges) {
             graph.addEdge(edge.getSource(), edge.getTarget());
         }
 
         double[] scores = rawDirectedEdgeLoad(graph);
+        Arrays.sort(scores);
 
         double totalLoad = 0.0;
         for (double score : scores) {

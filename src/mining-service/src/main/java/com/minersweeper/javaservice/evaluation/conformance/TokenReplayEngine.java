@@ -54,7 +54,7 @@ public class TokenReplayEngine {
         XEventClassifier classifier,
         TransEvClassMapping mapping
     ) {
-        this(net, initialMarking, finalMarking, classifier, mapping, new CompiledReplayNet(net));
+        this(net, initialMarking, finalMarking, classifier, mapping, new CompiledReplayNet(net, initialMarking, Collections.singletonList(finalMarking)));
     }
 
     public TokenReplayEngine(Petrinet net, Marking initialMarking, Marking finalMarking,
@@ -598,13 +598,13 @@ public class TokenReplayEngine {
 
     private List<Place> sortedPlaces(Collection<Place> places) {
         List<Place> sorted = new ArrayList<Place>(places);
-        Collections.sort(sorted);
+        Collections.sort(sorted, compiled.order.comparator());
         return sorted;
     }
 
     private List<Transition> sortedTransitions(Collection<Transition> transitions) {
         List<Transition> sorted = new ArrayList<Transition>(transitions);
-        Collections.sort(sorted);
+        Collections.sort(sorted, compiled.order.comparator());
         return sorted;
     }
 
@@ -744,7 +744,7 @@ public class TokenReplayEngine {
         @Override public int hashCode() { return hash; }
     }
 
-    private static class TransitionPathComparator implements java.util.Comparator<List<Transition>> {
+    private class TransitionPathComparator implements java.util.Comparator<List<Transition>> {
         public int compare(List<Transition> left, List<Transition> right) {
             int sizeComparison = left.size() - right.size();
             if (sizeComparison != 0) {
@@ -753,14 +753,14 @@ public class TokenReplayEngine {
             return pathKey(left).compareTo(pathKey(right));
         }
 
-        private static String pathKey(List<Transition> path) {
+        private String pathKey(List<Transition> path) {
             StringBuilder builder = new StringBuilder();
             for (Transition transition : path) {
                 ExecutionChecks.check();
                 if (builder.length() > 0) {
                     builder.append('|');
                 }
-                builder.append(transition.getLabel());
+                builder.append(compiled.order.index(transition));
             }
             return builder.toString();
         }

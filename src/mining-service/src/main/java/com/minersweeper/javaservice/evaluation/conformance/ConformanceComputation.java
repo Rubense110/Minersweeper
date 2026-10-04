@@ -234,7 +234,7 @@ public class ConformanceComputation {
     }
 
     private CompiledReplayNet getCompiledReplayNet() {
-        if (compiledReplayNet == null) compiledReplayNet = new CompiledReplayNet(net);
+        if (compiledReplayNet == null) compiledReplayNet = new CompiledReplayNet(net, initialMarking, finalMarkings);
         return compiledReplayNet;
     }
 
@@ -311,17 +311,7 @@ public class ConformanceComputation {
         if (transitionCount <= 0) {
             replayGeneralisation = Double.valueOf(1.0);
         } else {
-            double penalty = 0.0;
-            for (Transition transition : net.getTransitions()) {
-                int activations = transitionActivations.containsKey(transition)
-                    ? transitionActivations.get(transition).intValue()
-                    : 0;
-                if (activations <= 0) {
-                    penalty += 1.0;
-                } else {
-                    penalty += 1.0 / Math.sqrt((double) activations);
-                }
-            }
+            double penalty = stableActivationPenalty(transitionActivations);
             double value = 1.0 - (penalty / (double) transitionCount);
             replayGeneralisation = Double.valueOf(value);
         }
@@ -342,22 +332,27 @@ public class ConformanceComputation {
         if (transitionCount <= 0) {
             replayGeneralisation = Double.valueOf(1.0);
         } else {
-            double penalty = 0.0;
-            for (Transition transition : net.getTransitions()) {
-                int activations = transitionActivations.containsKey(transition)
-                    ? transitionActivations.get(transition).intValue()
-                    : 0;
-                if (activations <= 0) {
-                    penalty += 1.0;
-                } else {
-                    penalty += 1.0 / Math.sqrt((double) activations);
-                }
-            }
+            double penalty = stableActivationPenalty(transitionActivations);
             double value = 1.0 - (penalty / (double) transitionCount);
             replayGeneralisation = Double.valueOf(value);
         }
 
         return replayGeneralisation.doubleValue();
+    }
+
+    private double stableActivationPenalty(Map<Transition, Integer> activations) {
+        // Even automorphic nodes can exchange firing counts. Sum the multiset
+        // in numeric order so floating-point rounding cannot follow UUID order.
+        List<Integer> counts = new ArrayList<Integer>();
+        for (Transition transition : net.getTransitions()) {
+            com.minersweeper.javaservice.evaluation.ExecutionChecks.check();
+            Integer count = activations.get(transition);
+            counts.add(count == null ? 0 : count);
+        }
+        Collections.sort(counts);
+        double penalty = 0.0;
+        for (int count : counts) penalty += count <= 0 ? 1.0 : 1.0 / Math.sqrt((double) count);
+        return penalty;
     }
 
     private synchronized double getReplayFitnessLikePm4py() throws Exception {

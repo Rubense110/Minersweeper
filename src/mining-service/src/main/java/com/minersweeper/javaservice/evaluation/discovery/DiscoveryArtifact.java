@@ -13,6 +13,15 @@ public final class DiscoveryArtifact {
     private final List<Marking> finalMarkings;
     private String pnml;
     private java.util.concurrent.Callable<String> exporter;
+    private java.util.Map<String,String> discoveryMetadata = java.util.Collections.emptyMap();
+
+    public DiscoveryArtifact withDiscoveryMetadata(java.util.Map<String,String> metadata) {
+        discoveryMetadata = java.util.Collections.unmodifiableMap(
+            new java.util.LinkedHashMap<String,String>(metadata));
+        return this;
+    }
+
+    public java.util.Map<String,String> getDiscoveryMetadata() { return discoveryMetadata; }
 
     public DiscoveryArtifact(Petrinet net, Marking initialMarking, Marking finalMarking, String pnml) {
         this(net, initialMarking, finalMarking == null ? Collections.emptyList() : Collections.singletonList(finalMarking), pnml);

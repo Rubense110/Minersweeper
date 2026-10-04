@@ -2,6 +2,7 @@ package com.minersweeper.javaservice.evaluation.discovery.miners;
 
 import com.minersweeper.javaservice.evaluation.conformance.TokenReplayEngine;
 import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+import com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder;
 import com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -27,7 +28,13 @@ import org.processmining.plugins.connectionfactories.logpetrinet.TransEvClassMap
 final class HeuristicsFinalMarkingPolicy {
     private static final int MAX_STATES = 5000;
     private static final int MAX_TOKENS_PER_PLACE = 3;
-    private static final long MAX_SEARCH_NANOS = 1_000_000_000L;
+    private final long maxPrefixWork;
+
+    HeuristicsFinalMarkingPolicy() { this(4_000_000L); }
+    HeuristicsFinalMarkingPolicy(long maxPrefixWork) {
+        if (maxPrefixWork < 1L) throw new IllegalArgumentException("Prefix work must be positive");
+        this.maxPrefixWork = maxPrefixWork;
+    }
 
     static final class Result {
         final List<Marking> finalMarkings;
@@ -45,9 +52,9 @@ final class HeuristicsFinalMarkingPolicy {
             return new Result(search.terminals, "reachable_terminal");
         }
         Marking replayed;
-        try (ExecutionChecks.Deadline ignored = ExecutionChecks.within(MAX_SEARCH_NANOS)) {
+        try {
             replayed = bestReachablePrefix(net, initial, log);
-        } catch (ExecutionChecks.DeadlineExceeded limit) {
+        } catch (ExecutionChecks.WorkLimitExceeded limit) {
             // Initial marking is always reachable; never invent an accepting state.
             replayed = copy(initial);
         }
@@ -55,7 +62,7 @@ final class HeuristicsFinalMarkingPolicy {
     }
 
     private SearchResult searchTerminalMarkings(Petrinet net, Marking initial) {
-        Budget budget = new Budget(MAX_SEARCH_NANOS);
+        Budget budget = new Budget(0L);
         try { return searchTerminalMarkings(net, initial, budget); }
         catch (Inconclusive | ArithmeticException limit) {
             return new SearchResult(false, Collections.<Marking>emptyList());
@@ -64,8 +71,9 @@ final class HeuristicsFinalMarkingPolicy {
 
     private SearchResult searchTerminalMarkings(Petrinet net, Marking initial, Budget budget) {
         budget.check();
-        List<Place> places = new ArrayList<Place>(net.getPlaces());
-        List<Transition> transitions = new ArrayList<Transition>(net.getTransitions());
+        final CanonicalNetOrder order = new CanonicalNetOrder(net, initial, Collections.<Marking>emptyList());
+        List<Place> places = order.places();
+        List<Transition> transitions = order.transitions();
         Map<Place, Integer> indexes = new LinkedHashMap<Place, Integer>();
         for (int i = 0; i < places.size(); i++) { budget.check(); indexes.put(places.get(i), Integer.valueOf(i)); }
         int[] start = new int[places.size()];
@@ -110,7 +118,7 @@ final class HeuristicsFinalMarkingPolicy {
         Collections.sort(terminals, new Comparator<Marking>() {
             @Override public int compare(Marking left, Marking right) {
                 budget.check();
-                return markingKey(left).compareTo(markingKey(right));
+                return order.markingKey(left).compareTo(order.markingKey(right));
             }
         });
         return new SearchResult(true, terminals);
@@ -140,46 +148,41 @@ final class HeuristicsFinalMarkingPolicy {
             mapping.put(transition, eventClass == null ? dummy : eventClass);
         }
         TokenReplayEngine engine = new TokenReplayEngine(net, initial, initial, classifier, mapping);
-        Map<String, Candidate> candidates = new LinkedHashMap<String, Candidate>();
-        long deadline = System.nanoTime() + MAX_SEARCH_NANOS;
-        for (Map.Entry<List<String>, Integer> variant : engine.variantsByActivitySequence(log).entrySet()) {
-            ExecutionChecks.check();
-            if (System.nanoTime() > deadline) break;
-            TokenReplayEngine.TraceReplay replay = engine.replayPrefix(variant.getKey());
-            Marking marking = replay.marking();
-            String key = markingKey(marking);
-            Candidate candidate = candidates.get(key);
-            if (candidate == null) {
-                candidate = new Candidate(copy(marking));
-                candidates.put(key, candidate);
+        CanonicalNetOrder order = new CanonicalNetOrder(net, initial, Collections.<Marking>emptyList());
+        // Prepare cached log statistics before counting replay work: cache hits
+        // and concurrent first users must not consume different logical budgets.
+        Map<List<String>, Integer> variants = engine.variantsByActivitySequence(log);
+        try (ExecutionChecks.Work work = ExecutionChecks.withinWork(maxPrefixWork)) {
+            Map<String, Candidate> candidates = new LinkedHashMap<String, Candidate>();
+            for (Map.Entry<List<String>, Integer> variant : variants.entrySet()) {
+                ExecutionChecks.check();
+                TokenReplayEngine.TraceReplay replay = engine.replayPrefix(variant.getKey());
+                Marking marking = replay.marking();
+                String key = order.markingKey(marking);
+                Candidate candidate = candidates.get(key);
+                if (candidate == null) {
+                    candidate = new Candidate(copy(marking));
+                    candidates.put(key, candidate);
+                }
+                if (replay.fit()) candidate.completed += variant.getValue().intValue();
+                candidate.frequency += variant.getValue().intValue();
             }
-            if (replay.fit()) candidate.completed += variant.getValue().intValue();
-            candidate.frequency += variant.getValue().intValue();
+            Candidate best = null;
+            for (Candidate candidate : candidates.values()) {
+                ExecutionChecks.check();
+                if (best == null || candidate.completed > best.completed
+                    || (candidate.completed == best.completed && candidate.frequency > best.frequency)
+                    || (candidate.completed == best.completed && candidate.frequency == best.frequency
+                        && order.markingKey(candidate.marking).compareTo(order.markingKey(best.marking)) < 0)) best = candidate;
+            }
+            return best == null ? copy(initial) : best.marking;
         }
-        Candidate best = null;
-        for (Candidate candidate : candidates.values()) {
-            ExecutionChecks.check();
-            if (best == null || candidate.completed > best.completed
-                || (candidate.completed == best.completed && candidate.frequency > best.frequency)
-                || (candidate.completed == best.completed && candidate.frequency == best.frequency
-                    && markingKey(candidate.marking).compareTo(markingKey(best.marking)) < 0)) best = candidate;
-        }
-        return best == null ? copy(initial) : best.marking;
     }
 
     private static Marking copy(Marking original) {
         Marking copy = new Marking();
         for (Place place : original.baseSet()) copy.add(place, original.occurrences(place).intValue());
         return copy;
-    }
-
-    private static String markingKey(Marking marking) {
-        List<String> parts = new ArrayList<String>();
-        for (Place place : marking.baseSet()) {
-            parts.add(place.getLabel() + ":" + place.getId() + ":" + marking.occurrences(place));
-        }
-        Collections.sort(parts);
-        return parts.toString();
     }
 
     private static final class SearchResult {

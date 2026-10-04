@@ -50,7 +50,8 @@ public class TokenReplayComputation {
         TransEvClassMapping mapping,
         TimingTrace timing
     ) {
-        this(log, net, initialMarking, finalMarkings, classifier, mapping, timing, new CompiledReplayNet(net));
+        this(log, net, initialMarking, finalMarkings, classifier, mapping, timing,
+            new CompiledReplayNet(net, initialMarking, finalMarkings));
     }
 
     public TokenReplayComputation(XLog log, Petrinet net, Marking initialMarking,
@@ -61,7 +62,9 @@ public class TokenReplayComputation {
         }
         this.log = log;
         this.finalEngines = new ArrayList<TokenReplayEngine>();
-        for (Marking fin : finalMarkings) {
+        List<Marking> orderedFinals = new ArrayList<Marking>(finalMarkings);
+        Collections.sort(orderedFinals, java.util.Comparator.comparing(compiled.order::markingKey));
+        for (Marking fin : orderedFinals) {
             this.finalEngines.add(new TokenReplayEngine(net, initialMarking, fin, classifier, mapping, compiled));
         }
         this.engine = this.finalEngines.get(0);

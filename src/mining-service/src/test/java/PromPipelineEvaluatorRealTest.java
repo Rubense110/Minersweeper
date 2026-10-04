@@ -24,6 +24,10 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.Assume;
 import org.junit.BeforeClass;
@@ -47,6 +51,38 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 public class PromPipelineEvaluatorRealTest {
+    @Test
+    public void ownPnmlRoundTripsThroughProMWithExactAcceptingSemantics() throws Exception {
+        String label = "á & \"B\" <活动> &amp; 'fin'";
+        Petrinet net = org.processmining.models.graphbased.directed.petrinet.impl.PetrinetFactory.newPetrinet(label);
+        Place start = net.addPlace(label), end = net.addPlace(label);
+        Transition visible = net.addTransition(label), hidden = net.addTransition("route");
+        hidden.setInvisible(true);
+        net.addTransition("tau"); // A visible activity named tau must stay visible.
+        net.addArc(start, visible, 2); net.addArc(visible, end, 3);
+        net.addArc(start, hidden); net.addArc(hidden, end);
+        org.processmining.models.semantics.petrinet.Marking initial = new org.processmining.models.semantics.petrinet.Marking();
+        initial.add(start, 2);
+        org.processmining.models.semantics.petrinet.Marking fin = new org.processmining.models.semantics.petrinet.Marking();
+        fin.add(end, 3);
+        List<org.processmining.models.semantics.petrinet.Marking> finals = Arrays.asList(fin,
+            new org.processmining.models.semantics.petrinet.Marking());
+        try (com.minersweeper.javaservice.evaluation.ManagedCLIContext context = new com.minersweeper.javaservice.evaluation.ManagedCLIContext()) {
+            String pnml = new PmnlExporter().exportPnml(context.plugin(), net, initial, finals);
+            byte[] bytes = pnml.getBytes(StandardCharsets.UTF_8);
+            org.processmining.plugins.pnml.base.Pnml imported = new org.processmining.plugins.pnml.importing.PnmlImportUtils()
+                .importPnmlFromStream(context.plugin(), new ByteArrayInputStream(bytes), "roundtrip.pnml", bytes.length);
+            assertNotNull(imported);
+            assertTrue(!imported.hasErrors());
+            Petrinet restored = org.processmining.models.graphbased.directed.petrinet.impl.PetrinetFactory.newPetrinet("restored");
+            org.processmining.models.semantics.petrinet.Marking restoredInitial = new org.processmining.models.semantics.petrinet.Marking();
+            List<org.processmining.models.semantics.petrinet.Marking> restoredFinals = new ArrayList<>();
+            imported.convertToNet(restored, restoredInitial, restoredFinals,
+                new org.processmining.models.connections.GraphLayoutConnection(restored));
+            assertEquals(new com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder(net, initial, finals).semanticHash(),
+                new com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder(restored, restoredInitial, restoredFinals).semanticHash());
+        }
+    }
     private static Path workDir;
     private static Path logFile;
     private static ArtifactStore store;
@@ -225,6 +261,15 @@ public class PromPipelineEvaluatorRealTest {
             assertEquals(1, bulk.artifacts.size());
             assertEquals(preprocessing.key, bulk.artifacts.get(0).pipeline.preprocessing.key);
             assertTrue(bulk.artifacts.get(0).pnml.contains("pnml"));
+
+            for (PromPipelineEvaluator repeated : Arrays.asList(
+                new PromPipelineEvaluator(store, workDir), evaluator)) {
+                EvaluationResult actual = repeated.evaluate(request);
+                assertEquals(preprocessing.key, result.model_semantic_sha256, actual.model_semantic_sha256);
+                assertEquals(preprocessing.key, result.metrics, actual.metrics);
+                assertEquals(preprocessing.key, result.is_feasible, actual.is_feasible);
+                assertEquals(preprocessing.key, result.constraint_violations, actual.constraint_violations);
+            }
         }
     }
 
@@ -236,6 +281,45 @@ public class PromPipelineEvaluatorRealTest {
             assertEquals("computed", result.metrics_status);
             TestFixtures.assertMetricsRange(result.metrics, TestFixtures.defaultMetrics());
         }
+    }
+
+    @Test(timeout = 600000)
+    public void repeatedAndParallelDiscoveriesHaveIdenticalScientificOutcomes() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            int variant = 0;
+            for (final PipelineRequest.MinerConfig miner : TestFixtures.activeMinerVariants()) {
+                final String prefix = "repro_native_" + variant++;
+                PipelineRequest request = TestFixtures.buildRequest(prefix + "_reference", logFile.toString(),
+                    TestFixtures.matrixFilter(), miner, TestFixtures.defaultMetrics());
+                request.conformance_mode = "replay-token";
+                EvaluationResult expected = evaluator.evaluate(request);
+                assertEquals("minersweeper-evaluation-v2", expected.evaluation_policy_version);
+                assertNotNull(expected.model_semantic_sha256);
+                List<Future<EvaluationResult>> repeated = new ArrayList<Future<EvaluationResult>>();
+                for (int repetition = 0; repetition < 4; repetition++) {
+                    final int index = repetition;
+                    repeated.add(pool.submit(new Callable<EvaluationResult>() {
+                        @Override public EvaluationResult call() throws Exception {
+                            // New evaluator owns fresh log/filter caches and discovery context.
+                            PromPipelineEvaluator selected = index == 0
+                                ? new PromPipelineEvaluator(store, workDir) : evaluator;
+                            PipelineRequest next = TestFixtures.buildRequest(prefix + "_" + index,
+                                logFile.toString(), TestFixtures.matrixFilter(), miner, TestFixtures.defaultMetrics());
+                            next.conformance_mode = "replay-token";
+                            return selected.evaluate(next);
+                        }
+                    }));
+                }
+                for (Future<EvaluationResult> future : repeated) {
+                    EvaluationResult actual = future.get();
+                    assertEquals(miner.variant, expected.model_semantic_sha256, actual.model_semantic_sha256);
+                    assertEquals(miner.variant, expected.metrics, actual.metrics);
+                    assertEquals(miner.variant, expected.is_feasible, actual.is_feasible);
+                    assertEquals(miner.variant, expected.constraint_violations, actual.constraint_violations);
+                }
+            }
+        } finally { pool.shutdownNow(); }
     }
 
     private static Path resolvePromHome() {
@@ -344,7 +428,8 @@ public class PromPipelineEvaluatorRealTest {
         }
         Set<String> ids = new HashSet<String>();
         for (int index = 0; index < nodes.getLength(); index++) {
-            ids.add(((Element) nodes.item(index)).getAttribute("id"));
+            Element node = (Element) nodes.item(index);
+            if (!node.hasAttribute("idref")) ids.add(node.getAttribute("id"));
         }
         return ids;
     }

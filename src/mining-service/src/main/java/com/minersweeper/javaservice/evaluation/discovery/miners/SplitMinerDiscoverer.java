@@ -28,6 +28,7 @@ public final class SplitMinerDiscoverer implements MinerDiscoverer {
 
     @Override
     public DiscoveryArtifact discover(PluginContext context, XLog log, PipelineRequest request) throws Exception {
+        com.minersweeper.javaservice.evaluation.reproducibility.SplitMinerProvenance.verify();
         double eta = ParameterReader.doubleParam(request.pipeline.miner.parameters, "eta", 0.5d);
         double epsilon = ParameterReader.doubleParam(request.pipeline.miner.parameters, "epsilon", 0.5d);
 
@@ -48,6 +49,9 @@ public final class SplitMinerDiscoverer implements MinerDiscoverer {
         }
 
         Object[] result = BPMNToPetriNetConverter.convert(bpmn);
-        return artifactFactory.fromResultArray(context, result);
+        java.util.Map<String,String> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("policy_version", SplitMiner.determinismPolicyVersion());
+        metadata.put("route", splitMiner.getDiscoveryRoute());
+        return artifactFactory.fromResultArray(context, result).withDiscoveryMetadata(metadata);
     }
 }

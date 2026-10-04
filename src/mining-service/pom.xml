@@ -257,6 +257,23 @@
   </dependencies>
 
   <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource>
+        <directory>vendor/splitminer</directory>
+        <targetPath>META-INF/vendor/splitminer</targetPath>
+      </resource>
+      <resource>
+        <directory>src/main/java</directory>
+        <targetPath>META-INF/vendor/splitminer/src</targetPath>
+        <includes>
+          <include>processmining/splitminer/SplitMiner.java</include>
+          <include>processmining/splitminer/oracle/*.java</include>
+          <include>processmining/splitminer/dfgp/DirectlyFollowGraphPlus.java</include>
+          <include>bpmn/helper/GatewayMap.java</include>
+        </includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

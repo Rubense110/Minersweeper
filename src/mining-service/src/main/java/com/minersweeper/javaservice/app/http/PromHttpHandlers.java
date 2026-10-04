@@ -59,12 +59,18 @@ public final class PromHttpHandlers {
                 evaluation.constraint_violations
             );
             response.metrics_status = evaluation.metrics_status;
+            response.evaluation_policy_version = evaluation.evaluation_policy_version;
+            response.model_semantic_sha256 = evaluation.model_semantic_sha256;
+            response.evaluation_environment = evaluation.evaluation_environment;
+            response.discovery_metadata = evaluation.discovery_metadata;
             return HttpResponses.respondJson(res, 200, response, mapper);
         } catch (ExperimentCancelledException e) {
             clearInterruptedStatus();
             return HttpResponses.respondError(res, 409, "experiment_cancelled", HttpResponses.buildErrorMessage(e));
         } catch (com.minersweeper.javaservice.evaluation.EvaluationAdmission.CapacityExceeded e) {
             return HttpResponses.respondError(res, 503, "capacity_exceeded", e.getMessage());
+        } catch (com.minersweeper.javaservice.evaluation.ReproducibilityException e) {
+            return HttpResponses.respondError(res, 503, e.code, e.getMessage());
         } catch (IllegalArgumentException e) {
             ServerErrorLogger.log("invalid_request", e, verboseExceptions);
             return HttpResponses.respondError(res, 400, "invalid_request", HttpResponses.buildErrorMessage(e));

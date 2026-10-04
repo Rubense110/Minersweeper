@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/iharsuvorau/split-miner",
+  "commit": "3060b3f1277d444caeea0f7fff4d27d2d53c6335",
+  "base_artifact": "prom:SplitMiner:1.7.1",
+  "policy_version": "minersweeper-split-v2",
+  "source_sha256": {
+    "processmining/splitminer/SplitMiner.java": "1f2f392382eabdaf4f2cf260502c132de86d1a4fa3380d4ac64ed26b487a3ff3",
+    "processmining/splitminer/oracle/Oracle.java": "9e729120215b33a8749a126a841f9e847dc04aefb53a36122a2466e88968f77d",
+    "processmining/splitminer/oracle/OracleItem.java": "7a35a555a7afc991fee3b1f14095f662f3ba6659b28e49f332c7845513685a8e",
+    "bpmn/helper/GatewayMap.java": "adf8cd630a019a8c5a82ec26a73f2f696b4a0dbfb4e5ba54c48c5768309acbeb",
+    "processmining/splitminer/dfgp/DirectlyFollowGraphPlus.java": "5e2abbf9c83213aba34f37b759ce8d7afeaf321bc8bfae38105cad3d01d42c4d"
+  }
+}

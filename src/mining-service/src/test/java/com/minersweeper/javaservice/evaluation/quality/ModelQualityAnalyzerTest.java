@@ -17,6 +17,21 @@ public class ModelQualityAnalyzerTest {
     private final ModelQualityAnalyzer analyzer = new ModelQualityAnalyzer();
 
     @Test
+    public void zeroDeadlineKeepsLogicalWorkBoundAndExternalCancellation() {
+        com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.Budget budget =
+            new com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.Budget(0L);
+        for (int i = 0; i < 4_000_000; i++) budget.check();
+        try { budget.check(); org.junit.Assert.fail("Logical budget must remain bounded"); }
+        catch (com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.Inconclusive expected) { }
+        Thread.currentThread().interrupt();
+        try {
+            new com.minersweeper.javaservice.evaluation.quality.ReachabilitySupport.Budget(0L).check();
+            org.junit.Assert.fail("Cancellation must still interrupt analysis");
+        } catch (java.util.concurrent.CancellationException expected) { }
+        finally { Thread.interrupted(); }
+    }
+
+    @Test
     public void acceptsLinearModelWithoutChangingItsNet() {
         Petrinet net = PetrinetFactory.newPetrinet("linear");
         Place start = net.addPlace("start");

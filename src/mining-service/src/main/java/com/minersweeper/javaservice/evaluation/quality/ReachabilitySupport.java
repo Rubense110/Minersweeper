@@ -3,6 +3,7 @@ package com.minersweeper.javaservice.evaluation.quality;
 import com.minersweeper.javaservice.evaluation.ExecutionChecks;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.TreeMap;
 import java.util.List;
 import java.util.Map;
 import org.processmining.models.graphbased.directed.petrinet.Petrinet;
@@ -23,10 +24,12 @@ public final class ReachabilitySupport {
         long bytes;
         public int states;
         public boolean multipleComponents;
-        public Budget(long nanos) { deadline = System.nanoTime() + nanos; }
+        /** Zero disables the optional operational deadline; logical bounds still apply. */
+        public Budget(long nanos) { deadline = nanos == 0L ? 0L : System.nanoTime() + nanos; }
         public void check() {
             ExecutionChecks.check();
-            if (++operations > 4_000_000L || System.nanoTime() > deadline) throw new Inconclusive();
+            if (deadline != 0L && System.nanoTime() - deadline >= 0L) throw new ExecutionChecks.DeadlineExceeded();
+            if (++operations > 4_000_000L) throw new Inconclusive();
         }
         public void reserve(long amount) {
             check(); bytes += amount;
@@ -62,7 +65,7 @@ public final class ReachabilitySupport {
         }
         private int[] arcs(Iterable<? extends PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode>> edges,
             Map<Place, Integer> indexes, boolean input) {
-            Map<Integer, Integer> weights = new LinkedHashMap<Integer, Integer>();
+            Map<Integer, Integer> weights = new TreeMap<Integer, Integer>();
             for (PetrinetEdge<? extends PetrinetNode, ? extends PetrinetNode> edge : edges) {
                 budget.check();
                 PetrinetNode node = input ? edge.getSource() : edge.getTarget();

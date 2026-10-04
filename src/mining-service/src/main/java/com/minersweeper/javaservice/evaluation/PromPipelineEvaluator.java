@@ -186,6 +186,10 @@ public class PromPipelineEvaluator implements PipelineEvaluator {
             );
             timing.markFromStart("store_artifact_ms", artifactStoreStartNs);
             result.metrics_status = isFeasible ? "computed" : "skipped_infeasible";
+            result.evaluation_policy_version = "minersweeper-evaluation-v2";
+            result.model_semantic_sha256 = quality.modelSemanticHash;
+            result.discovery_metadata = discovered.getDiscoveryMetadata();
+            result.evaluation_environment = com.minersweeper.javaservice.evaluation.reproducibility.EvaluationEnvironment.current();
             return result;
         } catch (Exception error) {
             Exception effectiveError = normalizeCancellationFailure(experimentId, requestId, error);

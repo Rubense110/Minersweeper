@@ -9,6 +9,10 @@ public class EvaluationResult {
     public String fingerprint;
     public Map<String, Double> metrics;
     public String metrics_status;
+    public String evaluation_policy_version;
+    public String model_semantic_sha256;
+    public java.util.Map<String,String> evaluation_environment;
+    public java.util.Map<String,String> discovery_metadata;
     public Integer model_schema_version;
     public Integer visible_transition_count;
     public Boolean is_feasible;

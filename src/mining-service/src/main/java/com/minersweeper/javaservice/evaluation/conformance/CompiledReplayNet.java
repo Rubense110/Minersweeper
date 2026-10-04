@@ -1,6 +1,8 @@
 package com.minersweeper.javaservice.evaluation.conformance;
 
 import com.minersweeper.javaservice.evaluation.ExecutionChecks;
+import com.minersweeper.javaservice.evaluation.reproducibility.CanonicalNetOrder;
+import org.processmining.models.semantics.petrinet.Marking;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -16,6 +18,7 @@ import org.processmining.models.graphbased.directed.petrinet.elements.Transition
 /** Net topology compiled once and shared by fitness/final-marking/precision engines. */
 public final class CompiledReplayNet {
     final List<Transition> transitions;
+    final CanonicalNetOrder order;
     final Map<Transition, List<Arc>> inputs = new HashMap<Transition, List<Arc>>();
     final Map<Transition, List<Arc>> outputs = new HashMap<Transition, List<Arc>>();
     final Map<Transition, List<Place>> targets = new HashMap<Transition, List<Place>>();
@@ -23,10 +26,14 @@ public final class CompiledReplayNet {
     final Map<Place, Integer> placeIndexes = new HashMap<Place, Integer>();
 
     public CompiledReplayNet(Petrinet net) {
-        List<Transition> ordered = new ArrayList<Transition>(net.getTransitions());
-        Collections.sort(ordered);
+        this(net, null, Collections.<Marking>emptyList());
+    }
+
+    public CompiledReplayNet(Petrinet net, Marking initial, List<Marking> finals) {
+        order = new CanonicalNetOrder(net, initial, finals);
+        List<Transition> ordered = order.transitions();
         transitions = Collections.unmodifiableList(ordered);
-        for (Place place : net.getPlaces()) {
+        for (Place place : order.places()) {
             ExecutionChecks.check();
             placeIndexes.put(place, placeIndexes.size());
             List<Transition> hidden = new ArrayList<Transition>();
@@ -36,7 +43,7 @@ public final class CompiledReplayNet {
                     hidden.add((Transition) edge.getTarget());
                 }
             }
-            Collections.sort(hidden);
+            Collections.sort(hidden, order.<Transition>comparator());
             hiddenSuccessors.put(place, Collections.unmodifiableList(hidden));
         }
         for (Transition transition : transitions) {
@@ -51,7 +58,9 @@ public final class CompiledReplayNet {
                     out.add((Arc) edge); places.add((Place) edge.getTarget());
                 }
             }
-            Collections.sort(places);
+            Collections.sort(places, order.<Place>comparator());
+            Collections.sort(in, java.util.Comparator.comparingInt(a -> order.index(a.getSource())));
+            Collections.sort(out, java.util.Comparator.comparingInt(a -> order.index(a.getTarget())));
             inputs.put(transition, Collections.unmodifiableList(in));
             outputs.put(transition, Collections.unmodifiableList(out));
             targets.put(transition, Collections.unmodifiableList(places));

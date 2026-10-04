@@ -96,6 +96,7 @@ class PetriPnmlSerializationTest(unittest.TestCase):
                   <transition id="t_tau"><name><text>not authoritative</text></name></transition>
                   <transition id="t_hidden"><name><text>also not authoritative</text></name></transition>
                   <arc id="a1" source="p0" target="t_tau"/><arc id="a2" source="t_tau" target="p1"/>
+                  <finalmarkings><marking><place idref="p1"><text>4</text></place></marking><marking/></finalmarkings>
                 </net></pnml>
             """,
             "initial_marking": [{"place_id": "p0", "tokens": 3}, {"place_id": "p1", "tokens": 2}],

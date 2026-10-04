@@ -6,6 +6,7 @@ COPY tools/install_prom_jars.sh /app/tools/install_prom_jars.sh
 COPY tools/prom-lite-1.4-all-platforms /app/tools/prom-lite-1.4-all-platforms
 COPY src/mining-service/pom.xml /app/pom.xml
 COPY src/mining-service/src /app/src
+COPY src/mining-service/vendor /app/vendor
 
 RUN chmod +x /app/tools/install_prom_jars.sh \
   && PROM_HOME=/app/tools/prom-lite-1.4-all-platforms /app/tools/install_prom_jars.sh \
