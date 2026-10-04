@@ -94,13 +94,26 @@ public final class ExperimentExecutionRegistry {
         return stateByExperiment.get(normalized) == ExperimentExecutionState.CANCEL_REQUESTED;
     }
 
-    public synchronized boolean isCancellationRequested(String experimentId, String requestId) {
+    public boolean isCancellationRequested(String experimentId, String requestId) {
         String normalizedExperiment = normalizeExperimentId(experimentId);
         String normalizedRequest = normalizeOptionalRequestId(requestId);
-        if (stateByExperiment.get(normalizedExperiment) == ExperimentExecutionState.CANCEL_REQUESTED) {
+        return isCancellationRequestedForKey(normalizedExperiment,
+            normalizedRequest == null ? null : evaluationKey(normalizedExperiment, normalizedRequest));
+    }
+
+    /** Resolve identifiers once for callbacks invoked inside miner loops. */
+    public CancellationCheck cancellationCheck(String experimentId, String requestId) {
+        String normalizedExperiment = normalizeExperimentId(experimentId);
+        String normalizedRequest = normalizeOptionalRequestId(requestId);
+        return new CancellationCheck(this, normalizedExperiment,
+            normalizedRequest == null ? null : evaluationKey(normalizedExperiment, normalizedRequest));
+    }
+
+    private synchronized boolean isCancellationRequestedForKey(String experimentId, String key) {
+        if (stateByExperiment.get(experimentId) == ExperimentExecutionState.CANCEL_REQUESTED) {
             return true;
         }
-        return normalizedRequest != null && cancelledEvaluations.contains(evaluationKey(normalizedExperiment, normalizedRequest));
+        return key != null && cancelledEvaluations.contains(key);
     }
 
     public void throwIfCancellationRequested(String experimentId) {
@@ -222,6 +235,23 @@ public final class ExperimentExecutionRegistry {
     private enum ExperimentExecutionState {
         ACTIVE,
         CANCEL_REQUESTED
+    }
+
+    public static final class CancellationCheck {
+        private final ExperimentExecutionRegistry registry;
+        private final String experimentId;
+        private final String evaluationKey;
+
+        private CancellationCheck(ExperimentExecutionRegistry registry, String experimentId, String evaluationKey) {
+            this.registry = registry;
+            this.experimentId = experimentId;
+            this.evaluationKey = evaluationKey;
+        }
+
+        public boolean isCancellationRequested() {
+            // Read the current state on every poll; only the identifiers are cached.
+            return registry.isCancellationRequestedForKey(experimentId, evaluationKey);
+        }
     }
 
     public static final class EvaluationLease implements AutoCloseable {

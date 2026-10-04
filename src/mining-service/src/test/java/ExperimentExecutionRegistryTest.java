@@ -1,11 +1,79 @@
 import com.minersweeper.javaservice.evaluation.ExperimentCancelledException;
 import com.minersweeper.javaservice.evaluation.ExperimentExecutionRegistry;
 import org.junit.Test;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class ExperimentExecutionRegistryTest {
+
+    @Test
+    public void cachedCancellationCheckObservesIndividualAndExperimentCancellation() throws Exception {
+        ExperimentExecutionRegistry registry = new ExperimentExecutionRegistry();
+        ExperimentExecutionRegistry.CancellationCheck first = registry.cancellationCheck(" run ", " first ");
+        ExperimentExecutionRegistry.CancellationCheck second = registry.cancellationCheck("run", "second");
+        ExperimentExecutionRegistry.CancellationCheck other = registry.cancellationCheck("other", "first");
+        ExperimentExecutionRegistry.CancellationCheck experimentOnly = registry.cancellationCheck("run", " ");
+
+        assertFalse(first.isCancellationRequested());
+        registry.requestCancelEvaluation("run", "first");
+        assertTrue(first.isCancellationRequested());
+        assertFalse(second.isCancellationRequested());
+        assertFalse(other.isCancellationRequested());
+        assertFalse(experimentOnly.isCancellationRequested());
+
+        registry.requestCancel("run");
+        assertTrue(second.isCancellationRequested());
+        assertTrue(experimentOnly.isCancellationRequested());
+        assertFalse(other.isCancellationRequested());
+        registry.cleanupExperiment("run");
+        assertFalse(first.isCancellationRequested());
+        assertFalse(second.isCancellationRequested());
+    }
+
+    @Test
+    public void cachedCancellationCheckSeesCancellationRequestedBeforeItsCreation() {
+        ExperimentExecutionRegistry registry = new ExperimentExecutionRegistry();
+        registry.requestCancelEvaluation("run", "first");
+        assertTrue(registry.cancellationCheck(" run ", " first ").isCancellationRequested());
+        assertFalse(registry.cancellationCheck("run", null).isCancellationRequested());
+        registry.requestCancel("run");
+        assertTrue(registry.cancellationCheck("run", null).isCancellationRequested());
+    }
+
+    @Test
+    public void cachedCancellationCheckObservesCancellationFromAnotherThread() throws Exception {
+        ExperimentExecutionRegistry registry = new ExperimentExecutionRegistry();
+        ExperimentExecutionRegistry.CancellationCheck check = registry.cancellationCheck("run", "request");
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+        Thread polling = new Thread(() -> {
+            try {
+                assertFalse(check.isCancellationRequested());
+                started.countDown();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                while (!check.isCancellationRequested() && System.nanoTime() < deadline) Thread.yield();
+                assertTrue(check.isCancellationRequested());
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        });
+        polling.start();
+        try {
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            // The polling thread is deliberately not registered: observe the state
+            // through the callback rather than through Thread.interrupt().
+            registry.requestCancelEvaluation("run", "request");
+        } finally {
+            polling.join(3000L);
+        }
+        assertFalse(polling.isAlive());
+        if (failure.get() != null) throw new AssertionError(failure.get());
+    }
 
     @Test
     public void requestCancelMarksExperimentAsCancelled() {

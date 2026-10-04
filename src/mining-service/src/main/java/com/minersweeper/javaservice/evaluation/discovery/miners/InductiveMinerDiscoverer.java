@@ -67,11 +67,12 @@ public final class InductiveMinerDiscoverer implements MinerDiscoverer {
             ? new IMLogImplPartialTraces(log, classifier, lifeCycleClassifier)
             : new IMLogImpl(log, classifier, lifeCycleClassifier);
 
+        final ExperimentExecutionRegistry.CancellationCheck cancellation = executionRegistry == null
+            ? null : executionRegistry.cancellationCheck(request.experiment_id, request.request_id);
         Canceller canceller = new Canceller() {
             @Override
             public boolean isCancelled() {
-                return executionRegistry != null
-                    && executionRegistry.isCancellationRequested(request.experiment_id, request.request_id);
+                return cancellation != null && cancellation.isCancellationRequested();
             }
         };
 
