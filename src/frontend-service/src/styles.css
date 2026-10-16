@@ -1053,6 +1053,7 @@ button:disabled {
 .exploration-table tr.active { background: #e1effb; }
 .exploration-table small { display: block; margin-top: 3px; max-width: 150px; overflow-wrap: anywhere; }
 .exploration-page pre { overflow: auto; max-height: 300px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.model-digest { overflow-wrap: anywhere; }
 .exploration-page .inline-actions input[type=number] { width: 85px; }
 .exploration-page details summary { cursor: pointer; }
 @media (max-width: 1050px) { .exploration-detail-grid { grid-template-columns: 1fr; } }

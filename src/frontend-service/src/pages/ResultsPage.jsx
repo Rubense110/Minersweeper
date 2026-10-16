@@ -14,6 +14,7 @@ import ParetoFrontScatter from '../components/ParetoFrontScatter'
 import PetriMarkings from '../components/PetriMarkings'
 import PnmlViewer from '../components/PnmlViewer'
 import { selectedFinalMarking } from '../petriMarkings'
+import { modelIdentity } from '../modelIdentity'
 
 function isCancelableStatus(status) {
   return status === 'queued' || status === 'running'
@@ -48,13 +49,13 @@ function metricPairsFromObjectives(objectives, metricsOrder) {
   return pairs
 }
 
-function mapDbSolution(item, index, metricsOrder) {
+function mapDbSolution(item, index, metricsOrder, population = []) {
   const solutionId = item.solution_id || index + 1
   const storedMetrics = item.metrics && typeof item.metrics === 'object' && !Array.isArray(item.metrics) ? item.metrics : null
   return {
     id: `db-${solutionId}`,
     solutionId,
-    label: `Solution #${solutionId}`,
+    ...modelIdentity(item, solutionId, population),
     pipeline: item.pipeline || {},
     runtimeMs: item.runtime_ms ?? null,
     metrics: storedMetrics || metricPairsFromObjectives(item.objectives, metricsOrder),
@@ -322,7 +323,7 @@ export default function ResultsPage() {
       if (!active) return 0
 
       const mapped = (solutionsPayload.solutions || []).map((item, index) =>
-        mapDbSolution(item, index, experimentPayload.metrics || [])
+        mapDbSolution(item, index, experimentPayload.metrics || [], solutionsPayload.solutions || [])
       )
 
       if (!allowEmpty && mapped.length === 0) {
@@ -952,7 +953,7 @@ export default function ResultsPage() {
                         <div className="header-row">
                           <div>
                             <h4>Selected Model Preview</h4>
-                            <p className="small muted">{weightedSelectedSolution.label}</p>
+                            <p className="small muted" title={weightedSelectedSolution.modelDigest || undefined}>{weightedSelectedSolution.label}</p>
                           </div>
                         </div>
 
@@ -1074,13 +1075,15 @@ export default function ResultsPage() {
                           onClick={() => setSelectedSolutionId(solution.id)}
                           type="button"
                         >
-                          <span>{solution.label}</span>
+                          <span title={solution.modelDigest || 'No hay un digest del modelo almacenado.'}>{solution.label}</span>
                           <span className="small muted">{formatRuntime(solution.runtimeMs)}</span>
                         </button>
                       ))}
                     </div>
 
                     <h3>Solution details</h3>
+                    <p><strong>{selectedSolution.label}</strong></p>
+                    <p className="model-digest"><strong>Model digest (SHA-256):</strong>{' '}<code>{selectedSolution.modelDigest || 'No disponible para este modelo.'}</code></p>
                     <p>
                       <strong>Model quality:</strong>{' '}
                       {selectedSolution.modelSchemaVersion === 3
