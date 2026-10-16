@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import re
@@ -112,6 +113,7 @@ def _build_experiment_export_archive(
     experiment: Dict[str, Any],
     solutions: List[Dict[str, Any]],
     snapshot_solutions: List[Dict[str, Any]],
+    original_artifacts: Dict[str, Any] | None = None,
 ) -> tuple[bytes, str]:
     experiment_fields = [
         "experiment_id",
@@ -163,6 +165,8 @@ def _build_experiment_export_archive(
         "evaluation_policy_version",
         "model_semantic_sha256",
         "discovery_metadata",
+        "metrics_status",
+        "import_provenance",
     ]
     snapshot_solution_fields = [
         "snapshot_solution_id",
@@ -197,6 +201,8 @@ def _build_experiment_export_archive(
         "evaluation_policy_version",
         "model_semantic_sha256",
         "discovery_metadata",
+        "metrics_status",
+        "import_provenance",
     ]
     population_snapshot_fields = [
         "snapshot_id",
@@ -221,6 +227,24 @@ def _build_experiment_export_archive(
             "population_snapshots.csv",
             _build_csv_bytes(population_snapshot_fields, experiment.get("population_snapshots") or []),
         )
+        if original_artifacts is not None:
+            manifest = []
+            for evaluation_id, artifact in sorted(original_artifacts.items()):
+                pnml = artifact.get("pnml")
+                if not pnml:
+                    manifest.append({"evaluation_id": evaluation_id, "original_available": False})
+                    continue
+                name = _safe_filename_part(evaluation_id, "model")
+                if name != evaluation_id:
+                    name += "_" + hashlib.sha256(evaluation_id.encode()).hexdigest()[:16]
+                pnml_path, metadata_path = f"models/{name}.pnml", f"models/{name}.json"
+                content = pnml.encode("utf-8")
+                archive.writestr(pnml_path, content)
+                archive.writestr(metadata_path, json.dumps(artifact.get("metadata") or {}, ensure_ascii=False, sort_keys=True))
+                manifest.append({"evaluation_id": evaluation_id, "original_available": True,
+                                 "pnml_path": pnml_path, "metadata_path": metadata_path,
+                                 "pnml_sha256": hashlib.sha256(content).hexdigest()})
+            archive.writestr("models/index.json", json.dumps({"version": 1, "models": manifest}, sort_keys=True))
 
     filename = "experiment_{experiment_id}_{experiment_name}.zip".format(
         experiment_id=_safe_filename_part(experiment.get("experiment_id"), "experiment"),

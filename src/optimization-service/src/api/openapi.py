@@ -333,6 +333,7 @@ def _error_responses(*status_codes: str) -> Dict[str, Any]:
         "400": "Invalid request",
         "404": "Resource not found",
         "409": "Invalid state",
+        "429": "Another exploration analysis is running",
         "500": "Internal server error",
     }
     return {
@@ -714,6 +715,42 @@ def _paths() -> Dict[str, Any]:
     }
 
 
+def _exploration_paths() -> Dict[str, Any]:
+    operations = [
+        ("/experiments/{experiment_id}/explorations", "post", "createExploration", "Analyze every individual in the final population"),
+        ("/explorations/{exploration_id}", "get", "getExploration", "Analysis status, source models and statistics"),
+        ("/explorations/{exploration_id}/cancel", "post", "cancelExploration", "Request cooperative cancellation"),
+        ("/explorations/{exploration_id}/views/{kind}", "get", "getExplorationView", "Structural overlay, regions or common/variable template"),
+        ("/explorations/{exploration_id}/models/{model_id}", "get", "getExplorationModel", "Original Petri graph, markings, metrics and provenance"),
+        ("/explorations/{exploration_id}/models/{model_id}/pnml", "get", "downloadExplorationPnml", "Download the unmodified original PNML"),
+    ]
+    paths = {}
+    for path, method, operation, summary in operations:
+        binary = path.endswith("/pnml")
+        parameters = [{"name": name, "in": "path", "required": True,
+                       "schema": {"type": "string", **({"enum": ["merging", "variation", "template"]} if name == "kind" else {})}}
+                      for name in ("experiment_id", "exploration_id", "kind", "model_id") if "{" + name + "}" in path]
+        paths[path] = {method: {"tags": ["explorations"], "operationId": operation, "summary": summary,
+                              "parameters": parameters,
+                              "responses": {"200": {"description": summary, "content": {
+                                  "application/xml" if binary else "application/json": {"schema": {"type": "string", "format": "binary"} if binary else {"type": "object"}}}},
+                                  **({"202": {"description": "Analysis running"}} if operation == "createExploration" else {}),
+                                  **_error_responses("400", "404", "409", "429")}}}
+        if operation == 'createExploration':
+            paths[path][method]['requestBody'] = {"required": False, "content": {"application/json": {"schema": {
+                "type": "object", "properties": {"representation": {"type": "string", "enum": ["petri", "bpmn"], "default": "petri"}}}}}}
+    paths["/explorations/import"] = {"post": {
+        "tags": ["explorations"], "operationId": "importExplorationPopulation",
+        "summary": "Import the final population from a common export with original PNML and metadata",
+        "requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
+            "type": "object", "required": ["archive"], "properties": {
+                "archive": {"type": "string", "format": "binary"},
+                "originals": {"type": "array", "items": {"type": "string", "format": "binary"}}}}}}},
+        "responses": {"201": {"description": "Imported experiment ID", "content": {"application/json": {"schema": {"type": "object"}}}}, **_error_responses("400")},
+    }}
+    return paths
+
+
 def build_openapi_spec(server_url: str) -> Dict[str, Any]:
     return {
         "openapi": "3.1.0",
@@ -730,8 +767,9 @@ def build_openapi_spec(server_url: str) -> Dict[str, Any]:
             {"name": "jobs", "description": "Optimization job lifecycle and runtime data"},
             {"name": "experiments", "description": "Persisted experiment inspection and exports"},
             {"name": "petri", "description": "Petri net rendering utilities"},
+            {"name": "explorations", "description": "Experimental structural exploration of the complete final population"},
         ],
-        "paths": _paths(),
+        "paths": {**_paths(), **_exploration_paths()},
         "components": _components(),
     }
 

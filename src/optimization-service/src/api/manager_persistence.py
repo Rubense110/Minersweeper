@@ -105,13 +105,17 @@ def persist_completed_experiment(
                     graph = (places, transitions, arcs, initial, finals[0] if finals else [], finals)
                 else:
                     raise ValueError(f"unsupported model_schema_version: {schema}")
-                # Keep the parsed graph once, never the PNML plus all repeated parses.
+                # Keep each original once per evaluation; solutions reference the same object.
                 artifacts_by_evaluation_id[str(evaluation_id)] = {
                     key: artifact.get(key) for key in (
                         "model_schema_version", "visible_transition_count", "is_feasible", "constraint_violations"
                     )
                 }
                 artifacts_by_evaluation_id[str(evaluation_id)]["_graph"] = graph
+                artifacts_by_evaluation_id[str(evaluation_id)]["original_pnml"] = artifact.get("pnml")
+                artifacts_by_evaluation_id[str(evaluation_id)]["original_metadata"] = {
+                    key: value for key, value in artifact.items() if key != "pnml"
+                }
             if artifacts:
                 del artifact
             del artifacts
@@ -207,6 +211,8 @@ def persist_completed_experiment(
             "initial_marking": initial_marking,
             "final_marking": final_marking,
             "final_markings": final_markings,
+            "original_pnml": artifacts_by_evaluation_id.get(str(evaluation_id), {}).get("original_pnml"),
+            "original_metadata": artifacts_by_evaluation_id.get(str(evaluation_id), {}).get("original_metadata"),
         }
 
     for solution in all_solutions:

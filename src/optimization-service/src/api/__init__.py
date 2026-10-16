@@ -11,6 +11,7 @@ from model_selection import ModelSelectionUnavailable
 
 from .common import LOGGER, _QuietRequestHandler, _java_service_timeout_seconds, _normalize_log_path
 from .experiment_routes import bp as experiment_bp
+from .exploration_routes import bp as exploration_bp
 from .job_routes import bp as job_bp
 from .manager import OptimizationJobManager
 from .openapi import bp as openapi_bp
@@ -26,6 +27,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(petri_bp)
 app.register_blueprint(job_bp)
 app.register_blueprint(experiment_bp)
+app.register_blueprint(exploration_bp)
 app.config["optimization_manager"] = OptimizationJobManager(
     default_service_url=os.getenv("JAVA_SERVICE_URL", ""),
     db_url=os.getenv("OPT_DB_URL", "sqlite:////tmp/minersweeper-optimization.db"),

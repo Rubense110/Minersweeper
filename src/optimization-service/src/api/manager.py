@@ -253,7 +253,8 @@ class OptimizationJobManager:
         experiment = self.job_store.get_experiment(experiment_id)
         solutions = self.job_store.get_experiment_solutions(experiment_id=experiment_id, scope="all")
         snapshot_solutions = self.job_store.get_experiment_snapshot_solutions(experiment_id=experiment_id)
-        return _build_experiment_export_archive(experiment, solutions, snapshot_solutions)
+        return _build_experiment_export_archive(experiment, solutions, snapshot_solutions,
+                                                self.job_store.get_original_artifacts(experiment_id))
 
     def get_solutions(self, job_id: str, scope: str) -> Dict[str, Any]:
         with self._lock:

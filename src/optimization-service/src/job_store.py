@@ -79,6 +79,15 @@ class ModelArtifact(Base):
     experiment: Mapped["Experiment"] = relationship(back_populates="models")
 
 
+class Exploration(Base):
+    __tablename__ = "explorations"
+    exploration_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(64), ForeignKey("experiments.experiment_id", ondelete="CASCADE"), nullable=False)
+    cache_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[Any] = mapped_column(JSON, nullable=False)
+
+
 class PopulationSnapshot(Base):
     __tablename__ = "population_snapshots"
     __table_args__ = (
@@ -437,6 +446,7 @@ class JobStore:
                     if not evaluation:
                         return None
                     payload = {key: item.get(key, None if key == "final_marking" else []) for key in graph_keys}
+                    payload.update({key: item.get(key) for key in ("original_pnml", "original_metadata")})
                     previous = model_ids.get(evaluation)
                     if previous is not None:
                         if payload != previous[1]:
@@ -477,7 +487,7 @@ class JobStore:
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
                             reproducibility_metadata=self._sanitize_json({
-                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata", "import_provenance")
                             }),
                             model_id=model_id,
                         )
@@ -519,7 +529,7 @@ class JobStore:
                             evaluation_status=item.get("evaluation_status"),
                             metrics_status=item.get("metrics_status"),
                             reproducibility_metadata=self._sanitize_json({
-                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")
+                                key: item.get(key) for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata", "import_provenance")
                             }),
                             model_id=model_id,
                         )
@@ -535,8 +545,56 @@ class JobStore:
                 existing = session.get(Experiment, experiment_id)
                 if existing is None:
                     return False
+                session.query(Exploration).filter(Exploration.experiment_id == experiment_id).delete()
                 session.delete(existing)
                 return True
+
+    def get_original_artifacts(self, experiment_id: str) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            if session.get(Experiment, experiment_id) is None:
+                raise KeyError(experiment_id)
+            models = session.execute(select(ModelArtifact).where(ModelArtifact.experiment_id == experiment_id)).scalars()
+            return {m.evaluation_id: {
+                "pnml": m.payload.get("original_pnml"),
+                "metadata": m.payload.get("original_metadata"),
+            } for m in models}
+
+    def get_original_artifact(self, experiment_id: str, evaluation_id: str) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            model = session.execute(select(ModelArtifact).where(ModelArtifact.experiment_id == experiment_id, ModelArtifact.evaluation_id == evaluation_id)).scalars().first()
+            if model is None:
+                raise KeyError(evaluation_id)
+            return {"pnml": model.payload.get("original_pnml"), "metadata": model.payload.get("original_metadata")}
+
+    def get_experiment_solution(self, experiment_id: str, solution_id: int) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            solution = session.execute(select(Solution).where(Solution.experiment_id == experiment_id, Solution.solution_id == solution_id)).scalars().first()
+            if solution is None:
+                raise KeyError(solution_id)
+            return self._serialize_solution(solution)
+
+    def save_exploration(self, exploration_id: str, experiment_id: str, cache_key: str, status: str, payload: Dict[str, Any]) -> None:
+        with self._session_factory() as session, session.begin():
+            item = session.get(Exploration, exploration_id)
+            if item is None:
+                item = Exploration(exploration_id=exploration_id, experiment_id=experiment_id, cache_key=cache_key, status=status, payload=payload)
+                session.add(item)
+            else:
+                item.status = status
+                item.payload = payload
+
+    def get_exploration(self, exploration_id: str) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            item = session.get(Exploration, exploration_id)
+            if item is None:
+                raise KeyError(exploration_id)
+            return {"exploration_id": item.exploration_id, "experiment_id": item.experiment_id,
+                    "status": item.status, "cache_key": item.cache_key, **item.payload}
+
+    def find_exploration(self, experiment_id: str, cache_key: str) -> Dict[str, Any] | None:
+        with self._session_factory() as session:
+            item = session.execute(select(Exploration).where(Exploration.experiment_id == experiment_id, Exploration.cache_key == cache_key, Exploration.status == "completed")).scalars().first()
+            return {"exploration_id": item.exploration_id, "experiment_id": item.experiment_id, "status": item.status} if item else None
 
     @staticmethod
     def _serialize_experiment(experiment: Experiment) -> Dict[str, Any]:
@@ -599,7 +657,8 @@ class JobStore:
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
             **{key: (solution.reproducibility_metadata or {}).get(key)
-               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")},
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata", "import_provenance")},
+            "original_pnml_available": bool(graph.get("original_pnml")),
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],
@@ -639,7 +698,8 @@ class JobStore:
             "constraint_violations": solution.constraint_violations or [],
             "model_schema_version": solution.model_schema_version,
             **{key: (solution.reproducibility_metadata or {}).get(key)
-               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata")},
+               for key in ("logical_attempt_id", "evaluation_policy_version", "model_semantic_sha256", "constraints", "discovery_metadata", "import_provenance")},
+            "original_pnml_available": bool(graph.get("original_pnml")),
             "initial_marking": graph.get("initial_marking", solution.initial_marking) or [],
             "final_marking": graph.get("final_marking", solution.final_marking),
             "final_markings": graph.get("final_markings", solution.final_markings) or [],
