@@ -167,6 +167,7 @@ export default function HistoryPage() {
                 <Link className="link-button" to={`/results/${item.id}`}>
                   View Results
                 </Link>
+                {source === 'db' && <Link className="link-button" to={`/experiments/${item.id}/exploration`}>Explorar población</Link>}
                 {source === 'jobs' && isCancelableStatus(item.status) ? (
                   <button
                     className="link-button danger"

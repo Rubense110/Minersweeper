@@ -2,7 +2,7 @@ export const API_BASE = (import.meta.env.VITE_OPTIMIZATION_API_URL || 'http://lo
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) }
-  if (options.body && !headers['Content-Type']) {
+  if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json'
   }
 
@@ -144,3 +144,17 @@ export async function renderPetriImage(payload, format = 'svg') {
 export function getEventsUrl(jobId) {
   return `${API_BASE}/optimizations/${encodeURIComponent(jobId)}/events`
 }
+
+export async function importExploration(archive, originals = []) {
+  const form = new FormData()
+  form.append('archive', archive)
+  originals.forEach(file => form.append('originals', file, file.webkitRelativePath || file.name))
+  return request('/explorations/import', { method: 'POST', body: form })
+}
+
+export const createExploration = (id, representation = 'petri') => request(`/experiments/${encodeURIComponent(id)}/explorations`, { method: 'POST', body: JSON.stringify({ representation }) })
+export const getExploration = id => request(`/explorations/${encodeURIComponent(id)}`)
+export const getExplorationView = (id, kind) => request(`/explorations/${encodeURIComponent(id)}/views/${kind}`)
+export const getExplorationModel = (id, modelId) => request(`/explorations/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}`)
+export const cancelExploration = id => request(`/explorations/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+export const explorationPnmlUrl = (id, modelId) => `${API_BASE}/explorations/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}/pnml`

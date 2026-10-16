@@ -325,6 +325,68 @@ Persisted data includes:
 - structural Petri net data
 - evaluation runtime per solution
 
+The common experiment ZIP contains the four CSV tables and, for retained
+originals, `models/*.pnml`, their semantic metadata and `models/index.json`
+with SHA-256 hashes. Original PNML and metadata are stored once per evaluation,
+before Java artifact cleanup. Historical results without retained originals are
+explicitly marked unavailable; PNML is never reconstructed for this export.
+
+## Experimental Model Exploration
+
+Open **Exploración** (`/exploration`) or **Explorar población** from History.
+Explore the complete final population through three structural views:
+
+- annotated overlay, inspired by [La Rosa et al. (2013)](https://doi.org/10.1145/2430545.2430547);
+- nested regions with verified shared interfaces, inspired by [Assy et al. (2017)](https://www.vdaalst.rwth-aachen.de/publications/p916.pdf);
+- strict common core and variable blocks, inspired by [BPFlexTemplate (2017)](https://ijispm.sciencesphere.org/archive/ijispm-050304.pdf).
+
+Choose **Petri nets** or **BPMN (experimental)** in the representation selector.
+All three views analyze the chosen graph representation; BPMN is derived with
+PM4Py's conversion rules, stable IDs and Petri provenance. Its tasks, XOR/AND
+gateways and start/end events retain links to the original individuals. BPMN
+fragments can be compared and expanded, with their original Petri net, markings,
+metrics and unchanged PNML always available. Analysis caches are separate for
+the two representations. Conversion limitations are documented in the session;
+conversion success does not certify behavioral equivalence.
+
+The overlay opens as an activity map: each link has a real directed path witness
+in its source nets, through places/invisible transitions without intervening
+visible activities. Activity and connection support filters are independent;
+weak context links keep their actual support. This abstraction does not assert
+enabled behavior or enumerate all routing paths. The full typed overlay remains
+available, initially focused on one individual.
+
+Variation points are explicit nodes in a region inclusion tree. A local region
+must satisfy global shared-boundary participation, inside/outside direction
+conditions and directed entry-to-exit coverage in every source. Marking-bearing
+places are protected process endpoints. Alternatives are compared by bounded
+exact typed graph isomorphism with fixed ports, invisible flags and arc weights;
+unknown comparisons do not establish variation. Only validated local regions
+with proven structural differences are labelled VP. Complete model differences
+are available separately as global variation at the root. Shared interfaces and two original fragment
+previews are shown together, with provenance, metrics, zoom and expanded viewing.
+
+Every element or alternative links to its source individuals, metrics, original
+Petri graph and PNML. Invisible transitions, arc weights and all final markings
+are retained. Template filters query combinations actually present in the
+population. No clustering, prior deduplication, final-model selection, discovery
+or behavioral-equivalence analysis is performed.
+
+Import the common ZIP directly; historical ZIPs also require their original
+PNML/JSON pairs or a ZIP/folder containing them. Imports create a separate saved
+experiment containing the final population, not its historical snapshots.
+The supplied source export remains unchanged. Limits are 500 individuals,
+64 MiB expanded per archive and 2 MiB per PNML. Analyses run one at a time,
+support cooperative cancellation and persist their versioned results.
+Region candidates are generated conservatively from exact incident-model sets,
+validated and merged where adjacent regions share the same participants. The
+hierarchy uses inclusion of original arc occurrences. Crossing candidates remain
+accessible outside the tree. A log can have no verified local VP under this
+candidate policy; that does not imply model equivalence or an exhaustive SHESHE
+search. All original models remain accessible.
+These are descriptive adaptations to Petri nets or derived BPMN, not executable consolidated
+nets or demonstrations of behavioral equivalence.
+
 Transient and generated outputs:
 
 - service logs in `logs/services.log`
