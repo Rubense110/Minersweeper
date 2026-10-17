@@ -60,6 +60,7 @@ def _serialize_solution(solution: Any, pareto_ids: set[str]) -> Dict[str, Any]:
         "runtime_ms": _to_int_or_none(attrs.get("runtime_ms")),
         "objectives": list(getattr(solution, "objectives", []) or []),
         "constraints": list(getattr(solution, "constraints", []) or []),
+        "optimization_feasible": is_feasible_solution(solution),
         "evaluation_policy_version": attrs.get("evaluation_policy_version"),
         "model_semantic_sha256": attrs.get("model_semantic_sha256"),
         "discovery_metadata": attrs.get("discovery_metadata"),
@@ -116,6 +117,7 @@ def _build_experiment_export_archive(
     original_artifacts: Dict[str, Any] | None = None,
 ) -> tuple[bytes, str]:
     experiment_fields = [
+        "constraints",
         "experiment_id",
         "experiment_name",
         "start_at",
@@ -137,6 +139,7 @@ def _build_experiment_export_archive(
         "optimizer_config",
     ]
     solution_fields = [
+        "optimization_feasible",
         "solution_id",
         "experiment_id",
         "variables",
@@ -169,6 +172,7 @@ def _build_experiment_export_archive(
         "import_provenance",
     ]
     snapshot_solution_fields = [
+        "optimization_feasible",
         "snapshot_solution_id",
         "snapshot_id",
         "experiment_id",

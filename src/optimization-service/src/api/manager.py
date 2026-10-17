@@ -12,6 +12,7 @@ from job_store import JobStore
 from java_service_client import ProMServiceClient
 from model_selection import select_weighted_model
 from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE, normalize_population_size
+from constraints import collect_required_metrics, normalize_constraints, normalize_metric_names
 
 from .common import LOGGER, _logical_cpu_count, _normalize_log_path, _normalize_n_workers, _to_int, _utc_now_iso
 from .manager_persistence import persist_completed_experiment
@@ -47,7 +48,12 @@ class OptimizationJobManager:
             raise ValueError("'service_url' is required (or JAVA_SERVICE_URL env var)")
 
         metrics = _normalize_metric_names(payload.get("metrics") or ["fitness", "precision", "simplicity", "generalisation"])
-        required_metrics = list(metrics)
+        constraints = normalize_constraints(payload.get("constraints"))
+        observations = payload.get("observation_metrics", [])
+        if not isinstance(observations, list):
+            raise ValueError("observation_metrics must be a list")
+        observation_metrics = normalize_metric_names(observations) if observations else []
+        required_metrics = collect_required_metrics(metrics + observation_metrics, constraints)
         conformance_mode = payload.get("conformance_mode") or "replay-token"
         excluded_miners = payload.get("excluded_miners", ["ilp"])
         seed = _normalize_seed(payload.get("seed"))
@@ -89,6 +95,8 @@ class OptimizationJobManager:
                 "service_url": service_url,
                 "metrics": metrics,
                 "required_metrics": required_metrics,
+                "observation_metrics": observation_metrics,
+                "constraints": constraints,
                 "conformance_mode": conformance_mode,
                 "excluded_miners": excluded_miners,
                 "discover": discover_cfg,

@@ -12,6 +12,7 @@ from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS,
 from optimizer import PipelineNSGAIIIOptimizer
 from pipeline_space import PipelineSearchSpace
 from problem import PipelineOptimizationProblem
+from constraints import collect_required_metrics, normalize_constraints, normalize_metric_names
 
 
 class OptimizedProcessMiner:
@@ -34,11 +35,15 @@ class OptimizedProcessMiner:
         excluded_preprocessings: Optional[Sequence[str]] = None,
         execution_control: Optional[ExecutionControl] = None,
         seed: int | None = None,
+        constraints: Optional[List[Dict[str, Any]]] = None,
+        observation_metrics: Optional[List[str]] = None,
     ):
         self.execution_name = execution_name
         self.log_path = log
         self.metrics_list = metrics or ["fitness", "precision", "simplicity", "generalisation"]
-        self.required_metrics = list(self.metrics_list)
+        self.constraints = normalize_constraints(constraints)
+        self.observation_metrics = normalize_metric_names(observation_metrics) if observation_metrics else []
+        self.required_metrics = collect_required_metrics(self.metrics_list + self.observation_metrics, self.constraints)
         self.service_url = service_url
         self.service_timeout_seconds = max(1, int(service_timeout_seconds))
         self.conformance_mode = (conformance_mode or "replay-token").strip() or "replay-token"
@@ -85,6 +90,7 @@ class OptimizedProcessMiner:
         )
 
         self.problem = PipelineOptimizationProblem(
+            constraints=self.constraints,
             log_path=self.log_path,
             metrics_list=self.metrics_list,
             required_metrics=self.required_metrics,

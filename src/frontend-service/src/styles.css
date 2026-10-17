@@ -1054,6 +1054,9 @@ button:disabled {
 .exploration-table small { display: block; margin-top: 3px; max-width: 150px; overflow-wrap: anywhere; }
 .exploration-page pre { overflow: auto; max-height: 300px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .model-digest { overflow-wrap: anywhere; }
+.constraint-list { display: grid; gap: 10px; margin-top: 12px; }
+.constraint-row { display: grid; grid-template-columns: minmax(130px, 2fr) minmax(90px, 1fr) minmax(110px, 1fr) auto; gap: 10px; align-items: center; }
+@media (max-width: 700px) { .constraint-row { grid-template-columns: 1fr 1fr; } }
 .exploration-page .inline-actions input[type=number] { width: 85px; }
 .exploration-page details summary { cursor: pointer; }
 @media (max-width: 1050px) { .exploration-detail-grid { grid-template-columns: 1fr; } }
@@ -1133,3 +1136,7 @@ button:disabled {
 @media (max-width: 760px) { .variation-workspace, .overlay-filter-row { grid-template-columns: 1fr; } .hierarchy-scroll { max-height: 400px; } .variation-interface { grid-template-columns: 1fr; } }
 
 #exploration-original { scroll-margin-top: 100px; }
+
+.constraint-group { min-width: 0; padding: 12px; border: 1px solid #abc3df; border-left: 3px solid #3977b8; border-radius: 6px; }
+.constraint-group > legend { padding: 0 6px; font-weight: 600; }
+.constraint-group .constraint-list { margin-top: 10px; }

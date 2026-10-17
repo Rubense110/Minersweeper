@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, Response, jsonify, request
 from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE
+from constraints import SUPPORTED_METRICS
 
 
 bp = Blueprint("optimization_openapi", __name__)
@@ -45,11 +46,30 @@ def _components() -> Dict[str, Any]:
                     }
                 },
             },
+            "MetricConstraint": {
+                "type": "object", "required": ["metric", "operator", "value"], "additionalProperties": False,
+                "properties": {"metric": {"type": "string", "enum": sorted(SUPPORTED_METRICS)},
+                               "operator": {"type": "string", "enum": ["<", "<=", ">", ">=", "=="]},
+                               "value": {"type": "number"}},
+            },
+            "Constraint": {
+                "oneOf": [_schema_ref("MetricConstraint"), _schema_ref("AllConstraints"), _schema_ref("AnyConstraints")],
+            },
+            "AllConstraints": {
+                "type": "object", "required": ["all"], "additionalProperties": False,
+                "properties": {"all": {"type": "array", "minItems": 1, "items": _schema_ref("Constraint")}},
+            },
+            "AnyConstraints": {
+                "type": "object", "required": ["any"], "additionalProperties": False,
+                "properties": {"any": {"type": "array", "minItems": 1, "items": _schema_ref("Constraint")}},
+            },
             "OptimizationRequest": {
                 "type": "object",
                 "required": ["log_path"],
                 "properties": {
                     "execution_name": {"type": "string", "example": "run_1"},
+                    "constraints": {"type": "array", "items": _schema_ref("Constraint"), "default": []},
+                    "observation_metrics": {"type": "array", "items": {"type": "string", "enum": sorted(SUPPORTED_METRICS)}, "default": [], "description": "Additional measured metrics; neither objectives nor user constraints."},
                     "log_path": {"type": "string", "example": "BPI_Challenge_2013_open_problems.xes"},
                     "service_url": {"type": "string", "format": "uri", "example": "http://prom_service:7070"},
                     "metrics": {
@@ -94,6 +114,7 @@ def _components() -> Dict[str, Any]:
             "JobRequestInfo": {
                 "type": "object",
                 "properties": {
+                    "constraints": {"type": "array", "items": _schema_ref("Constraint")},
                     "execution_name": {"type": "string"},
                     "log_path": {"type": "string"},
                     "service_url": {"type": "string"},
@@ -150,6 +171,7 @@ def _components() -> Dict[str, Any]:
             "Solution": {
                 "type": "object",
                 "properties": {
+                    "optimization_feasible": {"type": "boolean", "description": "Model validity and all user metric constraints are satisfied"},
                     "evaluation_id": {"type": "string", "nullable": True},
                     "experiment_id": {"type": "string", "nullable": True},
                     "fingerprint": {"type": "string", "nullable": True},
@@ -217,6 +239,7 @@ def _components() -> Dict[str, Any]:
             "Experiment": {
                 "type": "object",
                 "properties": {
+                    "constraints": {"type": "array", "items": _schema_ref("Constraint")},
                     "experiment_id": {"type": "string"},
                     "experiment_name": {"type": "string"},
                     "start_at": {"type": "string", "format": "date-time"},

@@ -97,6 +97,8 @@ def import_export(store, content: bytes, supplementary: dict[str, bytes] | None 
     if len(experiments) != 1:
         raise ValueError('Se requiere exactamente un experimento por colección.')
     experiment = {k: _cell(v) for k, v in experiments[0].items()}
+    from constraints import normalize_constraints
+    experiment['constraints'] = normalize_constraints(experiment.get('constraints'))
     rows = [{k: _cell(v) for k, v in r.items()} for r in _rows(files, 'solutions.csv')]
     if not rows or len(rows) > MAX_MODELS:
         raise ValueError(f'La colección debe contener entre 1 y {MAX_MODELS} individuos.')

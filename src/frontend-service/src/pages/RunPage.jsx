@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createOptimization, listExperiments, listLogs, listOptimizations } from '../api'
 import FancySelect from '../components/FancySelect'
+import { parseConstraints } from '../optimizationConstraints'
+import ConstraintEditor from '../components/ConstraintEditor'
 
 const METRIC_OPTIONS = [
   { value: 'fitness', label: 'fitness' },
@@ -78,6 +80,7 @@ export default function RunPage() {
   const [seed, setSeed] = useState('')
   const [conformanceMode, setConformanceMode] = useState('replay-token')
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
+  const [constraints, setConstraints] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [error, setError] = useState('')
@@ -170,6 +173,7 @@ export default function RunPage() {
         execution_name: executionName.trim() || `run_${Date.now()}`,
         log_path: toRelativeLogPath(logPath),
         metrics: selectedMetrics,
+        constraints: parseConstraints(constraints),
         conformance_mode: conformanceMode,
         max_evaluations: parsedMaxEvaluations,
         population_size: parsedPopulationSize,
@@ -265,6 +269,13 @@ export default function RunPage() {
               ))}
             </div>
             {hasNoMetrics ? <p className="error">Select at least one metric.</p> : null}
+          </fieldset>
+
+          <fieldset className="metric-fieldset">
+            <legend>Constraints</legend>
+            <p className="small muted">All top-level conditions must hold. Inside an OR group, any condition is enough; inside an AND group, all must hold. Constraint metrics are also evaluated.</p>
+            {constraints.length === 0 && <p className="small muted">No user constraints. Model feasibility checks always apply.</p>}
+            <ConstraintEditor rows={constraints} onChange={setConstraints} metrics={METRIC_OPTIONS} />
           </fieldset>
 
           <div className="row row-compact">

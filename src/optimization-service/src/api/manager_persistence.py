@@ -243,6 +243,7 @@ def persist_completed_experiment(
         "workers": int((result.get("optimizer_config") or {}).get("n_workers") or discover.get("n_workers") or 1),
         "actual_evaluations": _to_int_or_none(result.get("actual_evaluations")),
         "conformance_mode": request_data.get("conformance_mode") or "replay-token",
+        "constraints": request_data.get("constraints") or [],
         "log_sha256": result.get("log_sha256"),
         "optimizer_source_sha256": result.get("optimizer_source_sha256"),
         "prom_revision": result.get("prom_revision"),

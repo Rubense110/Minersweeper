@@ -24,6 +24,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from pareto import is_eligible_payload
 
 
 class Base(DeclarativeBase):
@@ -44,6 +45,7 @@ class Experiment(Base):
     preprocessing: Mapped[Any] = mapped_column(JSON, nullable=False)
     log_path: Mapped[str] = mapped_column(Text, nullable=False)
     metrics: Mapped[Any] = mapped_column(JSON, nullable=False)
+    constraints: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
     workers: Mapped[int] = mapped_column(Integer, nullable=False)
     actual_evaluations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     conformance_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -224,6 +226,7 @@ class JobStore:
                     "prom_revision": "VARCHAR(128)",
                     "quality_policy_version": "VARCHAR(128)",
                     "optimizer_config": "JSON",
+                    "constraints": "JSON",
                 }.items():
                     if name not in experiment_columns:
                         connection.execute(text(f"ALTER TABLE experiments ADD COLUMN {name} {sql_type}"))
@@ -232,10 +235,8 @@ class JobStore:
                     and self.engine.dialect.name == "postgresql"
                     and experiment_columns["constraints"].get("default") is None
                 ):
-                    # The removed experiment-constraints feature left this JSON
-                    # column NOT NULL in existing PostgreSQL databases.  Keep its
-                    # historical values, while allowing current ORM inserts that
-                    # intentionally no longer map the obsolete column.
+                    # Preserve historical rules and provide a default for older
+                    # writers that do not yet send experiment constraints.
                     connection.execute(
                         text("ALTER TABLE experiments ALTER COLUMN constraints SET DEFAULT '[]'::json")
                     )
@@ -404,6 +405,7 @@ class JobStore:
                     preprocessing=experiment_data.get("preprocessing", []),
                     log_path=str(experiment_data["log_path"]),
                     metrics=experiment_data.get("metrics", []),
+                    constraints=experiment_data.get("constraints") or [],
                     workers=int(experiment_data["workers"]),
                     actual_evaluations=self._to_int_or_none(experiment_data.get("actual_evaluations")),
                     conformance_mode=experiment_data.get("conformance_mode"),
@@ -469,7 +471,7 @@ class JobStore:
                             metrics=self._sanitize_json(item.get("metrics", {})),
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
-                            is_pareto=bool(item.get("is_pareto")),
+                            is_pareto=bool(item.get("is_pareto")) and is_eligible_payload(item),
                             places=[] if model_id is not None else self._sanitize_json(item.get("places", [])),
                             transitions=[] if model_id is not None else self._sanitize_json(item.get("transitions", [])),
                             arcs=[] if model_id is not None else self._sanitize_json(item.get("arcs", [])),
@@ -511,7 +513,7 @@ class JobStore:
                             metrics=self._sanitize_json(item.get("metrics", {})),
                             pipeline=self._sanitize_json(item.get("pipeline", {})),
                             runtime_ms=self._to_int_or_none(item.get("runtime_ms")),
-                            is_pareto=bool(item.get("is_pareto")),
+                            is_pareto=bool(item.get("is_pareto")) and is_eligible_payload(item),
                             places=[] if model_id is not None else self._sanitize_json(item.get("places", [])),
                             transitions=[] if model_id is not None else self._sanitize_json(item.get("transitions", [])),
                             arcs=[] if model_id is not None else self._sanitize_json(item.get("arcs", [])),
@@ -610,6 +612,7 @@ class JobStore:
             "preprocessing": experiment.preprocessing or [],
             "log_path": experiment.log_path,
             "metrics": experiment.metrics or [],
+            "constraints": experiment.constraints or [],
             "workers": int(experiment.workers),
             "actual_evaluations": experiment.actual_evaluations,
             "conformance_mode": experiment.conformance_mode,
@@ -636,7 +639,7 @@ class JobStore:
     @staticmethod
     def _serialize_solution(solution: Solution) -> Dict[str, Any]:
         graph = solution.model.payload if solution.model is not None else {}
-        return {
+        payload = {
             "solution_id": int(solution.solution_id),
             "experiment_id": solution.experiment_id,
             "variables": solution.variables or [],
@@ -669,11 +672,14 @@ class JobStore:
             "evaluation_status": solution.evaluation_status,
             "metrics_status": solution.metrics_status or "computed",
         }
+        payload['optimization_feasible'] = is_eligible_payload(payload)
+        payload['is_pareto'] = payload['is_pareto'] and payload['optimization_feasible']
+        return payload
 
     @staticmethod
     def _serialize_snapshot_solution(solution: SnapshotSolution) -> Dict[str, Any]:
         graph = solution.model.payload if solution.model is not None else {}
-        return {
+        payload = {
             "snapshot_solution_id": int(solution.snapshot_solution_id),
             "snapshot_id": solution.snapshot_id,
             "experiment_id": solution.experiment_id,
@@ -710,6 +716,9 @@ class JobStore:
             "evaluation_status": solution.evaluation_status,
             "metrics_status": solution.metrics_status or "computed",
         }
+        payload['optimization_feasible'] = is_eligible_payload(payload)
+        payload['is_pareto'] = payload['is_pareto'] and payload['optimization_feasible']
+        return payload
 
     def list_experiments(self) -> List[Dict[str, Any]]:
         with self._session_factory() as session:
@@ -794,7 +803,8 @@ class JobStore:
                     or_(Solution.evaluation_status.is_(None), Solution.evaluation_status != "error"),
                 )
             solutions = session.execute(stmt).scalars().all()
-            return [self._serialize_solution(item) for item in solutions]
+            payloads = [self._serialize_solution(item) for item in solutions]
+            return [p for p in payloads if p['is_pareto']] if scope == 'pareto' else payloads
 
     def get_experiment_snapshot_solutions(self, experiment_id: str) -> List[Dict[str, Any]]:
         with self._session_factory() as session:

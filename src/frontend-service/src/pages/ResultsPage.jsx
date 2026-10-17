@@ -1,3 +1,4 @@
+import { formatConstraint } from '../optimizationConstraints'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
@@ -63,6 +64,8 @@ function mapDbSolution(item, index, metricsOrder, population = []) {
     variables: Array.isArray(item.variables) ? item.variables : [],
     isPareto: Boolean(item.is_pareto),
     isFeasible: typeof item.is_feasible === 'boolean' ? item.is_feasible : null,
+    optimizationFeasible: item.optimization_feasible ?? (item.is_feasible !== false && !(item.constraints || []).some(value => value < 0)),
+    constraintValues: item.constraints || [],
     constraintViolations: Array.isArray(item.constraint_violations) ? item.constraint_violations : [],
     modelSchemaVersion: item.model_schema_version ?? null,
     petri: {
@@ -340,6 +343,7 @@ export default function ResultsPage() {
           execution_name: experimentPayload.experiment_name,
           log_path: experimentPayload.log_path,
           metrics: experimentPayload.metrics || [],
+          constraints: experimentPayload.constraints || [],
           discover: {
             max_evaluations: experimentPayload.max_evals,
             population_size: experimentPayload.pop_size,
@@ -545,7 +549,7 @@ export default function ResultsPage() {
   }
 
   const filteredSolutions = useMemo(
-    () => (showOnlyFeasible ? solutions.filter((solution) => solution.modelSchemaVersion === 3 && solution.isFeasible === true) : solutions),
+    () => (showOnlyFeasible ? solutions.filter((solution) => solution.modelSchemaVersion === 3 && solution.isFeasible === true && solution.optimizationFeasible) : solutions),
     [showOnlyFeasible, solutions]
   )
 
@@ -1008,6 +1012,7 @@ export default function ResultsPage() {
             </div>
             {solutions.length === 0 ? <p>No solutions recorded for this experiment.</p> : null}
 
+            {(job?.request?.constraints || []).length > 0 && <div className="status-box"><strong>User constraints:</strong> {job.request.constraints.map(c => formatConstraint(c)).join(' · ')}<p className="small muted">A model must pass semantic feasibility and every top-level condition to enter Pareto or final selection. Within OR groups any branch may satisfy the condition.</p></div>}
             <div className="solutions-grid">
               <aside
                 className="solutions-list"
@@ -1082,6 +1087,8 @@ export default function ResultsPage() {
                     </div>
 
                     <h3>Solution details</h3>
+                    <p><strong>Optimization eligibility:</strong> {selectedSolution.optimizationFeasible ? 'Eligible' : 'Excluded by model validity, evaluation error or user constraints'}</p>
+                    {(job?.request?.constraints || []).length > 0 && <ul className="metric-list">{job.request.constraints.map((constraint, index) => <li key={index}><strong>{formatConstraint(constraint, selectedSolution.metrics)}</strong> · {selectedSolution.constraintValues[index + 1] >= 0 ? 'satisfied' : 'not satisfied'}</li>)}</ul>}
                     <p><strong>{selectedSolution.label}</strong></p>
                     <p className="model-digest"><strong>Model digest (SHA-256):</strong>{' '}<code>{selectedSolution.modelDigest || 'No disponible para este modelo.'}</code></p>
                     <p>

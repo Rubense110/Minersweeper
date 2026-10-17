@@ -331,6 +331,47 @@ with SHA-256 hashes. Original PNML and metadata are stored once per evaluation,
 before Java artifact cleanup. Historical results without retained originals are
 explicitly marked unavailable; PNML is never reconstructed for this export.
 
+## Optimization constraints
+
+The experiment form accepts optional metric limits (`<`, `<=`, `>`, `>=`, `==`),
+for example `fitness >= 0.8` and `places <= 20`. All top-level conditions must hold. Metrics
+used only in constraints are also evaluated, but do not become objectives.
+The API accepts `constraints: [{"metric": "places", "operator": "<=", "value": 20}]`.
+
+Nested groups are supported in the form and API: `any` means OR (at least one
+child must hold), `all` means AND (every child must hold). Existing flat lists
+keep their AND semantics. For example, familiarity can be expressed exactly as
+`elc <= 137.5 OR (cfc > 69 AND transitions <= 178)`:
+
+```json
+{"constraints": [{"any": [
+  {"metric": "elc", "operator": "<=", "value": 137.5},
+  {"all": [
+    {"metric": "cfc", "operator": ">", "value": 69},
+    {"metric": "transitions", "operator": "<=", "value": 178}
+  ]}
+]}]}
+```
+
+Groups must be nonempty, with at most 8 levels and 256 nodes per request.
+Each top-level rule has one numeric margin. Group AND/OR use min/max of leaf
+margins normalized by `max(abs(threshold), 1)`; flat rules retain their existing
+raw margins. All required metrics must be present and finite, even if another
+OR branch would pass. The effective optimizer configuration records
+`constraint_policy_version: minersweeper-constraints-v2`.
+
+Semantic feasibility remains mandatory and separate from user limits. Search
+first prioritizes semantically usable evaluations, then jMetal constraint
+dominance. Only candidates satisfying model validity and every user limit may
+enter Pareto or final ASF selection. An impossible specification can leave no
+eligible model; all final individuals remain inspectable. Equality uses an
+absolute tolerance of `1e-9`; strict inequalities remain strict.
+
+Experiment rules and solution margins survive persistence, snapshots and the
+common ZIP export/import. `is_feasible` and `constraint_violations` retain their
+native Petri meanings; `optimization_feasible` reports overall eligibility.
+With no user limits, the existing single semantic constraint remains in place.
+
 ## Experimental Model Exploration
 
 Open **Exploración** (`/exploration`) or **Explorar población** from History.

@@ -38,7 +38,7 @@ class JobStoreRuntimeTest(unittest.TestCase):
             Base.metadata.create_all(scoped_engine)
             with scoped_engine.begin() as connection:
                 connection.execute(
-                    text("ALTER TABLE experiments ADD COLUMN constraints JSON NOT NULL")
+                    text("ALTER TABLE experiments ALTER COLUMN constraints SET NOT NULL")
                 )
                 connection.execute(
                     text("ALTER TABLE solutions ALTER COLUMN is_feasible SET NOT NULL")

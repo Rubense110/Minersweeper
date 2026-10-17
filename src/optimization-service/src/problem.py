@@ -14,6 +14,7 @@ from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, Re
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 from model_quality import validate_v3_feasibility
+from constraints import collect_required_metrics, evaluate_constraints, normalize_constraints
 
 from pipeline_space import PipelineSearchSpace
 from preprocessing_constraints import repair_pipeline_preprocessing
@@ -58,6 +59,7 @@ class PipelineOptimizationProblem(FloatProblem):
         on_evaluation: Callable[[Dict[str, Any]], None] | None = None,
         rng: random.Random | None = None,
         execution_control: ExecutionControl | None = None,
+        constraints: List[Dict[str, Any]] | None = None,
     ):
         super().__init__()
         if not metrics_list:
@@ -65,7 +67,8 @@ class PipelineOptimizationProblem(FloatProblem):
 
         self.log_path = log_path
         self.metrics_list = metrics_list
-        self.required_metrics = list(required_metrics or metrics_list)
+        self.user_constraints = normalize_constraints(constraints)
+        self.required_metrics = collect_required_metrics(required_metrics or metrics_list, self.user_constraints)
         self.search_space = search_space
         self.evaluator = evaluator
         self.execution_control = execution_control
@@ -178,6 +181,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 model_semantic_sha256=cached.get("model_semantic_sha256"),
                 evaluation_environment=cached.get("evaluation_environment"),
                 discovery_metadata=cached.get("discovery_metadata"),
+                constraint_values=list(solution.constraints),
             )
             return solution
 
@@ -275,6 +279,16 @@ class PipelineOptimizationProblem(FloatProblem):
             objectives.append(-value if maximize else value)
 
         if evaluation_error is None and isinstance(evaluation_payload, dict):
+            if metrics_status != 'skipped_infeasible':
+                for metric_name in self.required_metrics:
+                    try:
+                        valid = math.isfinite(float(metric_values.get(metric_name)))
+                    except (ValueError, TypeError, OverflowError):
+                        valid = False
+                    if not valid:
+                        evaluation_error = f"missing or non-finite required metric '{metric_name}'"
+                        break
+        if evaluation_error is None and isinstance(evaluation_payload, dict):
             for key in ("evaluation_policy_version", "model_semantic_sha256", "evaluation_environment", "discovery_metadata"):
                 if evaluation_payload.get(key) is not None:
                     solution.attributes[key] = evaluation_payload[key]
@@ -319,6 +333,10 @@ class PipelineOptimizationProblem(FloatProblem):
             # even if the returned net passed the model-quality checks.
             solution.constraints[0] = -1.0
             solution.attributes["evaluation_error"] = evaluation_error
+        solution.constraints[1:] = evaluate_constraints(
+            metric_values if metrics_status != "skipped_infeasible" and evaluation_error is None else {},
+            self.user_constraints,
+        )
         if evaluation_id:
             solution.attributes["evaluation_id"] = evaluation_id
         if experiment_id:
@@ -365,6 +383,7 @@ class PipelineOptimizationProblem(FloatProblem):
             model_semantic_sha256=solution.attributes.get("model_semantic_sha256"),
             evaluation_environment=solution.attributes.get("evaluation_environment"),
             discovery_metadata=solution.attributes.get("discovery_metadata"),
+            constraint_values=list(solution.constraints),
         )
         return solution
 
@@ -399,6 +418,7 @@ class PipelineOptimizationProblem(FloatProblem):
         model_semantic_sha256: str | None = None,
         evaluation_environment: Dict[str, Any] | None = None,
         discovery_metadata: Dict[str, Any] | None = None,
+        constraint_values: List[float] | None = None,
     ) -> None:
         if self.on_evaluation is None:
             return
@@ -427,6 +447,8 @@ class PipelineOptimizationProblem(FloatProblem):
                     "experiment_id": experiment_id,
                     "fingerprint": fingerprint,
                     "solution_cache_size": solution_cache_size,
+                    "constraints": list(constraint_values or []),
+                    "optimization_feasible": all(value >= 0 for value in (constraint_values or [])),
                 }
             )
         except Exception:
@@ -437,7 +459,7 @@ class PipelineOptimizationProblem(FloatProblem):
         return len(self.metrics_list)
 
     def number_of_constraints(self) -> int:
-        return 1
+        return 1 + len(self.user_constraints)
 
     def name(self) -> str:
         return "Pipeline Optimization Problem"

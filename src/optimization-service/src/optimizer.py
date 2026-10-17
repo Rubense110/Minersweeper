@@ -22,6 +22,7 @@ from jmetal.util.evaluator import Evaluator, SequentialEvaluator
 from jmetal.util.ranking import FastNonDominatedRanking
 from jmetal.util.termination_criterion import StoppingByEvaluations
 
+from constraints import CONSTRAINT_POLICY_VERSION
 from problem import PipelineOptimizationProblem
 from pareto import CONSTRAINT_DOMINANCE_COMPARATOR, feasible_non_dominated
 from optimization_defaults import DEFAULT_MAX_EVALUATIONS, DEFAULT_N_PARTITIONS, DEFAULT_POPULATION_SIZE, normalize_population_size
@@ -278,6 +279,8 @@ class PipelineNSGAIIIOptimizer:
             mutation_probability = 1.0 / max(1, self.problem.number_of_variables())
 
         self.effective_config = {
+            "user_constraints": getattr(self.problem, 'user_constraints', []),
+            "constraint_policy_version": CONSTRAINT_POLICY_VERSION,
             "seed": self.seed,
             "rng_policy_version": RNG_POLICY_VERSION,
             "python_rng": "MT19937",

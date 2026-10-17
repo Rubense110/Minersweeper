@@ -243,6 +243,8 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         excluded_miners=tuple(config.get("excluded_miners") or ()),
         execution_control=control,
         seed=discover.get("seed"),
+        constraints=config.get("constraints"),
+        observation_metrics=config.get("observation_metrics"),
     )
     with manager._lock:
         job = manager._jobs.get(job_id)
@@ -296,6 +298,8 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         "python_version": platform.python_version(),
         "jmetalpy_version": version("jmetalpy"),
         "objective_directions": {metric: "maximize" for metric in miner.metrics_list},
+        "observation_metrics": list(miner.observation_metrics),
+        "required_metrics": list(miner.required_metrics),
         "model_schema_versions": sorted({
             int(solution.get("model_schema_version")) for solution in all_solutions
             if isinstance(solution.get("model_schema_version"), int)

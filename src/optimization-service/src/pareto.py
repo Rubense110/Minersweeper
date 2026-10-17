@@ -3,12 +3,34 @@
 from __future__ import annotations
 
 from typing import Any, Iterable, List
+import math
 
 from jmetal.util.comparator import DominanceWithConstraintsComparator, overall_constraint_violation_degree
 from jmetal.util.ranking import FastNonDominatedRanking
 
 
-CONSTRAINT_DOMINANCE_COMPARATOR = DominanceWithConstraintsComparator()
+class SemanticConstraintDominanceComparator(DominanceWithConstraintsComparator):
+    def compare(self, first, second):
+        # Slot zero remains semantic feasibility/technical validity. User limits
+        # must never make an unusable net preferable to a usable one.
+        a, b = getattr(first, 'constraints', []), getattr(second, 'constraints', [])
+        if len(a) > 1 or len(b) > 1:
+            invalid_a, invalid_b = bool(a and a[0] < 0), bool(b and b[0] < 0)
+            if invalid_a != invalid_b:
+                return 1 if invalid_a else -1
+        return super().compare(first, second)
+
+
+CONSTRAINT_DOMINANCE_COMPARATOR = SemanticConstraintDominanceComparator()
+
+
+def is_eligible_payload(payload):
+    if has_evaluation_error(payload) or payload.get('is_feasible') is False:
+        return False
+    try:
+        return all(math.isfinite(float(v)) and float(v) >= 0 for v in payload.get('constraints') or [])
+    except (ValueError, TypeError, OverflowError):
+        return False
 
 
 def has_evaluation_error(payload: dict[str, Any]) -> bool:
