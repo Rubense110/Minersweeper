@@ -1,24 +1,9 @@
 import { useMemo } from 'react'
+import { objectiveMetricKeys, eligibleParetoSolutions } from '../paretoProfileData'
 
 function asFiniteNumber(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   return value
-}
-
-function metricOptionsFromSolutions(solutions, metricOrder) {
-  const ordered = Array.isArray(metricOrder) ? metricOrder.filter(Boolean) : []
-  const seen = new Set(ordered)
-
-  for (const solution of solutions) {
-    for (const key of Object.keys(solution.metrics || {})) {
-      if (!seen.has(key)) {
-        seen.add(key)
-        ordered.push(key)
-      }
-    }
-  }
-
-  return ordered.map((key) => ({ value: key, label: key }))
 }
 
 function rangeFromValues(values) {
@@ -40,13 +25,11 @@ function normalize(value, range) {
 }
 
 export default function ParetoFrontScatter({ metricOrder = [], selectedSolutionIds = [], solutions = [] }) {
-  const metricOptions = useMemo(() => metricOptionsFromSolutions(solutions, metricOrder), [solutions, metricOrder])
-  const metricKeys = useMemo(() => metricOptions.map((item) => item.value), [metricOptions])
+  const metricKeys = useMemo(() => objectiveMetricKeys(solutions, metricOrder), [solutions, metricOrder])
   const selectedIdsSet = useMemo(() => new Set(selectedSolutionIds), [selectedSolutionIds])
 
   const paretoSolutions = useMemo(() => {
-    const onlyPareto = solutions.filter((item) => item.isPareto)
-    return onlyPareto.length ? onlyPareto : solutions
+    return eligibleParetoSolutions(solutions)
   }, [solutions])
 
   const series = useMemo(() => {
@@ -99,7 +82,7 @@ export default function ParetoFrontScatter({ metricOrder = [], selectedSolutionI
           </div>
 
           {series.length === 0 ? (
-            <p className="small muted">No solutions have all available metrics.</p>
+            <p className="small muted">{paretoSolutions.length === 0 ? 'Empty Pareto front: no eligible non-dominated models.' : 'No Pareto solutions have all objective metrics.'}</p>
           ) : (
             <svg
               aria-label="Pareto front profile plot"
