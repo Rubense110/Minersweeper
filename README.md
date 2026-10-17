@@ -211,6 +211,13 @@ The main knobs are:
 - `PROM_JAVA_XMS`: initial JVM heap
 - `PROM_JAVA_XMX`: maximum JVM heap, which should stay below the container limit
 
+Defaults are a 256 MiB initial heap, 8 GiB maximum heap and a 10 GiB container
+memory limit, with container swap disabled. Existing `.env` settings override
+these defaults. Increase budgets explicitly for larger hosts. Under heap
+pressure, admission waits for active evaluations and requests idle garbage
+collection before rejecting persistent pressure; this does not guarantee that
+every discovered model fits in the budget.
+
 Then start the full stack:
 
 ```bash
