@@ -15,6 +15,10 @@ RUN chmod +x /app/tools/install_prom_jars.sh \
 
 FROM eclipse-temurin:8-jre
 
+# Process sessions and group termination are part of isolated evaluation recovery.
+RUN apt-get update && apt-get install -y --no-install-recommends util-linux procps \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=build /app/tools/prom-lite-1.4-all-platforms /app/tools/prom-lite-1.4-all-platforms
 

@@ -16,7 +16,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 public class ArtifactStore {
@@ -24,7 +23,6 @@ public class ArtifactStore {
 
     private final Path rootDir;
     private final ObjectMapper mapper;
-    private final AtomicLong sequence = new AtomicLong(0L);
 
     public ArtifactStore(String rootDir) {
         this.rootDir = Paths.get(rootDir == null || rootDir.trim().isEmpty() ? DEFAULT_ROOT : rootDir).toAbsolutePath();
@@ -260,8 +258,52 @@ public class ArtifactStore {
     }
 
     private String nextEvaluationId() {
-        long count = sequence.incrementAndGet();
-        return System.currentTimeMillis() + "-" + count;
+        return java.util.UUID.randomUUID().toString();
+    }
+
+    /** Commit an original pair from an isolated worker; never reconstruct its PNML. */
+    public void publishFrom(Path stagingRoot, String experimentId, String evaluationId) throws IOException {
+        if (evaluationId == null || !evaluationId.matches("[A-Za-z0-9-]+"))
+            throw new IOException("Invalid isolated artifact identifier");
+        ArtifactStore staging = new ArtifactStore(stagingRoot.toString());
+        Path source = staging.pathForExperiment(experimentId);
+        Path metadata = source.resolve(evaluationId+".json");
+        String storedExperiment = null, storedEvaluation = null, pnmlFile = null;
+        // Validate identity without materializing potentially large transition/marking arrays
+        // in the coordinator just to copy an already serialized artifact.
+        try (com.fasterxml.jackson.core.JsonParser parser = mapper.getFactory().createParser(metadata.toFile())) {
+            if (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.START_OBJECT) throw new IOException("Invalid artifact metadata");
+            while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT) {
+                if (parser.currentToken() != com.fasterxml.jackson.core.JsonToken.FIELD_NAME) throw new IOException("Invalid metadata field");
+                String field = parser.currentName(); parser.nextToken();
+                if ("experiment_id".equals(field)) storedExperiment=parser.getValueAsString();
+                else if ("evaluation_id".equals(field)) storedEvaluation=parser.getValueAsString();
+                else if ("pnml_file".equals(field)) pnmlFile=parser.getValueAsString();
+                parser.skipChildren();
+            }
+        }
+        if (!experimentId.equals(storedExperiment) || !evaluationId.equals(storedEvaluation)
+                || !(evaluationId+".pnml").equals(pnmlFile))
+            throw new IOException("Isolated artifact identity mismatch");
+        Path destination = ensureExperimentDir(experimentId);
+        Path pnmlTemporary = Files.createTempFile(destination, evaluationId, ".pnml.pending");
+        Path metadataTemporary = Files.createTempFile(destination, evaluationId, ".json.pending");
+        boolean committed = false;
+        try {
+            Files.copy(source.resolve(pnmlFile), pnmlTemporary, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(metadata, metadataTemporary, StandardCopyOption.REPLACE_EXISTING);
+            publish(pnmlTemporary, destination.resolve(pnmlFile));
+            publish(metadataTemporary, destination.resolve(evaluationId+".json"));
+            committed = true;
+        } finally {
+            Files.deleteIfExists(pnmlTemporary); Files.deleteIfExists(metadataTemporary);
+            if (!committed) {
+                Files.deleteIfExists(destination.resolve(evaluationId+".json"));
+                Files.deleteIfExists(destination.resolve(pnmlFile));
+            }
+        }
+        try { Files.deleteIfExists(metadata); Files.deleteIfExists(source.resolve(pnmlFile)); }
+        catch (IOException cleanup) { System.err.println("Committed artifact retained in staging: "+cleanup); }
     }
 
     private Path ensureExperimentDir(String experimentId) throws IOException {

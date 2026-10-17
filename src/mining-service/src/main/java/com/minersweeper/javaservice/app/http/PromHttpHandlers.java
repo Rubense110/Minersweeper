@@ -67,6 +67,15 @@ public final class PromHttpHandlers {
         } catch (ExperimentCancelledException e) {
             clearInterruptedStatus();
             return HttpResponses.respondError(res, 409, "experiment_cancelled", HttpResponses.buildErrorMessage(e));
+        } catch (com.minersweeper.javaservice.evaluation.isolation.WorkerPoolEvaluator.Unavailable e) {
+            ServerErrorLogger.log("evaluation_infrastructure_unavailable", e, verboseExceptions);
+            return HttpResponses.respondError(res, 503, "evaluation_infrastructure_unavailable", HttpResponses.buildErrorMessage(e));
+        } catch (com.minersweeper.javaservice.evaluation.isolation.WorkerPoolEvaluator.TaskFailure e) {
+            ServerErrorLogger.log(e.code, e, verboseExceptions);
+            int status = "invalid_request".equals(e.code) ? 400 : (e.code.startsWith("REPRODUCIBILITY_") ? 503 : 500);
+            if ("experiment_cancelled".equals(e.code)) status = 409;
+            if ("evaluation_timeout".equals(e.code)) status = 504;
+            return HttpResponses.respondError(res, status, e.code, e.getMessage());
         } catch (com.minersweeper.javaservice.evaluation.EvaluationAdmission.CapacityExceeded e) {
             return HttpResponses.respondError(res, 503, "capacity_exceeded", e.getMessage());
         } catch (com.minersweeper.javaservice.evaluation.ReproducibilityException e) {

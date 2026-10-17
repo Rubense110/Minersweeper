@@ -22,6 +22,8 @@ public final class EvaluationEnvironment {
             values.put("java_version", System.getProperty("java.version"));
             values.put("java_vendor", System.getProperty("java.vendor"));
             values.put("architecture", System.getProperty("os.arch"));
+            String isolation = System.getenv("PROM_EVALUATION_ISOLATION_POLICY");
+            values.put("evaluation_isolation_policy", isolation == null ? "in-process" : isolation);
             values.put("canonical_net_version", CanonicalNetOrder.VERSION);
             SplitMinerProvenance.verify();
             values.put("split_discovery_policy_version", SplitMinerProvenance.VERSION);

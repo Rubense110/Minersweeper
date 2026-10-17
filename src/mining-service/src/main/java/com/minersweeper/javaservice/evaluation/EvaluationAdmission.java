@@ -107,6 +107,6 @@ public final class EvaluationAdmission {
         }
     }
     public static final class CapacityExceeded extends RuntimeException {
-        CapacityExceeded(String message) { super(message); }
+        public CapacityExceeded(String message) { super(message); }
     }
 }

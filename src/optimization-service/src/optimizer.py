@@ -11,7 +11,7 @@ import numpy as np
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List
 
-from execution_control import ExecutionControl, JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
+from execution_control import ExecutionControl, JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError
 from jmetal.algorithm.multiobjective.nsgaiii import UniformReferenceDirectionFactory
 from seeded_nsgaiii import SeededNSGAIII, RNG_POLICY_VERSION
 from jmetal.operator.crossover import SBXCrossover
@@ -173,7 +173,7 @@ class ThreadPoolEvaluator(Evaluator):
                 except CancelledError as error:
                     raise JobCancelled("job cancelled") from error
             self.raise_if_cancel_requested()
-        except (JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError):
+        except (JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError):
             for future in futures:
                 future.cancel()
             raise

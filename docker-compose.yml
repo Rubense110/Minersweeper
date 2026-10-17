@@ -28,10 +28,21 @@ services:
       - "7070:7070"
     mem_limit: ${PROM_SERVICE_MEM_LIMIT:-10g}
     memswap_limit: ${PROM_SERVICE_MEM_LIMIT:-10g}
+    stop_grace_period: 45s
     environment:
       PORT: 7070
       LOGS_ROOT: /data/logs
-      JAVA_TOOL_OPTIONS: "-Xms${PROM_JAVA_XMS:-256m} -Xmx${PROM_JAVA_XMX:-8g} -XX:+UseG1GC"
+      JAVA_TOOL_OPTIONS: "-XX:+UseG1GC"
+      PROM_COORDINATOR_XMX: ${PROM_COORDINATOR_XMX:-256m}
+      PROM_WORKER_COUNT: ${PROM_WORKER_COUNT:-1}
+      PROM_WORKER_XMX: ${PROM_WORKER_XMX:-${PROM_JAVA_XMX:-8g}}
+      PROM_WORKER_NATIVE_RESERVE: ${PROM_WORKER_NATIVE_RESERVE:-1g}
+      PROM_WORKER_STARTUP_SECONDS: ${PROM_WORKER_STARTUP_SECONDS:-120}
+      PROM_WORKER_QUEUE_SECONDS: ${PROM_WORKER_QUEUE_SECONDS:-30}
+      PROM_WORKER_KILL_SECONDS: ${PROM_WORKER_KILL_SECONDS:-10}
+      PROM_EVALUATION_TIMEOUT_SECONDS: ${PROM_EVALUATION_TIMEOUT_SECONDS:-300}
+      PROM_CANCEL_GRACE_SECONDS: ${PROM_CANCEL_GRACE_SECONDS:-10}
+      ARTIFACTS_ROOT: /var/lib/minersweeper/artifacts
       PIPELINE_EVALUATOR_MODE: real
       PROM_VERBOSE_EXCEPTIONS: "true"
       PROM_TIMING_ENABLED: "true"
@@ -47,6 +58,7 @@ services:
     volumes:
       - ./event_logs:/data/logs
       - ./logs:/var/log/minersweeper
+      - prom_artifacts:/var/lib/minersweeper/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7070/health"]
       interval: 10s
@@ -67,8 +79,8 @@ services:
         condition: service_healthy
     environment:
       JAVA_SERVICE_URL: http://prom_service:7070
-      JAVA_SERVICE_TIMEOUT_SECONDS: "300"
-      JAVA_CANCEL_GRACE_SECONDS: ${JAVA_CANCEL_GRACE_SECONDS:-10}
+      JAVA_SERVICE_TIMEOUT_SECONDS: ${JAVA_SERVICE_TIMEOUT_SECONDS:-660}
+      JAVA_CANCEL_GRACE_SECONDS: ${JAVA_CANCEL_GRACE_SECONDS:-30}
       OPT_MAX_CONCURRENT_JOBS: ${OPT_MAX_CONCURRENT_JOBS:-1}
       OPT_MAX_QUEUED_JOBS: ${OPT_MAX_QUEUED_JOBS:-16}
       OPT_MAX_EVALUATION_WORKERS: ${OPT_MAX_EVALUATION_WORKERS:-4}
@@ -116,3 +128,4 @@ services:
 volumes:
   frontend_node_modules:
   postgres_data:
+  prom_artifacts:

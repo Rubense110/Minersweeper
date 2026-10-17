@@ -100,7 +100,8 @@ public final class OpenApiDocs {
         operation.put("summary", "Service health");
         operation.put("operationId", "getHealth");
         Map<String, Object> responseMap = new LinkedHashMap<String, Object>();
-        responseMap.put("200", response(200, "Service is healthy", inlineHealthSchema()));
+        responseMap.put("200", response(200, "Coordinator available; returns isolated worker capacity and transport budget", inlineHealthSchema()));
+        responseMap.put("503", response(503, "Worker recovery unavailable; admission closed", schemaRef("ErrorResponse")));
         operation.put("responses", responseMap);
         return singleMethod("get", operation);
     }
@@ -112,15 +113,17 @@ public final class OpenApiDocs {
         operation.put("operationId", "evaluatePipeline");
         operation.put(
             "description",
-            "Discovers a Petri net and checks feasibility. Rejected models return empty metrics and metrics_status=skipped_infeasible; admitted models compute requested metrics."
+            "Runs one pipeline in a reusable isolated JVM. A deadline triggers cancellation and verified process replacement before a recoverable timeout response. Discovers a Petri net and checks feasibility. Rejected models return empty metrics and metrics_status=skipped_infeasible; admitted models compute requested metrics."
         );
         operation.put("requestBody", jsonRequestBody(schemaRef("PipelineRequest"), true));
 
         Map<String, Object> responseMap = new LinkedHashMap<String, Object>();
         responseMap.put("200", response(200, "Pipeline evaluation completed", schemaRef("PipelineResponse")));
+        responseMap.put("504", response(504, "Evaluation timed out; worker stopped and replaced; candidate may be penalized", schemaRef("ErrorResponse")));
+        responseMap.put("503", response(503, "Capacity or recovery failure; not a candidate quality result", schemaRef("ErrorResponse")));
         responseMap.put("400", errorResponse("Invalid JSON or invalid request payload"));
         responseMap.put("409", errorResponse("Experiment was cancelled while the evaluation was running"));
-        responseMap.put("503", errorResponse("Evaluation admission failure or explicit reproducibility safety cutoff"));
+        // 503 also includes explicit reproducibility safety cutoffs from a worker.
         responseMap.put("500", errorResponse("Unexpected evaluation failure"));
         operation.put("responses", responseMap);
         return singleMethod("post", operation);
@@ -256,7 +259,7 @@ public final class OpenApiDocs {
 
     private static Map<String, Object> inlineHealthSchema() {
         Map<String, Object> schema = objectSchema("status");
-        schema.put("properties", properties(property("status", stringConstSchema("ok"))));
+        schema.put("properties", properties(property("status", scalarSchema("string")), property("mode", scalarSchema("string")), property("workers", scalarSchema("integer")), property("http_timeout_seconds", scalarSchema("integer"))));
         return schema;
     }
 

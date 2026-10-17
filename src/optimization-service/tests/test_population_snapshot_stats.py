@@ -39,6 +39,7 @@ class PopulationSnapshotStatsTest(unittest.TestCase):
                              "n_workers": workers, "seed": 7},
             }
             with patch.dict(os.environ, {"OPT_MAX_EVALUATION_WORKERS": str(max_workers)}), \
+                 patch("java_service_client.ProMServiceClient.configure_pool", return_value={}), \
                  patch("java_service_client.ProMServiceClient.evaluate_pipeline", return_value=evaluation) as mocked:
                 result = execute_job(manager, "job-1", config)
 

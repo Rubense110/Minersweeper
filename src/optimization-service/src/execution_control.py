@@ -13,6 +13,10 @@ class EvaluationTerminationUnconfirmed(RuntimeError):
     """Fatal: the remote evaluation may still be alive; stop this job."""
 
 
+class EvaluationInfrastructureError(RuntimeError):
+    """Fatal: evaluator capacity could not be safely restored; never penalize a model."""
+
+
 class ReproducibilityError(RuntimeError):
     """Fatal: evaluation hit a safety cutoff or cannot order the net exactly."""
 

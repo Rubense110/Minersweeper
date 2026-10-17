@@ -77,7 +77,7 @@ class OptimizedProcessMinerTest(unittest.TestCase):
         mock_client_cls.assert_called_once_with(
             base_url="http://service",
             experiment_id="exec",
-            timeout_seconds=300,
+            timeout_seconds=660,
             conformance_mode="replay-token",
             excluded_miners=("split", "ilp"),
         )

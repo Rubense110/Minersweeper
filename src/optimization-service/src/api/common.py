@@ -92,7 +92,7 @@ def _normalize_log_path(value: Any) -> str:
 
 
 def _java_service_timeout_seconds() -> int:
-    return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 300))
+    return max(1, _to_int(os.getenv("JAVA_SERVICE_TIMEOUT_SECONDS"), 660))
 
 
 def _list_logs_in_root() -> List[str]:

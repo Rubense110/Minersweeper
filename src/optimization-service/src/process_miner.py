@@ -29,7 +29,7 @@ class OptimizedProcessMiner:
         log: str,
         metrics: Optional[List[str]] = None,
         service_url: Optional[str] = None,
-        service_timeout_seconds: int = 300,
+        service_timeout_seconds: int = 660,
         conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = ("ilp",),
         excluded_preprocessings: Optional[Sequence[str]] = None,
@@ -88,6 +88,8 @@ class OptimizedProcessMiner:
             conformance_mode=self.conformance_mode,
             excluded_miners=self.excluded_miners,
         )
+
+        self.evaluation_pool = self.service_client.configure_pool(self.execution_control)
 
         self.problem = PipelineOptimizationProblem(
             constraints=self.constraints,

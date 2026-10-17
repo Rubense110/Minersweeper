@@ -6,6 +6,8 @@ import com.minersweeper.javaservice.app.logging.UnknownExtensionLogFilter;
 import com.minersweeper.javaservice.artifacts.ArtifactStore;
 import com.minersweeper.javaservice.evaluation.PipelineEvaluator;
 import com.minersweeper.javaservice.evaluation.PromPipelineEvaluator;
+import com.minersweeper.javaservice.evaluation.isolation.WorkerPoolEvaluator;
+import com.minersweeper.javaservice.evaluation.isolation.WorkerPoolConfig;
 
 import static spark.Spark.get;
 import static spark.Spark.post;
@@ -39,7 +41,9 @@ public class PromService {
 
         get("/health", (req, res) -> {
             res.type("application/json");
-            return "{\"status\":\"ok\"}";
+            java.util.Map<String,Object> health = ((WorkerPoolEvaluator)PIPELINE_EVALUATOR).health();
+            if (!"ok".equals(health.get("status"))) res.status(503);
+            return MAPPER.writeValueAsString(health);
         });
         get("/openapi.json", (req, res) -> {
             res.type("application/json");
@@ -64,10 +68,15 @@ public class PromService {
     }
 
     private static PipelineEvaluator buildPipelineEvaluator() {
-        return new PromPipelineEvaluator(
-            ARTIFACT_STORE,
-            Paths.get(env("LOGS_ROOT", "event_logs"))
-        );
+        try {
+            final WorkerPoolEvaluator pool = new WorkerPoolEvaluator(ARTIFACT_STORE,
+                Paths.get(env("LOGS_ROOT", "event_logs")),
+                Paths.get(env("PROM_WORKERS_ROOT", "/tmp/minersweeper-workers")), WorkerPoolConfig.fromEnvironment());
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try { pool.close(); } catch (Exception error) { error.printStackTrace(System.err); }
+            }, "worker-pool-shutdown"));
+            return pool;
+        } catch (Exception error) { throw new IllegalStateException("Cannot initialize isolated evaluator pool", error); }
     }
 
     private static String serverUrlFor(String requestUrl, String suffix) {

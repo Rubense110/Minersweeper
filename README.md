@@ -208,13 +208,13 @@ cp .env.example .env
 The main knobs are:
 
 - `PROM_SERVICE_MEM_LIMIT`: hard memory limit for the Java mining container
-- `PROM_JAVA_XMS`: initial JVM heap
+- `PROM_COORDINATOR_XMX`: coordinator maximum heap (default `256m`)
+- `PROM_WORKER_COUNT`: reusable isolated JVMs (default `1`), one active evaluation each
 - `PROM_JAVA_XMX`: maximum JVM heap, which should stay below the container limit
 
-Defaults are a 256 MiB initial heap, 8 GiB maximum heap and a 10 GiB container
-memory limit, with container swap disabled. Existing `.env` settings override
-these defaults. Increase budgets explicitly for larger hosts. Under heap
-pressure, admission waits for active evaluations and requests idle garbage
+Defaults are a 256 MiB coordinator heap, one reusable worker JVM with a 16 MiB
+initial / 8 GiB maximum heap, and a 10 GiB container memory limit with swap disabled. Existing `.env` settings override
+these defaults. Increase budgets explicitly for larger hosts. Inside each worker, heap admission requests idle garbage
 collection before rejecting persistent pressure; this does not guarantee that
 every discovered model fits in the budget.
 
@@ -262,19 +262,20 @@ Projection now applies its requested frequency threshold. The former adapter
 inverted the selection/options arguments and inadvertently kept every activity;
 this correction can change discovered models.
 
-The Compose defaults admit four Java evaluations, four Python evaluation workers,
-and one optimization job at a time. Adjust these variables together:
+Compose defaults to one isolated calculation JVM, up to four Python evaluation
+threads, and one optimization job. Python negotiates native capacity and waits
+locally for a slot; extra threads do not create extra JVMs. Adjust these variables together:
 
 | Variable | Default | Role |
 |---|---:|---|
-| `PROM_MAX_CONCURRENT_EVALUATIONS` | 4 | Java evaluation slots; released after execution and owned tasks stop |
+| `PROM_WORKER_COUNT` | 1 | Isolated calculation JVMs; one active evaluation per process |
 | `PROM_EVALUATION_RESERVE_MB` | 512 | Heap headroom signal; not a bound on plugin allocation |
 | `PROM_PREPROCESS_CACHE_MB` | 256 | Estimated retained payload budget for filtered logs; 0 disables this cache |
 | `OPT_MAX_EVALUATION_WORKERS` | 4 | Worker cap for the API and direct optimizer |
 | `OPT_MAX_CONCURRENT_JOBS` | 1 | Optimization jobs allowed to run together |
 | `OPT_MAX_QUEUED_JOBS` | 16 | Jobs allowed to wait for execution |
 | `PROM_ALLOW_MINER_MULTITHREADING` | false | Enables IM internal threads only if requested by the pipeline too |
-| `JAVA_CANCEL_GRACE_SECONDS` | 10 | Time to confirm termination after an ambiguous HTTP failure |
+| `JAVA_CANCEL_GRACE_SECONDS` | 30 | Time to confirm termination after an ambiguous HTTP failure |
 
 Filtered logs can be reused across different miners within an experiment. The cache
 uses source identity and the ordered effective filter parameters, coordinates
@@ -293,16 +294,16 @@ activity-name concatenations such as `[AB, C]` and `[A, BC]`; global attribute
 declarations are now preserved. These corrections can change affected models.
 Neither cache changes the optimization population or uses log-specific rules.
 
-The Java waiting queue is bounded. Insufficient heap headroom for five seconds
-rejects admission rather than waiting indefinitely. For a 32 GB machine, begin
-with 2–4 evaluations and leave memory for Python, PostgreSQL, native memory, and
-the OS. A slot limit does not guarantee that one very large plugin call fits.
+The native waiting queue is bounded. Each worker reclaims idle heap before
+rejecting persistent pressure. Size the aggregate worker heaps and native reserves
+for the host; do not equate process count with core count. A slot limit does not
+guarantee that one very large plugin call fits.
 
-On timeout or connection failure, Python cancels the request and checks its
-termination status. Failure to confirm stops that optimization. This is cooperative
-cancellation in a shared JVM: forcibly stopping an uncooperative plugin requires
-process isolation. Experiment execution names cannot be reused after cleanup;
-use a fresh execution name for each run.
+The coordinator handles ordinary evaluation timeouts by replacing the affected
+JVM before returning a penalizable error. Python still cancels/checks requests
+after ambiguous transport failures; unconfirmed termination or unavailable
+infrastructure remains fatal. Experiment execution names cannot be reused after
+cleanup; use a fresh execution name for each run.
 
 With `PROM_TIMING_ENABLED=true`, phase records include heap usage at phase
 boundaries, active/waiting evaluations, and JVM thread and cumulative GC counters.
@@ -337,6 +338,43 @@ originals, `models/*.pnml`, their semantic metadata and `models/index.json`
 with SHA-256 hashes. Original PNML and metadata are stored once per evaluation,
 before Java artifact cleanup. Historical results without retained originals are
 explicitly marked unavailable; PNML is never reconstructed for this export.
+
+## Isolated evaluation and recovery
+
+The mining API stays alive while ProM executes in reusable child JVMs. Each child
+handles one complete pipeline at a time (preprocessing, discovery, feasibility,
+metrics and serialization). Python retains the population, RNG, cache and snapshots.
+The campaign client uses only the existing API.
+
+`PROM_EVALUATION_TIMEOUT_SECONDS` (default `300`) limits worker execution separately
+from admission/startup. On timeout, the coordinator requests cooperative cancellation
+for `PROM_CANCEL_GRACE_SECONDS` (default `10`), kills the owned Linux process session,
+verifies that its leader and non-zombie descendants have exited, and starts a replacement.
+Only then does HTTP 504 `evaluation_timeout` become an ordinary penalized candidate.
+A replacement/termination failure returns HTTP 503 `evaluation_infrastructure_unavailable`,
+closes admission and aborts the job as infrastructure failure rather than inventing bad
+model metrics. User cancellation does not restart the cancelled evaluation.
+
+The optimizer negotiates worker capacity and the outer HTTP budget from `/health`;
+extra optimizer threads wait locally, with cancellation checks. Health also exposes
+worker generations/states and replacement count. Worker logs are under
+`/tmp/minersweeper-workers/<generation>/worker.log`. A worker is lazy-started and reused;
+it is recycled after timeouts, cancellations and reported JVM errors, not after every
+successful candidate. Unknown process crashes are infrastructure errors.
+
+Original PNML and metadata move atomically from worker staging into the coordinator's
+artifact store. UUID evaluation IDs avoid collisions across workers/restarts. Compose
+persists this store in `prom_artifacts`; existing ZIP export and snapshot persistence
+remain the single export path. Do not remove that volume while unpersisted results are needed.
+
+Increase workers only after sizing **all** worker heaps/native reserves and coordinator
+memory together; startup rejects an advertised budget exceeding the detected physical/
+cgroup limit. A Java-visible processor per child discourages plugin thread oversubscription;
+it is not an OS CPU quota. This implementation requires Linux, `setsid`, `/proc` and
+`/bin/kill` (provided by the image). Deliberately detached descendant sessions and
+coordinator/container crashes require stronger external containment/recovery and are
+not covered by the worker replacement protocol. A wall-clock timeout remains sensitive
+to machine load and cannot by itself guarantee reproducibility by seed.
 
 ## Optimization constraints
 

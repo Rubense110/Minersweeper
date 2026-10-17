@@ -10,7 +10,7 @@ import time
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Sequence
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, ExecutionControl
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError, ExecutionControl
 from jmetal.core.problem import FloatProblem
 from jmetal.core.solution import FloatSolution
 from model_quality import validate_v3_feasibility
@@ -229,7 +229,7 @@ class PipelineOptimizationProblem(FloatProblem):
                 is_feasible = None
                 constraint_violations = None
             evaluation_error = None
-        except (EvaluationTerminationUnconfirmed, ReproducibilityError) as error:
+        except (EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError) as error:
             if self.execution_control is not None:
                 self.execution_control.request_failure(error)
             raise

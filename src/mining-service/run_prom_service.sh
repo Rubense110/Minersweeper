@@ -44,4 +44,4 @@ exec env \
   PORT="${PORT}" \
   LOGS_ROOT="${LOGS_ROOT}" \
   LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
-  java -Djava.library.path="${JAVA_LIBRARY_PATH}" -cp "${CLASSPATH}" com.minersweeper.javaservice.app.PromService
+  java -Xms32m -Xmx"${PROM_COORDINATOR_XMX:-256m}" -Djava.library.path="${JAVA_LIBRARY_PATH}" -cp "${CLASSPATH}" com.minersweeper.javaservice.app.PromService

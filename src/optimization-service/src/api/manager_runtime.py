@@ -8,7 +8,7 @@ import traceback
 from importlib.metadata import version
 from typing import Any, Dict
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError
 from java_service_client import ProMServiceClient
 from parameters.miners import MINER_CATALOG
 from pareto import feasible_non_dominated
@@ -126,7 +126,7 @@ def run_job(manager: Any, job_id: str) -> None:
     except JobCancelled:
         manager._finalize_cancelled_job(job_id)
     except Exception as exc:
-        if isinstance(exc, (EvaluationTerminationUnconfirmed, ReproducibilityError)):
+        if isinstance(exc, (EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError)):
             request_java_experiment_cancel(manager, job_id, request_data)
         with manager._lock:
             job = manager._jobs.get(job_id)
@@ -300,6 +300,7 @@ def execute_job(manager: Any, job_id: str, config: Dict[str, Any]) -> Dict[str, 
         "objective_directions": {metric: "maximize" for metric in miner.metrics_list},
         "observation_metrics": list(miner.observation_metrics),
         "required_metrics": list(miner.required_metrics),
+        "evaluation_pool": getattr(miner, "evaluation_pool", {}),
         "model_schema_versions": sorted({
             int(solution.get("model_schema_version")) for solution in all_solutions
             if isinstance(solution.get("model_schema_version"), int)

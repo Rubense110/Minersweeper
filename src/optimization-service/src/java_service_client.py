@@ -6,12 +6,13 @@ import json
 import logging
 import os
 import time
+import threading
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 
-from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError
+from execution_control import JobCancelled, EvaluationTerminationUnconfirmed, ReproducibilityError, EvaluationInfrastructureError
 
 
 LOGGER = logging.getLogger("optimization_service.jobs")
@@ -22,7 +23,7 @@ class ProMServiceClient:
         self,
         base_url: str,
         endpoint: str = "/pipeline",
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 660,
         experiment_id: Optional[str] = None,
         conformance_mode: Optional[str] = None,
         excluded_miners: Optional[Sequence[str]] = None,
@@ -34,6 +35,8 @@ class ProMServiceClient:
         self.base_url = base_url.rstrip("/")
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
+        self._pipeline_slots = None
+        self._execution_control = None
         self.experiment_id = experiment_id
         self.conformance_mode = (conformance_mode or "replay-token").strip() or "replay-token"
         self.excluded_miners = tuple(excluded_miners or ())
@@ -41,6 +44,25 @@ class ProMServiceClient:
         self.cleanup_endpoint_template = cleanup_endpoint_template
         self.cancel_endpoint_template = cancel_endpoint_template
         self.cancel_evaluation_endpoint_template = cancel_evaluation_endpoint_template
+
+    def configure_pool(self, execution_control=None) -> dict:
+        """Negotiate transport budget and backpressure once before an app job starts."""
+        self._execution_control = execution_control
+        try:
+            response = requests.get(self.base_url + "/health", timeout=min(self.timeout_seconds, 10))
+            response.raise_for_status()
+            limits = response.json()
+            if limits.get("mode") != "isolated-jvm-pool-v1":
+                return {}  # Compatibility with an older, healthy ProM service.
+            workers = int(limits["workers"])
+            transport = float(limits["http_timeout_seconds"])
+            if not 1 <= workers <= 32 or not 0 < transport <= 86400:
+                raise ValueError("Invalid isolated worker limits")
+            self._pipeline_slots = threading.BoundedSemaphore(workers)
+            self.timeout_seconds = max(self.timeout_seconds, transport)
+            return {key: limits[key] for key in ("mode", "workers", "http_timeout_seconds", "evaluation_timeout_seconds", "worker_heap", "cancellation_grace_seconds", "worker_processors") if key in limits}
+        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            raise EvaluationInfrastructureError("Cannot negotiate available ProM worker capacity: " + str(error)) from error
 
     @staticmethod
     def _to_service_metric(metric_name: str) -> str:
@@ -61,7 +83,20 @@ class ProMServiceClient:
             raise ValueError("experiment_id is required for Java service calls")
         return resolved
 
-    def evaluate_pipeline(
+    def evaluate_pipeline(self, log_path, pipeline, metrics, experiment_id=None):
+        if self._pipeline_slots is None:
+            return self._evaluate_pipeline(log_path, pipeline, metrics, experiment_id)
+        while not self._pipeline_slots.acquire(timeout=0.1):
+            if self._execution_control is not None:
+                self._execution_control.raise_if_cancel_requested()
+        try:
+            if self._execution_control is not None:
+                self._execution_control.raise_if_cancel_requested()
+            return self._evaluate_pipeline(log_path, pipeline, metrics, experiment_id)
+        finally:
+            self._pipeline_slots.release()
+
+    def _evaluate_pipeline(
         self,
         log_path: str,
         pipeline: Dict[str, Any],
@@ -189,7 +224,7 @@ class ProMServiceClient:
         return response.json()
 
     def _request_evaluation_cancel(self, experiment_id: str, request_id: str) -> None:
-        grace = max(0.0, float(os.getenv("JAVA_CANCEL_GRACE_SECONDS", "10")))
+        grace = max(0.0, float(os.getenv("JAVA_CANCEL_GRACE_SECONDS", "30")))
         deadline = time.monotonic() + grace
         try:
             cancelled = self.cancel_evaluation(request_id=request_id, experiment_id=experiment_id)
@@ -230,6 +265,8 @@ class ProMServiceClient:
                 if isinstance(payload, dict):
                     code = payload.get("error")
                     message = payload.get("message")
+                    if code in {"evaluation_infrastructure_unavailable", "evaluation_capacity_unavailable"}:
+                        raise EvaluationInfrastructureError(message or code)
                     if str(code).startswith("REPRODUCIBILITY_"):
                         raise ReproducibilityError(message or code)
                     if response.status_code == 409 and code == "experiment_cancelled":
@@ -238,7 +275,7 @@ class ProMServiceClient:
                         details = f"{code}: {message}".strip()
                 elif payload is not None:
                     details = str(payload)
-            except (JobCancelled, ReproducibilityError):
+            except (JobCancelled, ReproducibilityError, EvaluationInfrastructureError):
                 raise
             except Exception:
                 text = (response.text or "").strip()
