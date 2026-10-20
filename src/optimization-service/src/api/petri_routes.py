@@ -6,17 +6,20 @@ from flask import Blueprint, Response, jsonify, request
 
 from .common import LOGGER
 from .petri import _render_petri_image_bytes
+from .bpmn import _render_bpmn_image_bytes
 
 
 bp = Blueprint("optimization_petri", __name__)
 
 
 @bp.post("/petri/render")
+@bp.post("/bpmn/render")
 def render_petri_net() -> Any:
     payload = request.get_json(silent=True) or {}
     output_format = (request.args.get("format") or payload.get("format") or "svg").strip().lower()
     try:
-        image_bytes, mimetype = _render_petri_image_bytes(
+        renderer = _render_bpmn_image_bytes if request.path.endswith('/bpmn/render') else _render_petri_image_bytes
+        image_bytes, mimetype = renderer(
             places_payload=payload.get("places"),
             transitions_payload=payload.get("transitions"),
             arcs_payload=payload.get("arcs"),
@@ -29,5 +32,5 @@ def render_petri_net() -> Any:
     except ValueError as exc:
         return jsonify({"error": "invalid_request", "message": str(exc)}), 400
     except Exception as exc:
-        LOGGER.exception("petri render failed")
+        LOGGER.exception("model image render failed")
         return jsonify({"error": "render_failed", "message": str(exc)}), 500

@@ -676,7 +676,7 @@ export default function ResultsPage() {
     let cancelled = false
 
     async function loadPetriImage() {
-      if (petriViewMode !== 'image') {
+      if (!['image', 'bpmn'].includes(petriViewMode)) {
         setPetriImageLoading(false)
         setPetriImageError('')
         return
@@ -701,7 +701,8 @@ export default function ResultsPage() {
             final_marking: selectedFinalMarking(selectedSolution.petri, selectedFinalIndex),
             final_markings: selectedSolution.petri.final_markings || [],
           },
-          'svg'
+          'svg',
+          petriViewMode === 'bpmn' ? 'bpmn' : 'petri'
         )
         if (cancelled) return
         const imageUrl = URL.createObjectURL(blob)
@@ -725,7 +726,7 @@ export default function ResultsPage() {
     let cancelled = false
 
     async function loadSelectedModelPetriImage() {
-      if (modelPetriViewMode !== 'image') {
+      if (!['image', 'bpmn'].includes(modelPetriViewMode)) {
         setModelPetriImageLoading(false)
         setModelPetriImageError('')
         return
@@ -750,7 +751,8 @@ export default function ResultsPage() {
             final_marking: selectedFinalMarking(weightedSelectedSolution.petri, modelSelectedFinalIndex),
             final_markings: weightedSelectedSolution.petri.final_markings || [],
           },
-          'svg'
+          'svg',
+          modelPetriViewMode === 'bpmn' ? 'bpmn' : 'petri'
         )
         if (cancelled) return
         const imageUrl = URL.createObjectURL(blob)
@@ -976,6 +978,13 @@ export default function ResultsPage() {
                           >
                             PM4Py image
                           </button>
+                          <button
+                            className={modelPetriViewMode === 'bpmn' ? 'petri-view-button active' : 'petri-view-button'}
+                            onClick={() => setModelPetriViewMode('bpmn')}
+                            type="button"
+                          >
+                            PM4Py BPMN
+                          </button>
                         </div>
 
                         <PetriMarkings
@@ -991,7 +1000,7 @@ export default function ResultsPage() {
                             {modelPetriImageLoading ? <p className="small muted">Generating model image...</p> : null}
                             {modelPetriImageError ? <p className="error">{modelPetriImageError}</p> : null}
                             {!modelPetriImageLoading && !modelPetriImageError && modelPetriImageUrl ? (
-                              <img alt="Selected model rendered with PM4Py" className="petri-image" src={modelPetriImageUrl} />
+                              <img alt={modelPetriViewMode === 'bpmn' ? 'Selected model as BPMN rendered with PM4Py' : 'Selected Petri model rendered with PM4Py'} className="petri-image" src={modelPetriImageUrl} />
                             ) : null}
                           </div>
                         )}
@@ -1141,6 +1150,13 @@ export default function ResultsPage() {
                       >
                         PM4Py image
                       </button>
+                      <button
+                        className={petriViewMode === 'bpmn' ? 'petri-view-button active' : 'petri-view-button'}
+                        onClick={() => setPetriViewMode('bpmn')}
+                        type="button"
+                      >
+                        PM4Py BPMN
+                      </button>
                     </div>
 
                     <PetriMarkings
@@ -1156,7 +1172,7 @@ export default function ResultsPage() {
                         {petriImageLoading ? <p className="small muted">Generating model image...</p> : null}
                         {petriImageError ? <p className="error">{petriImageError}</p> : null}
                         {!petriImageLoading && !petriImageError && petriImageUrl ? (
-                          <img alt="Petri model rendered with PM4Py" className="petri-image" src={petriImageUrl} />
+                          <img alt={petriViewMode === 'bpmn' ? 'BPMN model rendered with PM4Py' : 'Petri model rendered with PM4Py'} className="petri-image" src={petriImageUrl} />
                         ) : null}
                       </div>
                     )}

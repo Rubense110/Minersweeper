@@ -114,8 +114,9 @@ export async function getSolutions(jobId, scope = 'pareto') {
   return request(`/optimizations/${jobId}/solutions?scope=${encodeURIComponent(scope)}`)
 }
 
-export async function renderPetriImage(payload, format = 'svg') {
-  const response = await fetch(`${API_BASE}/petri/render?format=${encodeURIComponent(format)}`, {
+export async function renderPetriImage(payload, format = 'svg', representation = 'petri') {
+  const endpoint = representation === 'bpmn' ? 'bpmn' : 'petri'
+  const response = await fetch(`${API_BASE}/${endpoint}/render?format=${encodeURIComponent(format)}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

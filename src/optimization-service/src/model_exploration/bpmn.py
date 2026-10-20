@@ -11,7 +11,7 @@ from collections import defaultdict
 from .analysis import _check, digest
 
 
-def convert_model(model, cancel=None):
+def _convert_model_graph(model, cancel=None):
     _check(cancel)
     # Reuse the renderer's guarded import (Docker exec can have parent PID 0).
     from api.petri import _ensure_pm4py_loaded
@@ -87,6 +87,13 @@ def convert_model(model, cancel=None):
         source, target = first.get_source(), second.get_target()
         graph.remove_flow(first); graph.remove_flow(second); graph.remove_node(candidate)
         flow(source, target, ['reduced', source.get_id(), target.get_id(), sorted([first.get_id(), second.get_id()])], ns, ars)
+
+    return graph, provenance, flow_provenance, start, end
+
+
+def convert_model(model, cancel=None):
+    graph, provenance, flow_provenance, start, end = _convert_model_graph(model, cancel)
+    from pm4py.objects.bpmn.obj import BPMN
 
     nodes = []
     for obj in sorted(graph.get_nodes(), key=lambda n: n.get_id()):
